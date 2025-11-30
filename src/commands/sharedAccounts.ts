@@ -8,11 +8,11 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt } from "telegraf/format";
 import { elevatedAdminOnly } from "../middleware";
 import { SharedAccountService } from "../services/sharedAccountService";
 import { UnifiedWalletService } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Registers all shared account commands
@@ -47,14 +47,7 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/createshared <name> <display_name> [description]`\n\n" +
-					'Example: `/createshared admin_pool "Admin Pool" "Shared treasury for admins"`\n\n' +
-					"Name requirements:\n" +
-					"• Lowercase letters, numbers, and underscores only\n" +
-					"• 3\\-32 characters\n" +
-					"• Must be unique",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/createshared <name> <display_name> [description]")}\n\nExample: ${code('/createshared admin_pool "Admin Pool" "Shared treasury for admins"')}\n\nName requirements:\n• Lowercase letters, numbers, and underscores only\n• 3-32 characters\n• Must be unique`,
 			);
 			return;
 		}
@@ -67,7 +60,7 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 				.join(" ")
 				.replace(/^["']|["']$/g, "") || `Shared account ${displayName}`;
 
-		await ctx.reply("Creating shared account\\.\\.\\.");
+		await ctx.reply("Creating shared account...");
 
 		const accountId = await SharedAccountService.createSharedAccount(
 			name,
@@ -79,14 +72,7 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 		const balance = await UnifiedWalletService.getSharedBalance(accountId);
 
 		await ctx.reply(
-			`*Shared Account Created*\n\n` +
-				`Name: \`${escapeMarkdownV2(name)}\`\n` +
-				`Display: ${escapeMarkdownV2(displayName)}\n` +
-				`Account ID: \`${escapeMarkdownV2(accountId.toString())}\`\n` +
-				`Balance: ${escapeMarkdownV2(balance.toFixed(6))} JUNO\n\n` +
-				`You have been granted admin permission\\.\n\n` +
-				`Use \`/grantaccess ${escapeMarkdownV2(name)} @username <level>\` to add members\\.`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Shared Account Created")}\n\nName: ${code(name)}\nDisplay: ${displayName}\nAccount ID: ${code(accountId.toString())}\nBalance: ${balance.toFixed(6)} JUNO\n\nYou have been granted admin permission.\n\nUse ${code(`/grantaccess ${name} @username <level>`)} to add members.`,
 		);
 
 		StructuredLogger.logTransaction("Shared account created", {
@@ -101,7 +87,7 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 			error,
 		});
 		await ctx.reply(
-			`Failed to create shared account: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
+			`Failed to create shared account: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -121,10 +107,7 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 
 		if (args.length < 1) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/deleteshared <account_name>`\n" +
-					"Example: `/deleteshared admin_pool`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/deleteshared <account_name>")}\nExample: ${code("/deleteshared admin_pool")}`,
 			);
 			return;
 		}
@@ -133,9 +116,7 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 
 		const account = await SharedAccountService.getSharedAccountByName(name);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(name)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${name}' not found.`);
 			return;
 		}
 
@@ -143,9 +124,7 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 		const balance = await UnifiedWalletService.getSharedBalance(account.id);
 		if (balance > 0) {
 			await ctx.reply(
-				`*Warning*: This shared account has a balance of ${escapeMarkdownV2(balance.toFixed(6))} JUNO\\.\n\n` +
-					`Please withdraw all funds before deleting the account\\.`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Warning")}: This shared account has a balance of ${balance.toFixed(6)} JUNO.\n\nPlease withdraw all funds before deleting the account.`,
 			);
 			return;
 		}
@@ -153,8 +132,7 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 		await SharedAccountService.deleteSharedAccount(account.id, userId);
 
 		await ctx.reply(
-			`*Shared Account Deleted*\n\nAccount '${escapeMarkdownV2(name)}' has been deleted\\.`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Shared Account Deleted")}\n\nAccount '${name}' has been deleted.`,
 		);
 
 		StructuredLogger.logTransaction("Shared account deleted", {
@@ -169,7 +147,7 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 			error,
 		});
 		await ctx.reply(
-			`Failed to delete shared account: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
+			`Failed to delete shared account: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -189,14 +167,7 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 
 		if (args.length < 3) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/grantaccess <account_name> <@username|user_id> <level> [spend_limit]`\n\n" +
-					"Levels: `view`, `spend`, `admin`\n\n" +
-					"Examples:\n" +
-					"• `/grantaccess admin_pool @alice admin`\n" +
-					"• `/grantaccess project_fund 123456 spend 100`\n" +
-					"• `/grantaccess event_budget @bob view`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/grantaccess <account_name> <@username|user_id> <level> [spend_limit]")}\n\nLevels: ${code("view")}, ${code("spend")}, ${code("admin")}\n\nExamples:\n• ${code("/grantaccess admin_pool @alice admin")}\n• ${code("/grantaccess project_fund 123456 spend 100")}\n• ${code("/grantaccess event_budget @bob view")}`,
 			);
 			return;
 		}
@@ -207,16 +178,14 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 		const spendLimit = args[3] ? parseFloat(args[3]) : undefined;
 
 		if (!["view", "spend", "admin"].includes(level)) {
-			await ctx.reply(`Invalid permission level\\. Use: view, spend, or admin`);
+			await ctx.reply("Invalid permission level. Use: view, spend, or admin");
 			return;
 		}
 
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -226,7 +195,7 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 			const user = await UnifiedWalletService.findUserByUsername(targetUser);
 			if (!user) {
 				await ctx.reply(
-					`User ${escapeMarkdownV2(targetUser)} not found\\. They need to interact with the bot first\\.`,
+					`User ${targetUser} not found. They need to interact with the bot first.`,
 				);
 				return;
 			}
@@ -234,7 +203,7 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 		} else {
 			targetUserId = parseInt(targetUser, 10);
 			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${escapeMarkdownV2(targetUser)}`);
+				await ctx.reply(`Invalid user ID: ${targetUser}`);
 				return;
 			}
 		}
@@ -248,14 +217,7 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 		);
 
 		await ctx.reply(
-			`*Permission Granted*\n\n` +
-				`Account: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
-				`User: ${escapeMarkdownV2(targetUser)}\n` +
-				`Level: ${escapeMarkdownV2(level)}\n` +
-				(spendLimit
-					? `Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n`
-					: ""),
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Permission Granted")}\n\nAccount: ${account.displayName || accountName}\nUser: ${targetUser}\nLevel: ${level}\n${spendLimit ? `Spend Limit: ${spendLimit.toString()} JUNO\n` : ""}`,
 		);
 
 		StructuredLogger.logTransaction("Permission granted", {
@@ -268,7 +230,7 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 	} catch (error) {
 		logger.error("Grant access failed", { userId: ctx.from?.id, error });
 		await ctx.reply(
-			`Failed to grant access: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
+			`Failed to grant access: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -288,10 +250,7 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/revokeaccess <account_name> <@username|user_id>`\n" +
-					"Example: `/revokeaccess admin_pool @alice`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/revokeaccess <account_name> <@username|user_id>")}\nExample: ${code("/revokeaccess admin_pool @alice")}`,
 			);
 			return;
 		}
@@ -302,9 +261,7 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -313,14 +270,14 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		if (targetUser.startsWith("@")) {
 			const user = await UnifiedWalletService.findUserByUsername(targetUser);
 			if (!user) {
-				await ctx.reply(`User ${escapeMarkdownV2(targetUser)} not found\\.`);
+				await ctx.reply(`User ${targetUser} not found.`);
 				return;
 			}
 			targetUserId = user.id;
 		} else {
 			targetUserId = parseInt(targetUser, 10);
 			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${escapeMarkdownV2(targetUser)}`);
+				await ctx.reply(`Invalid user ID: ${targetUser}`);
 				return;
 			}
 		}
@@ -332,11 +289,7 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		);
 
 		await ctx.reply(
-			`*Permission Revoked*\n\n` +
-				`Account: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
-				`User: ${escapeMarkdownV2(targetUser)}\n\n` +
-				`Access has been revoked\\.`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Permission Revoked")}\n\nAccount: ${account.displayName || accountName}\nUser: ${targetUser}\n\nAccess has been revoked.`,
 		);
 
 		StructuredLogger.logTransaction("Permission revoked", {
@@ -348,7 +301,7 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 	} catch (error) {
 		logger.error("Revoke access failed", { userId: ctx.from?.id, error });
 		await ctx.reply(
-			`Failed to revoke access: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
+			`Failed to revoke access: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -368,10 +321,7 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 
 		if (args.length < 3) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/updateaccess <account_name> <@username|user_id> <level> [spend_limit]`\n" +
-					"Example: `/updateaccess project_fund @alice spend 500`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/updateaccess <account_name> <@username|user_id> <level> [spend_limit]")}\nExample: ${code("/updateaccess project_fund @alice spend 500")}`,
 			);
 			return;
 		}
@@ -382,16 +332,14 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 		const spendLimit = args[3] ? parseFloat(args[3]) : undefined;
 
 		if (!["view", "spend", "admin"].includes(level)) {
-			await ctx.reply(`Invalid permission level\\. Use: view, spend, or admin`);
+			await ctx.reply("Invalid permission level. Use: view, spend, or admin");
 			return;
 		}
 
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -400,14 +348,14 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 		if (targetUser.startsWith("@")) {
 			const user = await UnifiedWalletService.findUserByUsername(targetUser);
 			if (!user) {
-				await ctx.reply(`User ${escapeMarkdownV2(targetUser)} not found\\.`);
+				await ctx.reply(`User ${targetUser} not found.`);
 				return;
 			}
 			targetUserId = user.id;
 		} else {
 			targetUserId = parseInt(targetUser, 10);
 			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${escapeMarkdownV2(targetUser)}`);
+				await ctx.reply(`Invalid user ID: ${targetUser}`);
 				return;
 			}
 		}
@@ -421,14 +369,7 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 		);
 
 		await ctx.reply(
-			`*Permission Updated*\n\n` +
-				`Account: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
-				`User: ${escapeMarkdownV2(targetUser)}\n` +
-				`New Level: ${escapeMarkdownV2(level)}\n` +
-				(spendLimit
-					? `New Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n`
-					: ""),
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Permission Updated")}\n\nAccount: ${account.displayName || accountName}\nUser: ${targetUser}\nNew Level: ${level}\n${spendLimit ? `New Spend Limit: ${spendLimit.toString()} JUNO\n` : ""}`,
 		);
 
 		StructuredLogger.logTransaction("Permission updated", {
@@ -441,7 +382,7 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 	} catch (error) {
 		logger.error("Update access failed", { userId: ctx.from?.id, error });
 		await ctx.reply(
-			`Failed to update access: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
+			`Failed to update access: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -461,10 +402,7 @@ async function handleSharedBalance(ctx: Context): Promise<void> {
 
 		if (args.length < 1) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/sharedbalance <account_name>`\n" +
-					"Example: `/sharedbalance admin_pool`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/sharedbalance <account_name>")}\nExample: ${code("/sharedbalance admin_pool")}`,
 			);
 			return;
 		}
@@ -474,9 +412,7 @@ async function handleSharedBalance(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -487,7 +423,7 @@ async function handleSharedBalance(ctx: Context): Promise<void> {
 		);
 		if (!permission) {
 			await ctx.reply(
-				`You do not have access to shared account '${escapeMarkdownV2(accountName)}'\\.`,
+				`You do not have access to shared account '${accountName}'.`,
 			);
 			return;
 		}
@@ -495,14 +431,7 @@ async function handleSharedBalance(ctx: Context): Promise<void> {
 		const balance = await UnifiedWalletService.getSharedBalance(account.id);
 
 		await ctx.reply(
-			`*${escapeMarkdownV2(account.displayName || accountName)}*\n\n` +
-				`Balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\`\n` +
-				`Your Permission: ${escapeMarkdownV2(permission.permissionLevel)}\n` +
-				(permission.spendLimit
-					? `Your Spend Limit: ${escapeMarkdownV2(permission.spendLimit.toString())} JUNO\n`
-					: "") +
-				`Account ID: \`${escapeMarkdownV2(account.id.toString())}\``,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold(account.displayName || accountName)}\n\nBalance: ${code(`${balance.toFixed(6)} JUNO`)}\nYour Permission: ${permission.permissionLevel}\n${permission.spendLimit ? `Your Spend Limit: ${permission.spendLimit.toString()} JUNO\n` : ""}Account ID: ${code(account.id.toString())}`,
 		);
 	} catch (error) {
 		logger.error("Shared balance check failed", {
@@ -528,10 +457,7 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 
 		if (args.length < 3) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/sharedsend <account_name> <@username|user_id> <amount> [description]`\n" +
-					'Example: `/sharedsend admin_pool @alice 50 "Project payment"`',
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/sharedsend <account_name> <@username|user_id> <amount> [description]")}\nExample: ${code('/sharedsend admin_pool @alice 50 "Project payment"')}`,
 			);
 			return;
 		}
@@ -545,16 +471,14 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 			.replace(/^["']|["']$/g, "");
 
 		if (Number.isNaN(amount) || amount <= 0) {
-			await ctx.reply("Invalid amount\\. Must be a positive number\\.");
+			await ctx.reply("Invalid amount. Must be a positive number.");
 			return;
 		}
 
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -564,7 +488,7 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 			const user = await UnifiedWalletService.findUserByUsername(recipient);
 			if (!user) {
 				await ctx.reply(
-					`User ${escapeMarkdownV2(recipient)} not found\\. They need to interact with the bot first\\.`,
+					`User ${recipient} not found. They need to interact with the bot first.`,
 				);
 				return;
 			}
@@ -572,12 +496,12 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 		} else {
 			recipientId = parseInt(recipient, 10);
 			if (Number.isNaN(recipientId)) {
-				await ctx.reply(`Invalid user ID: ${escapeMarkdownV2(recipient)}`);
+				await ctx.reply(`Invalid user ID: ${recipient}`);
 				return;
 			}
 		}
 
-		await ctx.reply("Processing transaction\\.\\.\\.");
+		await ctx.reply("Processing transaction...");
 
 		const result = await UnifiedWalletService.sendFromShared(
 			account.id,
@@ -588,19 +512,12 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 		);
 
 		if (!result.success) {
-			await ctx.reply(
-				`Transaction failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
-			);
+			await ctx.reply(`Transaction failed: ${result.error || "Unknown error"}`);
 			return;
 		}
 
 		await ctx.reply(
-			`*Transaction Successful*\n\n` +
-				`From: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
-				`To: ${escapeMarkdownV2(recipient)}\n` +
-				`Amount: \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n` +
-				`New Account Balance: \`${escapeMarkdownV2(result.sharedBalance?.toFixed(6) || "0")} JUNO\``,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Transaction Successful")}\n\nFrom: ${account.displayName || accountName}\nTo: ${recipient}\nAmount: ${code(`${amount.toFixed(6)} JUNO`)}\nNew Account Balance: ${code(`${result.sharedBalance?.toFixed(6) || "0"} JUNO`)}`,
 		);
 
 		StructuredLogger.logTransaction("Shared account send", {
@@ -631,10 +548,7 @@ async function handleSharedDeposit(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/shareddeposit <account_name> <amount>`\n" +
-					"Example: `/shareddeposit event_budget 100`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/shareddeposit <account_name> <amount>")}\nExample: ${code("/shareddeposit event_budget 100")}`,
 			);
 			return;
 		}
@@ -643,20 +557,18 @@ async function handleSharedDeposit(ctx: Context): Promise<void> {
 		const amount = parseFloat(args[1]);
 
 		if (Number.isNaN(amount) || amount <= 0) {
-			await ctx.reply("Invalid amount\\. Must be a positive number\\.");
+			await ctx.reply("Invalid amount. Must be a positive number.");
 			return;
 		}
 
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
-		await ctx.reply("Processing deposit\\.\\.\\.");
+		await ctx.reply("Processing deposit...");
 
 		const result = await UnifiedWalletService.depositToShared(
 			account.id,
@@ -665,19 +577,12 @@ async function handleSharedDeposit(ctx: Context): Promise<void> {
 		);
 
 		if (!result.success) {
-			await ctx.reply(
-				`Deposit failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
-			);
+			await ctx.reply(`Deposit failed: ${result.error || "Unknown error"}`);
 			return;
 		}
 
 		await ctx.reply(
-			`*Deposit Successful*\n\n` +
-				`To: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
-				`Amount: \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n` +
-				`Your New Balance: \`${escapeMarkdownV2(result.userBalance?.toFixed(6) || "0")} JUNO\`\n` +
-				`Account Balance: \`${escapeMarkdownV2(result.sharedBalance?.toFixed(6) || "0")} JUNO\``,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Deposit Successful")}\n\nTo: ${account.displayName || accountName}\nAmount: ${code(`${amount.toFixed(6)} JUNO`)}\nYour New Balance: ${code(`${result.userBalance?.toFixed(6) || "0"} JUNO`)}\nAccount Balance: ${code(`${result.sharedBalance?.toFixed(6) || "0"} JUNO`)}`,
 		);
 
 		StructuredLogger.logTransaction("Shared account deposit", {
@@ -705,11 +610,11 @@ async function handleMyShared(ctx: Context): Promise<void> {
 		const permissions = await SharedAccountService.listUserPermissions(userId);
 
 		if (permissions.length === 0) {
-			await ctx.reply("You do not have access to any shared accounts\\.");
+			await ctx.reply("You do not have access to any shared accounts.");
 			return;
 		}
 
-		let message = "*Your Shared Accounts*\n\n";
+		const parts = [bold("Your Shared Accounts"), "\n\n"];
 
 		for (const permission of permissions) {
 			const account = await SharedAccountService.getSharedAccount(
@@ -719,20 +624,22 @@ async function handleMyShared(ctx: Context): Promise<void> {
 
 			const balance = await UnifiedWalletService.getSharedBalance(account.id);
 
-			message += `*${escapeMarkdownV2(account.displayName || account.name)}*\n`;
-			message += `├─ Name: \`${escapeMarkdownV2(account.name)}\`\n`;
-			message += `├─ Permission: ${escapeMarkdownV2(permission.permissionLevel)}\n`;
+			parts.push(bold(account.displayName || account.name), "\n");
+			parts.push(`├─ Name: ${code(account.name)}\n`);
+			parts.push(`├─ Permission: ${permission.permissionLevel}\n`);
 			if (permission.spendLimit) {
-				message += `├─ Spend Limit: ${escapeMarkdownV2(permission.spendLimit.toString())} JUNO\n`;
+				parts.push(
+					`├─ Spend Limit: ${permission.spendLimit.toString()} JUNO\n`,
+				);
 			}
-			message += `├─ Balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\`\n`;
+			parts.push(`├─ Balance: ${code(`${balance.toFixed(6)} JUNO`)}\n`);
 			if (account.description) {
-				message += `└─ ${escapeMarkdownV2(account.description)}\n`;
+				parts.push(`└─ ${account.description}\n`);
 			}
-			message += "\n";
+			parts.push("\n");
 		}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	} catch (error) {
 		logger.error("My shared accounts failed", { userId: ctx.from?.id, error });
 		await ctx.reply("Failed to list accounts");
@@ -754,10 +661,7 @@ async function handleSharedInfo(ctx: Context): Promise<void> {
 
 		if (args.length < 1) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/sharedinfo <account_name>`\n" +
-					"Example: `/sharedinfo admin_pool`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/sharedinfo <account_name>")}\nExample: ${code("/sharedinfo admin_pool")}`,
 			);
 			return;
 		}
@@ -767,9 +671,7 @@ async function handleSharedInfo(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -780,7 +682,7 @@ async function handleSharedInfo(ctx: Context): Promise<void> {
 		);
 		if (!userPermission) {
 			await ctx.reply(
-				`You do not have access to shared account '${escapeMarkdownV2(accountName)}'\\.`,
+				`You do not have access to shared account '${accountName}'.`,
 			);
 			return;
 		}
@@ -790,28 +692,33 @@ async function handleSharedInfo(ctx: Context): Promise<void> {
 			account.id,
 		);
 
-		let message = `*${escapeMarkdownV2(account.displayName || accountName)}*\n\n`;
-		message += `Name: \`${escapeMarkdownV2(account.name)}\`\n`;
-		message += `Account ID: \`${escapeMarkdownV2(account.id.toString())}\`\n`;
-		message += `Balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\`\n`;
+		const parts = [
+			bold(account.displayName || accountName),
+			"\n\n",
+			`Name: ${code(account.name)}\n`,
+			`Account ID: ${code(account.id.toString())}\n`,
+			`Balance: ${code(`${balance.toFixed(6)} JUNO`)}\n`,
+		];
 		if (account.description) {
-			message += `Description: ${escapeMarkdownV2(account.description)}\n`;
+			parts.push(`Description: ${account.description}\n`);
 		}
-		message += `\n*Access List* \\(${escapeMarkdownV2(permissions.length.toString())} users\\):\n\n`;
+		parts.push(
+			`\n${bold("Access List")} (${permissions.length.toString()} users):\n\n`,
+		);
 
 		for (const perm of permissions) {
 			const { getUserById } = await import("../services/userService");
 			const user = getUserById(perm.userId);
 			const username = user?.username || `user_${perm.userId}`;
 
-			message += `• @${escapeMarkdownV2(username)}: ${escapeMarkdownV2(perm.permissionLevel)}`;
+			parts.push(`• @${username}: ${perm.permissionLevel}`);
 			if (perm.spendLimit) {
-				message += ` \\(limit: ${escapeMarkdownV2(perm.spendLimit.toString())} JUNO\\)`;
+				parts.push(` (limit: ${perm.spendLimit.toString()} JUNO)`);
 			}
-			message += "\n";
+			parts.push("\n");
 		}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	} catch (error) {
 		logger.error("Shared info failed", { userId: ctx.from?.id, error });
 		await ctx.reply("Failed to get account info");
@@ -833,10 +740,7 @@ async function handleSharedHistory(ctx: Context): Promise<void> {
 
 		if (args.length < 1) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/sharedhistory <account_name> [limit]`\n" +
-					"Example: `/sharedhistory admin_pool 20`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}\n\nUsage: ${code("/sharedhistory <account_name> [limit]")}\nExample: ${code("/sharedhistory admin_pool 20")}`,
 			);
 			return;
 		}
@@ -847,9 +751,7 @@ async function handleSharedHistory(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(
-				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
-			);
+			await ctx.reply(`Shared account '${accountName}' not found.`);
 			return;
 		}
 
@@ -858,7 +760,7 @@ async function handleSharedHistory(ctx: Context): Promise<void> {
 			!(await SharedAccountService.hasPermission(account.id, userId, "view"))
 		) {
 			await ctx.reply(
-				`You do not have permission to view this account's history\\.`,
+				"You do not have permission to view this account's history.",
 			);
 			return;
 		}
@@ -870,32 +772,32 @@ async function handleSharedHistory(ctx: Context): Promise<void> {
 
 		if (transactions.length === 0) {
 			await ctx.reply(
-				`*Transaction History*\n\nNo transactions yet for ${escapeMarkdownV2(account.displayName || accountName)}\\.`,
-				{
-					parse_mode: "MarkdownV2",
-				},
+				fmt`${bold("Transaction History")}\n\nNo transactions yet for ${account.displayName || accountName}.`,
 			);
 			return;
 		}
 
-		let message = `*Transaction History*\n\n`;
-		message += `Account: ${escapeMarkdownV2(account.displayName || accountName)}\n`;
-		message += `Showing last ${escapeMarkdownV2(transactions.length.toString())} transactions:\n\n`;
+		const parts = [
+			bold("Transaction History"),
+			"\n\n",
+			`Account: ${account.displayName || accountName}\n`,
+			`Showing last ${transactions.length.toString()} transactions:\n\n`,
+		];
 
 		for (const tx of transactions) {
 			const date = new Date(tx.created_at * 1000).toLocaleDateString();
 			const direction = tx.from_user_id === account.id ? "→" : "←";
 			const amount = tx.amount.toFixed(6);
 
-			message += `${escapeMarkdownV2(direction)} ${escapeMarkdownV2(amount)} JUNO \\- ${escapeMarkdownV2(tx.transaction_type)}\n`;
-			message += `  ${escapeMarkdownV2(date)}`;
+			parts.push(`${direction} ${amount} JUNO - ${tx.transaction_type}\n`);
+			parts.push(`  ${date}`);
 			if (tx.description) {
-				message += ` \\- ${escapeMarkdownV2(tx.description)}`;
+				parts.push(` - ${tx.description}`);
 			}
-			message += "\n\n";
+			parts.push("\n\n");
 		}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	} catch (error) {
 		logger.error("Shared history failed", { userId: ctx.from?.id, error });
 		await ctx.reply("Failed to get history");
@@ -915,11 +817,11 @@ async function handleListShared(ctx: Context): Promise<void> {
 		const accounts = await SharedAccountService.listSharedAccounts();
 
 		if (accounts.length === 0) {
-			await ctx.reply("No shared accounts exist yet\\.");
+			await ctx.reply("No shared accounts exist yet.");
 			return;
 		}
 
-		let message = "*All Shared Accounts*\n\n";
+		const parts = [bold("All Shared Accounts"), "\n\n"];
 
 		for (const account of accounts) {
 			const balance = await UnifiedWalletService.getSharedBalance(account.id);
@@ -927,14 +829,14 @@ async function handleListShared(ctx: Context): Promise<void> {
 				account.id,
 			);
 
-			message += `*${escapeMarkdownV2(account.displayName || account.name)}*\n`;
-			message += `├─ Name: \`${escapeMarkdownV2(account.name)}\`\n`;
-			message += `├─ ID: \`${escapeMarkdownV2(account.id.toString())}\`\n`;
-			message += `├─ Balance: ${escapeMarkdownV2(balance.toFixed(6))} JUNO\n`;
-			message += `└─ Members: ${escapeMarkdownV2(permissions.length.toString())}\n\n`;
+			parts.push(bold(account.displayName || account.name), "\n");
+			parts.push(`├─ Name: ${code(account.name)}\n`);
+			parts.push(`├─ ID: ${code(account.id.toString())}\n`);
+			parts.push(`├─ Balance: ${balance.toFixed(6)} JUNO\n`);
+			parts.push(`└─ Members: ${permissions.length.toString()}\n\n`);
 		}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	} catch (error) {
 		logger.error("List shared accounts failed", {
 			userId: ctx.from?.id,

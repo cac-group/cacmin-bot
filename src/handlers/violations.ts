@@ -7,10 +7,10 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt } from "telegraf/format";
 import { query } from "../database";
 import type { Violation } from "../types";
 import { StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2, escapeNumber } from "../utils/markdown";
 
 /**
  * Registers all violation management command handlers with the bot.
@@ -54,25 +54,23 @@ export const registerViolationHandlers = (bot: Telegraf<Context>) => {
 			);
 
 			if (violations.length === 0) {
-				return ctx.reply(" You have no violations\\!", {
-					parse_mode: "MarkdownV2",
-				});
+				return ctx.reply("You have no violations!");
 			}
 
-			let message = "*Your Violations*\n\n";
+			const parts = [bold("Your Violations"), ""];
 			let totalUnpaid = 0;
 			let unpaidCount = 0;
 
 			for (const v of violations) {
 				const paidStatus = v.paid
-					? " Paid"
-					: ` Unpaid \\(${escapeNumber(v.bailAmount, 2)} JUNO\\)`;
-				message += `\\#${escapeMarkdownV2(v.id)} \\- ${escapeMarkdownV2(v.restriction)}\n`;
-				message += `Status: ${paidStatus}\n`;
+					? "Paid"
+					: `Unpaid (${v.bailAmount.toFixed(2)} JUNO)`;
+				parts.push(`#${v.id} - ${v.restriction}`);
+				parts.push(`Status: ${paidStatus}`);
 				if (v.message) {
-					message += `Message: \`${escapeMarkdownV2(v.message.substring(0, 50))}\`\n`;
+					parts.push(`Message: ${code(v.message.substring(0, 50))}`);
 				}
-				message += "\n";
+				parts.push("");
 
 				if (!v.paid) {
 					totalUnpaid += v.bailAmount;
@@ -80,8 +78,8 @@ export const registerViolationHandlers = (bot: Telegraf<Context>) => {
 				}
 			}
 
-			message += "Use /payfine to see payment instructions\\.";
-			await ctx.reply(message, { parse_mode: "MarkdownV2" });
+			parts.push("Use /payfine to see payment instructions.");
+			await ctx.reply(fmt([parts.join("\n")]));
 
 			StructuredLogger.logUserAction("Violations queried", {
 				userId,

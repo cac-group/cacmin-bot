@@ -7,6 +7,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { execute, get } from "../database";
 import { JunoService } from "../services/junoService";
@@ -18,7 +19,6 @@ import {
 } from "../services/violationService";
 import type { User, Violation } from "../types";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2, escapeNumber } from "../utils/markdown";
 
 /**
  * Registers all payment-related commands with the bot.
@@ -83,22 +83,29 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 			const totalFines = getTotalFines(userId);
 			const balance = await UnifiedWalletService.getBalance(userId);
 
-			let message = `*Your Unpaid Fines*\n\n`;
+			const parts = [bold("Your Unpaid Fines"), ""];
 			for (const v of violations) {
-				message += `• ID ${v.id}: ${v.restriction} - ${v.bailAmount.toFixed(2)} JUNO\n`;
+				parts.push(
+					`• ID ${v.id}: ${v.restriction} - ${v.bailAmount.toFixed(2)} JUNO`,
+				);
 			}
 
-			message += `\n*Total: ${totalFines.toFixed(2)} JUNO*\n`;
-			message += `Your wallet balance: ${balance.toFixed(6)} JUNO\n\n`;
+			parts.push("");
+			parts.push(bold(`Total: ${totalFines.toFixed(2)} JUNO`));
+			parts.push(`Your wallet balance: ${balance.toFixed(6)} JUNO`);
+			parts.push("");
 
 			if (balance >= totalFines) {
-				message += ` You have sufficient funds.\n\nUse /payallfines to pay all fines at once.`;
+				parts.push("You have sufficient funds.");
+				parts.push("");
+				parts.push("Use /payallfines to pay all fines at once.");
 			} else {
-				message += ` Insufficient funds. Please deposit more JUNO.\n\n`;
-				message += `Use /deposit to get your wallet address.`;
+				parts.push("Insufficient funds. Please deposit more JUNO.");
+				parts.push("");
+				parts.push("Use /deposit to get your wallet address.");
 			}
 
-			await ctx.reply(message, { parse_mode: "Markdown" });
+			await ctx.reply(fmt([parts.join("\n")]));
 		} catch (error) {
 			logger.error("Error showing fines", { userId, error });
 			await ctx.reply(" Error fetching fines.");
@@ -145,10 +152,12 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 
 			if (balance < totalFines) {
 				return ctx.reply(
-					` Insufficient balance.\n\n` +
-						`Total fines: ${totalFines.toFixed(2)} JUNO\n` +
-						`Your balance: ${balance.toFixed(6)} JUNO\n\n` +
-						`Please deposit more JUNO using /deposit`,
+					fmt`Insufficient balance.
+
+Total fines: ${totalFines.toFixed(2)} JUNO
+Your balance: ${balance.toFixed(6)} JUNO
+
+Please deposit more JUNO using /deposit`,
 				);
 			}
 
@@ -172,12 +181,13 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 				}
 
 				await ctx.reply(
-					`*All Fines Paid!*\n\n` +
-						`Violations cleared: ${violations.length}\n` +
-						`Amount paid: ${totalFines.toFixed(2)} JUNO\n` +
-						`New balance: ${result.newBalance?.toFixed(6) || "N/A"} JUNO\n\n` +
-						`You have been released from jail (if applicable).`,
-					{ parse_mode: "Markdown" },
+					fmt`${bold("All Fines Paid!")}
+
+Violations cleared: ${violations.length}
+Amount paid: ${totalFines.toFixed(2)} JUNO
+New balance: ${result.newBalance?.toFixed(6) || "N/A"} JUNO
+
+You have been released from jail (if applicable).`,
 				);
 
 				StructuredLogger.logTransaction(
@@ -190,9 +200,9 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 					},
 				);
 			} else {
-				await ctx.reply(`*Payment Failed*\n\nError: ${result.error}`, {
-					parse_mode: "Markdown",
-				});
+				await ctx.reply(fmt`${bold("Payment Failed")}
+
+Error: ${result.error || "Unknown error"}`);
 			}
 		} catch (error) {
 			logger.error("Error paying fines", { userId, error });
@@ -248,18 +258,29 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 			}
 
 			const totalFines = getTotalFines(userId);
-			let message = `*Your Unpaid Fines*\n\n`;
+			const finesList = violations
+				.map(
+					(v) =>
+						`ID: ${v.id} - ${v.restriction} - ${v.bailAmount.toFixed(2)} JUNO`,
+				)
+				.join("\n");
 
-			for (const v of violations) {
-				message += `ID: ${escapeMarkdownV2(v.id)} \\- ${escapeMarkdownV2(v.restriction)} \\- ${escapeNumber(v.bailAmount, 2)} JUNO\n`;
-			}
+			return ctx.reply(
+				fmt`${bold("Your Unpaid Fines")}
 
-			message += `\n*Total: ${escapeNumber(totalFines, 2)} JUNO*\n\n`;
-			message += `To pay a specific fine:\n/payfine \\<violationId\\>\n\n`;
-			message += `Payment address:\n\`${escapeMarkdownV2(config.botTreasuryAddress || "N/A")}\`\n\n`;
-			message += `After payment, send:\n/verifypayment \\<violationId\\> \\<txHash\\>`;
+${finesList}
 
-			return ctx.reply(message, { parse_mode: "MarkdownV2" });
+${bold(`Total: ${totalFines.toFixed(2)} JUNO`)}
+
+To pay a specific fine:
+/payfine <violationId>
+
+Payment address:
+${code(config.botTreasuryAddress || "N/A")}
+
+After payment, send:
+/verifypayment <violationId> <txHash>`,
+			);
 		}
 
 		// Get specific violation
@@ -276,17 +297,19 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 			return ctx.reply(" This fine has already been paid.");
 		}
 
-		const message =
-			`*Payment Instructions*\n\n` +
-			`Violation ID: ${escapeMarkdownV2(violation.id)}\n` +
-			`Type: ${escapeMarkdownV2(violation.restriction)}\n` +
-			`Amount: ${escapeNumber(violation.bailAmount, 2)} JUNO\n\n` +
-			`Send exactly ${escapeNumber(violation.bailAmount, 2)} JUNO to:\n` +
-			`\`${escapeMarkdownV2(config.botTreasuryAddress || "N/A")}\`\n\n` +
-			`After payment, send:\n` +
-			`/verifypayment ${escapeMarkdownV2(violation.id)} \\<transaction\\_hash\\>`;
+		await ctx.reply(
+			fmt`${bold("Payment Instructions")}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+Violation ID: ${violation.id}
+Type: ${violation.restriction}
+Amount: ${violation.bailAmount.toFixed(2)} JUNO
+
+Send exactly ${violation.bailAmount.toFixed(2)} JUNO to:
+${code(config.botTreasuryAddress || "N/A")}
+
+After payment, send:
+/verifypayment ${violation.id} <transaction_hash>`,
+		);
 	});
 
 	/**

@@ -1,19 +1,30 @@
 /**
  * MarkdownV2 escaping utilities for Telegram messages.
  *
- * Telegram's MarkdownV2 requires escaping of special characters:
- * _ * [ ] ( ) ~ ` > # + - = | { } . !
+ * IMPORTANT: Prefer using Telegraf's Format module (fmt, bold, italic, code, etc.)
+ * from 'telegraf/format' for new code. It uses entity-based formatting which
+ * doesn't require any escaping.
+ *
+ * Example:
+ * ```typescript
+ * import { fmt, bold, code } from 'telegraf/format';
+ * ctx.reply(fmt`Hello ${bold(username)}! Balance: ${code(amount)}`);
+ * ```
+ *
+ * The functions below are kept for backwards compatibility and edge cases
+ * where manual MarkdownV2 strings are needed.
  *
  * @module utils/markdown
  */
 
 /**
- * Characters that must be escaped in MarkdownV2.
+ * Characters that must be escaped in MarkdownV2 (outside formatting).
  */
 const MARKDOWN_V2_SPECIAL_CHARS = /([_*[\]()~`>#+\-=|{}.!\\])/g;
 
 /**
  * Escapes special characters for Telegram MarkdownV2 format.
+ * @deprecated Prefer using Telegraf's Format module (fmt, bold, etc.) instead.
  *
  * @param text - The text to escape
  * @returns The escaped text safe for MarkdownV2
@@ -26,6 +37,35 @@ const MARKDOWN_V2_SPECIAL_CHARS = /([_*[\]()~`>#+\-=|{}.!\\])/g;
  */
 export function escapeMarkdownV2(text: string | number): string {
 	return String(text).replace(MARKDOWN_V2_SPECIAL_CHARS, "\\$1");
+}
+
+/**
+ * Tagged template literal for building MarkdownV2 messages.
+ * Escapes BOTH static template parts AND interpolated values, EXCEPT for
+ * MarkdownV2 formatting markers: * _ ` [ ] and newlines.
+ *
+ * @deprecated Prefer using Telegraf's Format module (fmt, bold, etc.) instead.
+ * The Telegraf fmt function uses entity-based formatting which doesn't require escaping.
+ *
+ * @example
+ * ```typescript
+ * const amount = 1.5;
+ * const user = "test_user";
+ * md`Sent *${amount}* JUNO to ${user}!`
+ * // Returns: 'Sent *1\\.5* JUNO to test\\_user\\!'
+ * ```
+ */
+export function md(
+	strings: TemplateStringsArray,
+	...values: (string | number)[]
+): string {
+	// Chars to escape in static parts (excludes formatting: * _ ` [ ])
+	const staticEscape = /([()~>#+\-=|{}.!\\])/g;
+	return strings.reduce((result, str, i) => {
+		const escapedStr = str.replace(staticEscape, "\\$1");
+		const value = i < values.length ? escapeMarkdownV2(values[i]) : "";
+		return result + escapedStr + value;
+	}, "");
 }
 
 /**

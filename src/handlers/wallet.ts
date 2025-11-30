@@ -16,10 +16,10 @@
  */
 
 import type { Context } from "telegraf";
+import { bold, code, fmt, join } from "telegraf/format";
 import { config } from "../config";
 import { UnifiedWalletService } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2 } from "../utils/markdown";
 import { checkIsElevated } from "../utils/roles";
 
 /**
@@ -44,9 +44,9 @@ export async function handleBalance(ctx: Context): Promise<void> {
 			: `User ${userId}`;
 
 		await ctx.reply(
-			`*Balance for ${escapeMarkdownV2(username)}*\n\n` +
-				`Current balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\``,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold(`Balance for ${username}`)}
+
+Current balance: ${code(`${balance.toFixed(6)} JUNO`)}`,
 		);
 
 		StructuredLogger.logUserAction("Balance queried", {
@@ -98,29 +98,36 @@ export async function handleDeposit(ctx: Context): Promise<void> {
 
 		// Send experimental warning
 		await ctx.reply(
-			`*EXPERIMENTAL SOFTWARE WARNING*\n\n` +
-				`This bot is *highly experimental* and under active development\\.\n\n` +
-				`*DO NOT deposit funds you are not prepared to immediately lose\\.*\n\n` +
-				`By depositing, you acknowledge:\n` +
-				`\\- This software may contain bugs\n` +
-				`\\- Funds may be irretrievably lost\n` +
-				`\\- No guarantees or warranties are provided\n` +
-				`\\- You use this service entirely at your own risk\n\n` +
-				`If you understand and accept these risks, proceed with deposit instructions below\\.`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("EXPERIMENTAL SOFTWARE WARNING")}
+
+This bot is ${bold("highly experimental")} and under active development.
+
+${bold("DO NOT deposit funds you are not prepared to immediately lose.")}
+
+By depositing, you acknowledge:
+- This software may contain bugs
+- Funds may be irretrievably lost
+- No guarantees or warranties are provided
+- You use this service entirely at your own risk
+
+If you understand and accept these risks, proceed with deposit instructions below.`,
 		);
 
 		await ctx.reply(
-			`*Deposit Instructions*\n\n` +
-				`To deposit JUNO to your account:\n\n` +
-				`1\\. Send JUNO to this address:\n` +
-				`\`${depositInfo.address}\`\n\n` +
-				`2\\. *IMPORTANT*: Include this memo:\n` +
-				`\`${depositInfo.memo}\`\n\n` +
-				`*Your memo is unique to you and will never change*\n` +
-				`*Deposits without the correct memo cannot be credited*\n\n` +
-				`Your deposit will be credited automatically once confirmed on\\-chain\\.`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Deposit Instructions")}
+
+To deposit JUNO to your account:
+
+1. Send JUNO to this address:
+${code(depositInfo.address)}
+
+2. ${bold("IMPORTANT")}: Include this memo:
+${code(depositInfo.memo)}
+
+${bold("Your memo is unique to you and will never change")}
+${bold("Deposits without the correct memo cannot be credited")}
+
+Your deposit will be credited automatically once confirmed on-chain.`,
 		);
 
 		StructuredLogger.logUserAction("Deposit instructions requested", {
@@ -162,10 +169,10 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/withdraw \\<amount\\> \\<juno_address\\>`\n" +
-					"Example: `/withdraw 10 juno1xxxxx\\.\\.\\.`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}
+
+Usage: ${code("/withdraw <amount> <juno_address>")}
+Example: ${code("/withdraw 10 juno1xxxxx...")}`,
 			);
 			return;
 		}
@@ -189,10 +196,10 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 		const balance = await UnifiedWalletService.getBalance(userId);
 		if (balance < amount) {
 			await ctx.reply(
-				`*Insufficient balance*\n\n` +
-					`Requested: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-					`Available: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\``,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Insufficient balance")}
+
+Requested: ${code(`${amount} JUNO`)}
+Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 			);
 			return;
 		}
@@ -217,12 +224,19 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 			});
 
 			await ctx.reply(
-				`*Withdrawal Successful*\n\n` +
-					`Amount: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-					`To: \`${address}\`\n` +
-					`New Balance: \`${escapeMarkdownV2(result.newBalance?.toFixed(6) || "0")} JUNO\`\n` +
-					(result.txHash ? `\nTransaction: \`${result.txHash}\`` : ""),
-				{ parse_mode: "MarkdownV2" },
+				result.txHash
+					? fmt`${bold("Withdrawal Successful")}
+
+Amount: ${code(`${amount} JUNO`)}
+To: ${code(address)}
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}
+
+Transaction: ${code(result.txHash)}`
+					: fmt`${bold("Withdrawal Successful")}
+
+Amount: ${code(`${amount} JUNO`)}
+To: ${code(address)}
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
 			);
 		} else {
 			StructuredLogger.logError(`Withdrawal failed: ${result.error}`, {
@@ -233,10 +247,10 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 			});
 
 			await ctx.reply(
-				`*Withdrawal Failed*\n\n` +
-					`Error: ${escapeMarkdownV2(result.error || "Unknown error")}\n` +
-					`Balance: \`${escapeMarkdownV2(result.newBalance?.toFixed(6) || "0")} JUNO\``,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Withdrawal Failed")}
+
+Error: ${result.error || "Unknown error"}
+Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
 			);
 		}
 	} catch (error) {
@@ -274,17 +288,18 @@ export async function handleSend(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/send \\<amount\\> \\<recipient\\>`\n" +
-					"Recipient can be:\n" +
-					"\\- @username \\(internal transfer\\)\n" +
-					"\\- User ID \\(internal transfer\\)\n" +
-					"\\- juno1xxx\\.\\.\\. \\(external transfer\\)\n\n" +
-					"Examples:\n" +
-					"`/send 5 @alice`\n" +
-					"`/send 10 123456789`\n" +
-					"`/send 2.5 juno1xxxxx...`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}
+
+Usage: ${code("/send <amount> <recipient>")}
+Recipient can be:
+- @username (internal transfer)
+- User ID (internal transfer)
+- juno1xxx... (external transfer)
+
+Examples:
+${code("/send 5 @alice")}
+${code("/send 10 123456789")}
+${code("/send 2.5 juno1xxxxx...")}`,
 			);
 			return;
 		}
@@ -301,10 +316,10 @@ export async function handleSend(ctx: Context): Promise<void> {
 		const balance = await UnifiedWalletService.getBalance(userId);
 		if (balance < amount) {
 			await ctx.reply(
-				`*Insufficient balance*\n\n` +
-					`Requested: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-					`Available: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\``,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Insufficient balance")}
+
+Requested: ${code(`${amount} JUNO`)}
+Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 			);
 			return;
 		}
@@ -331,12 +346,11 @@ export async function handleSend(ctx: Context): Promise<void> {
 				});
 
 				await ctx.reply(
-					`*External Transfer Successful*\n\n` +
-						`Amount: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-						`To: \`${recipient}\`\n` +
-						`New Balance: \`${escapeMarkdownV2(result.newBalance?.toFixed(6) || "0")} JUNO\`\n` +
-						(result.txHash ? `\nTransaction: \`${result.txHash}\`` : ""),
-					{ parse_mode: "MarkdownV2" },
+					fmt`${bold("External Transfer Successful")}
+
+Amount: ${code(`${amount} JUNO`)}
+To: ${code(recipient)}
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}${result.txHash ? `\n\nTransaction: ${code(result.txHash)}` : ""}`,
 				);
 			} else {
 				StructuredLogger.logError(`External transfer failed: ${result.error}`, {
@@ -347,10 +361,9 @@ export async function handleSend(ctx: Context): Promise<void> {
 				});
 
 				await ctx.reply(
-					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
-					{
-						parse_mode: "MarkdownV2",
-					},
+					fmt`${bold("Transfer Failed")}
+
+Error: ${result.error || "Unknown error"}`,
 				);
 			}
 		} else if (recipient.startsWith("@")) {
@@ -378,11 +391,11 @@ export async function handleSend(ctx: Context): Promise<void> {
 				);
 
 				await ctx.reply(
-					`*Transfer Successful*\n\n` +
-						`Amount: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-						`To: @${escapeMarkdownV2(result.recipient || "unknown")}\n` +
-						`Your New Balance: \`${escapeMarkdownV2(result.fromBalance?.toFixed(6) || "0")} JUNO\``,
-					{ parse_mode: "MarkdownV2" },
+					fmt`${bold("Transfer Successful")}
+
+Amount: ${code(`${amount} JUNO`)}
+To: @${result.recipient || "unknown"}
+Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} JUNO`)}`,
 				);
 			} else {
 				StructuredLogger.logError(`Internal transfer failed: ${result.error}`, {
@@ -393,10 +406,9 @@ export async function handleSend(ctx: Context): Promise<void> {
 				});
 
 				await ctx.reply(
-					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
-					{
-						parse_mode: "MarkdownV2",
-					},
+					fmt`${bold("Transfer Failed")}
+
+Error: ${result.error || "Unknown error"}`,
 				);
 			}
 		} else if (/^\d+$/.test(recipient)) {
@@ -429,11 +441,11 @@ export async function handleSend(ctx: Context): Promise<void> {
 				);
 
 				await ctx.reply(
-					`*Transfer Successful*\n\n` +
-						`Amount: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-						`To: User ${recipientId}\n` +
-						`Your New Balance: \`${escapeMarkdownV2(result.fromBalance?.toFixed(6) || "0")} JUNO\``,
-					{ parse_mode: "MarkdownV2" },
+					fmt`${bold("Transfer Successful")}
+
+Amount: ${code(`${amount} JUNO`)}
+To: User ${recipientId}
+Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} JUNO`)}`,
 				);
 			} else {
 				StructuredLogger.logError(`Internal transfer failed: ${result.error}`, {
@@ -444,16 +456,14 @@ export async function handleSend(ctx: Context): Promise<void> {
 				});
 
 				await ctx.reply(
-					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
-					{
-						parse_mode: "MarkdownV2",
-					},
+					fmt`${bold("Transfer Failed")}
+
+Error: ${result.error || "Unknown error"}`,
 				);
 			}
 		} else {
 			await ctx.reply(
-				"Invalid recipient format\\. Use @username, user ID, or juno1xxx\\.\\.\\. address\\.",
-				{ parse_mode: "MarkdownV2" },
+				"Invalid recipient format. Use @username, user ID, or juno1xxx... address.",
 			);
 		}
 	} catch (error) {
@@ -523,70 +533,68 @@ export async function handleTransactions(ctx: Context): Promise<void> {
 			return;
 		}
 
-		let message =
+		const header =
 			targetUserId === requesterId
-				? "*Recent Transactions*\n\n"
-				: `*Transaction History for User ${targetUserId}*\n\n`;
+				? bold("Recent Transactions")
+				: bold(`Transaction History for User ${targetUserId}`);
 
-		for (const tx of transactions) {
-			const date = escapeMarkdownV2(
-				new Date((tx.created_at || 0) * 1000).toLocaleString(),
-			);
+		const txLines = transactions.map((tx) => {
+			const date = new Date((tx.created_at || 0) * 1000).toLocaleString();
 			const type = tx.transaction_type.toUpperCase();
-			const amount = escapeMarkdownV2(tx.amount.toFixed(6));
+			const amount = tx.amount.toFixed(6);
 
 			let description = "";
 			switch (tx.transaction_type) {
 				case "deposit":
-					description = `\\+${amount} JUNO \\(Deposit\\)`;
+					description = `+${amount} JUNO (Deposit)`;
 					break;
 				case "withdrawal":
-					description = `\\-${amount} JUNO \\(Withdrawal\\)`;
+					description = `-${amount} JUNO (Withdrawal)`;
 					break;
 				case "transfer":
 					if (tx.from_user_id === targetUserId) {
-						description = `\\-${amount} JUNO \\(Sent\\)`;
+						description = `-${amount} JUNO (Sent)`;
 					} else {
-						description = `\\+${amount} JUNO \\(Received\\)`;
+						description = `+${amount} JUNO (Received)`;
 					}
 					break;
 				case "fine":
-					description = `\\-${amount} JUNO \\(Fine\\)`;
+					description = `-${amount} JUNO (Fine)`;
 					break;
 				case "bail":
-					description = `\\-${amount} JUNO \\(Bail\\)`;
+					description = `-${amount} JUNO (Bail)`;
 					break;
 				case "giveaway":
-					description = `\\+${amount} JUNO \\(Giveaway\\)`;
+					description = `+${amount} JUNO (Giveaway)`;
 					break;
 				default:
-					description = `${amount} JUNO \\(${escapeMarkdownV2(type)}\\)`;
+					description = `${amount} JUNO (${type})`;
 			}
 
-			message += `\\[${date}\\]\n`;
-			message += `Type: ${escapeMarkdownV2(type)}\n`;
-			message += `Amount: ${description}\n`;
+			let txInfo = `[${date}]\nType: ${type}\nAmount: ${description}`;
 
 			if (tx.status && tx.status !== "completed") {
-				message += `Status: ${escapeMarkdownV2(tx.status.toUpperCase())}\n`;
+				txInfo += `\nStatus: ${tx.status.toUpperCase()}`;
 			}
 
 			if (tx.tx_hash) {
-				message += `TX Hash: \`${tx.tx_hash}\`\n`;
+				txInfo += `\nTX Hash: ${code(tx.tx_hash)}`;
 			}
 
 			if (tx.external_address) {
-				message += `Address: \`${tx.external_address}\`\n`;
+				txInfo += `\nAddress: ${code(tx.external_address)}`;
 			}
 
 			if (tx.description) {
-				message += `Note: ${escapeMarkdownV2(tx.description)}\n`;
+				txInfo += `\nNote: ${tx.description}`;
 			}
 
-			message += "\n";
-		}
+			return txInfo;
+		});
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt`${header}
+
+${txLines.join("\n\n")}`);
 
 		StructuredLogger.logUserAction("Transaction history queried", {
 			userId: requesterId,
@@ -632,27 +640,27 @@ export async function handleWalletStats(ctx: Context): Promise<void> {
 		const ledgerStats = await UnifiedWalletService.getLedgerStats();
 		const reconciliation = await UnifiedWalletService.reconcileBalances();
 
-		let message = "*Wallet System Statistics*\n\n";
+		await ctx.reply(
+			fmt`${bold("Wallet System Statistics")}
 
-		message += "*System Wallets:*\n";
-		message += `Treasury: \`${escapeMarkdownV2(systemBalances.treasury.toFixed(6))} JUNO\`\n`;
-		message += `Reserve: \`${escapeMarkdownV2(systemBalances.reserve.toFixed(6))} JUNO\`\n`;
-		message += `Unclaimed: \`${escapeMarkdownV2(systemBalances.unclaimed.toFixed(6))} JUNO\`\n\n`;
+${bold("System Wallets:")}
+Treasury: ${code(`${systemBalances.treasury.toFixed(6)} JUNO`)}
+Reserve: ${code(`${systemBalances.reserve.toFixed(6)} JUNO`)}
+Unclaimed: ${code(`${systemBalances.unclaimed.toFixed(6)} JUNO`)}
 
-		message += "*Ledger Statistics:*\n";
-		message += `Total Users: ${ledgerStats.totalUsers}\n`;
-		message += `Active Users: ${ledgerStats.activeUsers}\n`;
-		message += `Total Balance \\(Internal\\): \`${escapeMarkdownV2(ledgerStats.totalBalance.toFixed(6))} JUNO\`\n`;
-		message += `24h Deposits: ${ledgerStats.recentDeposits}\n`;
-		message += `24h Withdrawals: ${ledgerStats.recentWithdrawals}\n\n`;
+${bold("Ledger Statistics:")}
+Total Users: ${ledgerStats.totalUsers}
+Active Users: ${ledgerStats.activeUsers}
+Total Balance (Internal): ${code(`${ledgerStats.totalBalance.toFixed(6)} JUNO`)}
+24h Deposits: ${ledgerStats.recentDeposits}
+24h Withdrawals: ${ledgerStats.recentWithdrawals}
 
-		message += "*Reconciliation:*\n";
-		message += `Internal Total: \`${escapeMarkdownV2(reconciliation.internalTotal.toFixed(6))} JUNO\`\n`;
-		message += `On\\-chain Total: \`${escapeMarkdownV2(reconciliation.onChainTotal.toFixed(6))} JUNO\`\n`;
-		message += `Difference: \`${escapeMarkdownV2(reconciliation.difference.toFixed(6))} JUNO\`\n`;
-		message += `Status: ${reconciliation.matched ? "Balanced" : "Mismatch"}\n`;
-
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+${bold("Reconciliation:")}
+Internal Total: ${code(`${reconciliation.internalTotal.toFixed(6)} JUNO`)}
+On-chain Total: ${code(`${reconciliation.onChainTotal.toFixed(6)} JUNO`)}
+Difference: ${code(`${reconciliation.difference.toFixed(6)} JUNO`)}
+Status: ${reconciliation.matched ? "Balanced" : "Mismatch"}`,
+		);
 
 		StructuredLogger.logUserAction("Wallet statistics viewed", {
 			userId,
@@ -700,10 +708,10 @@ export async function handleGiveaway(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/giveaway \\<amount\\> \\<@user1\\> \\<@user2\\> \\.\\.\\.`\n" +
-					"Example: `/giveaway 5 @alice @bob @charlie`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}
+
+Usage: ${code("/giveaway <amount> <@user1> <@user2> ...")}
+Example: ${code("/giveaway 5 @alice @bob @charlie")}`,
 			);
 			return;
 		}
@@ -747,12 +755,12 @@ export async function handleGiveaway(ctx: Context): Promise<void> {
 		);
 
 		await ctx.reply(
-			`*Giveaway Complete*\n\n` +
-				`Amount per user: \`${escapeMarkdownV2(amount)} JUNO\`\n` +
-				`Successful: ${result.succeeded.length}\n` +
-				`Failed: ${result.failed.length}\n` +
-				`Total distributed: \`${escapeMarkdownV2(result.totalDistributed.toFixed(6))} JUNO\``,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Giveaway Complete")}
+
+Amount per user: ${code(`${amount} JUNO`)}
+Successful: ${result.succeeded.length}
+Failed: ${result.failed.length}
+Total distributed: ${code(`${result.totalDistributed.toFixed(6)} JUNO`)}`,
 		);
 
 		StructuredLogger.logTransaction("Giveaway distributed", {
@@ -797,10 +805,10 @@ export async function handleCheckDeposit(ctx: Context): Promise<void> {
 
 		if (args.length < 1) {
 			await ctx.reply(
-				"*Invalid format*\n\n" +
-					"Usage: `/checkdeposit \\<tx_hash\\>`\n" +
-					"Example: `/checkdeposit ABCD1234\\.\\.\\.`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Invalid format")}
+
+Usage: ${code("/checkdeposit <tx_hash>")}
+Example: ${code("/checkdeposit ABCD1234...")}`,
 			);
 			return;
 		}
@@ -828,27 +836,20 @@ export async function handleCheckDeposit(ctx: Context): Promise<void> {
 
 		if (processedDeposit) {
 			await ctx.reply(
-				`*Transaction Already Processed*\n\n` +
-					`From: \`${result.from}\`\n` +
-					`Amount: \`${escapeMarkdownV2(result.amount || 0)} JUNO\`\n` +
-					(recipientUserId ? `User ID: ${recipientUserId}\n` : "") +
-					(result.memo ? `Memo: ${escapeMarkdownV2(result.memo)}\n` : "") +
-					`Processed: Yes`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Transaction Already Processed")}
+
+From: ${code(result.from || "unknown")}
+Amount: ${code(`${result.amount || 0} JUNO`)}${recipientUserId ? `\nUser ID: ${recipientUserId}` : ""}${result.memo ? `\nMemo: ${result.memo}` : ""}
+Processed: Yes`,
 			);
 		} else {
 			await ctx.reply(
-				`*Transaction Found*\n\n` +
-					`From: \`${result.from}\`\n` +
-					`Amount: \`${escapeMarkdownV2(result.amount || 0)} JUNO\`\n` +
-					(recipientUserId
-						? `Recipient User ID: ${recipientUserId}\n`
-						: "No valid user ID in memo\n") +
-					(result.memo
-						? `Memo: ${escapeMarkdownV2(result.memo)}\n`
-						: "No memo\n") +
-					`Status: Pending processing`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Transaction Found")}
+
+From: ${code(result.from || "unknown")}
+Amount: ${code(`${result.amount || 0} JUNO`)}
+${recipientUserId ? `Recipient User ID: ${recipientUserId}` : "No valid user ID in memo"}${result.memo ? `\nMemo: ${result.memo}` : "\nNo memo"}
+Status: Pending processing`,
 			);
 		}
 
@@ -888,43 +889,49 @@ export async function handleReconcile(ctx: Context): Promise<void> {
 		const { LedgerService } = await import("../services/ledgerService");
 		const result = await LedgerService.reconcileAndAlert();
 
-		let message =
-			`*Balance Reconciliation Results*\n\n` +
-			`Internal Ledger Total: \`${escapeMarkdownV2(result.internalTotal.toFixed(6))} JUNO\`\n` +
-			`On\\-Chain Balance: \`${escapeMarkdownV2(result.onChainTotal.toFixed(6))} JUNO\`\n` +
-			`Difference: \`${escapeMarkdownV2(result.difference.toFixed(6))} JUNO\`\n\n` +
-			`Status: ${result.matched ? "Balanced" : "MISMATCH"}\n`;
-
 		if (!result.matched) {
 			const direction =
 				result.internalTotal > result.onChainTotal ? "debit" : "credit";
-			const correctionAmount = escapeMarkdownV2(result.difference.toFixed(6));
+			const correctionAmount = result.difference.toFixed(6);
 
-			message +=
-				`\n*Correction Required:*\n` +
-				`The internal ledger is ${direction === "debit" ? "higher" : "lower"} than on\\-chain\\.\n\n`;
+			const causes =
+				direction === "debit"
+					? `- Gas fees from withdrawals not deducted
+- Failed withdrawal refunds over-credited
+- Manual on-chain transfers from wallet`
+					: `- Deposits not credited to ledger
+- Manual deposits to the wallet`;
 
-			if (direction === "debit") {
-				message +=
-					`*Likely Causes:*\n` +
-					`\\- Gas fees from withdrawals not deducted\n` +
-					`\\- Failed withdrawal refunds over\\-credited\n` +
-					`\\- Manual on\\-chain transfers from wallet\n\n` +
-					`*To Fix:*\n` +
-					`/adjustbalance ${correctionAmount} debit\n` +
-					`This debits ${correctionAmount} JUNO from reserve\\.`;
-			} else {
-				message +=
-					`*Likely Causes:*\n` +
-					`\\- Deposits not credited to ledger\n` +
-					`\\- Manual deposits to the wallet\n\n` +
-					`*To Fix:*\n` +
-					`/adjustbalance ${correctionAmount} credit\n` +
-					`This credits ${correctionAmount} JUNO to reserve\\.`;
-			}
+			await ctx.reply(
+				fmt`${bold("Balance Reconciliation Results")}
+
+Internal Ledger Total: ${code(`${result.internalTotal.toFixed(6)} JUNO`)}
+On-Chain Balance: ${code(`${result.onChainTotal.toFixed(6)} JUNO`)}
+Difference: ${code(`${result.difference.toFixed(6)} JUNO`)}
+
+Status: MISMATCH
+
+${bold("Correction Required:")}
+The internal ledger is ${direction === "debit" ? "higher" : "lower"} than on-chain.
+
+${bold("Likely Causes:")}
+${causes}
+
+${bold("To Fix:")}
+/adjustbalance ${correctionAmount} ${direction}
+This ${direction === "debit" ? "debits" : "credits"} ${correctionAmount} JUNO ${direction === "debit" ? "from" : "to"} reserve.`,
+			);
+		} else {
+			await ctx.reply(
+				fmt`${bold("Balance Reconciliation Results")}
+
+Internal Ledger Total: ${code(`${result.internalTotal.toFixed(6)} JUNO`)}
+On-Chain Balance: ${code(`${result.onChainTotal.toFixed(6)} JUNO`)}
+Difference: ${code(`${result.difference.toFixed(6)} JUNO`)}
+
+Status: Balanced`,
+			);
 		}
-
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
 
 		StructuredLogger.logUserAction("Balance reconciliation triggered", {
 			userId: ctx.from?.id,
@@ -976,19 +983,23 @@ export async function handleAdjustBalance(ctx: Context): Promise<void> {
 
 		if (args.length < 2) {
 			await ctx.reply(
-				`*Adjust Balance \\- Manual Ledger Correction*\n\n` +
-					`Usage: \`/adjustbalance \\<amount\\> \\<debit|credit\\> \\[reason\\]\`\n\n` +
-					`*Examples:*\n` +
-					`\`/adjustbalance 1.009 debit Gas fees\` \\- Reduce internal total\n` +
-					`\`/adjustbalance 0.5 credit Missed deposit\` \\- Increase internal total\n\n` +
-					`*How it works:*\n` +
-					`\\- \`debit\`: Removes amount from SYSTEM\\_RESERVE \\(reduces internal total\\)\n` +
-					`\\- \`credit\`: Adds amount to SYSTEM\\_RESERVE \\(increases internal total\\)\n\n` +
-					`*When to use:*\n` +
-					`\\- After \`/reconcile\` shows a mismatch\n` +
-					`\\- To account for gas fees, missed deposits, or manual transfers\n\n` +
-					`Run \`/reconcile\` first to see the current discrepancy\\.`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Adjust Balance - Manual Ledger Correction")}
+
+Usage: ${code("/adjustbalance <amount> <debit|credit> [reason]")}
+
+${bold("Examples:")}
+${code("/adjustbalance 1.009 debit Gas fees")} - Reduce internal total
+${code("/adjustbalance 0.5 credit Missed deposit")} - Increase internal total
+
+${bold("How it works:")}
+- ${code("debit")}: Removes amount from SYSTEM_RESERVE (reduces internal total)
+- ${code("credit")}: Adds amount to SYSTEM_RESERVE (increases internal total)
+
+${bold("When to use:")}
+- After ${code("/reconcile")} shows a mismatch
+- To account for gas fees, missed deposits, or manual transfers
+
+Run ${code("/reconcile")} first to see the current discrepancy.`,
 			);
 			return;
 		}
@@ -1048,20 +1059,23 @@ export async function handleAdjustBalance(ctx: Context): Promise<void> {
 		const afterState = await LedgerService.reconcileBalances();
 
 		await ctx.reply(
-			`*Ledger Adjustment Complete*\n\n` +
-				`*Operation:* ${escapeMarkdownV2(direction.toUpperCase())} ${escapeMarkdownV2(amount.toFixed(6))} JUNO\n` +
-				`*Reason:* ${escapeMarkdownV2(reason)}\n` +
-				`*SYSTEM\\_RESERVE Balance:* ${escapeMarkdownV2(result.newBalance.toFixed(6))} JUNO\n\n` +
-				`*Before:*\n` +
-				`Internal: ${escapeMarkdownV2(beforeState.internalTotal.toFixed(6))} JUNO\n` +
-				`On\\-chain: ${escapeMarkdownV2(beforeState.onChainTotal.toFixed(6))} JUNO\n` +
-				`Difference: ${escapeMarkdownV2(beforeState.difference.toFixed(6))} JUNO\n\n` +
-				`*After:*\n` +
-				`Internal: ${escapeMarkdownV2(afterState.internalTotal.toFixed(6))} JUNO\n` +
-				`On\\-chain: ${escapeMarkdownV2(afterState.onChainTotal.toFixed(6))} JUNO\n` +
-				`Difference: ${escapeMarkdownV2(afterState.difference.toFixed(6))} JUNO\n\n` +
-				`Status: ${afterState.matched ? "BALANCED" : "Still mismatched"}`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Ledger Adjustment Complete")}
+
+${bold("Operation:")} ${direction.toUpperCase()} ${amount.toFixed(6)} JUNO
+${bold("Reason:")} ${reason}
+${bold("SYSTEM_RESERVE Balance:")} ${result.newBalance.toFixed(6)} JUNO
+
+${bold("Before:")}
+Internal: ${beforeState.internalTotal.toFixed(6)} JUNO
+On-chain: ${beforeState.onChainTotal.toFixed(6)} JUNO
+Difference: ${beforeState.difference.toFixed(6)} JUNO
+
+${bold("After:")}
+Internal: ${afterState.internalTotal.toFixed(6)} JUNO
+On-chain: ${afterState.onChainTotal.toFixed(6)} JUNO
+Difference: ${afterState.difference.toFixed(6)} JUNO
+
+Status: ${afterState.matched ? "BALANCED" : "Still mismatched"}`,
 		);
 
 		StructuredLogger.logTransaction("Manual ledger adjustment", {

@@ -7,6 +7,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt, italic } from "telegraf/format";
 import { config } from "../config";
 import { execute, get } from "../database";
 import { elevatedOrHigher } from "../middleware/index";
@@ -18,7 +19,7 @@ import {
 } from "../services/violationService";
 import type { User } from "../types";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2, escapeNumber } from "../utils/markdown";
+import { escapeNumber } from "../utils/markdown";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 /**
@@ -118,8 +119,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			const targetUserId = resolveUserId(userIdentifier);
 			if (!targetUserId) {
 				return ctx.reply(
-					"User not found\\. Please use a valid @username or userId\\.",
-					{ parse_mode: "MarkdownV2" },
+					fmt`User not found. Please use a valid @username or userId.`,
 				);
 			}
 
@@ -127,13 +127,11 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				targetUserId,
 			]);
 			if (!user) {
-				return ctx.reply("User not found in database\\.", {
-					parse_mode: "MarkdownV2",
-				});
+				return ctx.reply(fmt`User not found in database.`);
 			}
 
 			const userDisplay = formatUserIdDisplay(targetUserId);
-			let message = `*Jail Status for ${escapeMarkdownV2(userDisplay)}*\n\n`;
+			const parts = [bold(`Jail Status for ${userDisplay}`), "\n\n"];
 
 			// Current jail status
 			if (user.muted_until && user.muted_until > now) {
@@ -142,34 +140,39 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 					Math.ceil(timeRemaining / 60),
 				);
 
-				message += `*Currently Jailed:* Yes\n`;
-				message += `Time Remaining: ${escapeMarkdownV2(formatTimeRemaining(timeRemaining))}\n`;
-				message += `Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`;
-				message += `Jailed Until: ${escapeMarkdownV2(new Date(user.muted_until * 1000).toLocaleString())}\n\n`;
+				parts.push(bold("Currently Jailed:"));
+				parts.push(" Yes\n");
+				parts.push(`Time Remaining: ${formatTimeRemaining(timeRemaining)}\n`);
+				parts.push(`Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`);
+				parts.push(
+					`Jailed Until: ${new Date(user.muted_until * 1000).toLocaleString()}\n\n`,
+				);
 			} else {
-				message += `*Currently Jailed:* No\n\n`;
+				parts.push(bold("Currently Jailed:"));
+				parts.push(" No\n\n");
 			}
 
 			// Jail history for this user
 			const jailEvents = JailService.getUserJailEvents(targetUserId, 5);
 			if (jailEvents.length > 0) {
-				message += `*Recent Jail History:*\n`;
+				parts.push(bold("Recent Jail History:"));
+				parts.push("\n");
 				for (const event of jailEvents) {
-					const eventDate = escapeMarkdownV2(
-						new Date((event.timestamp || 0) * 1000).toLocaleString(),
-					);
-					const eventType = escapeMarkdownV2(event.eventType.replace("_", " "));
+					const eventDate = new Date(
+						(event.timestamp || 0) * 1000,
+					).toLocaleString();
+					const eventType = event.eventType.replace("_", " ");
 
-					message += `\\- ${eventType}`;
+					parts.push(`- ${eventType}`);
 					if (event.durationMinutes) {
-						message += ` \\(${event.durationMinutes}min\\)`;
+						parts.push(` (${event.durationMinutes}min)`);
 					}
 					if (event.bailAmount && event.bailAmount > 0) {
-						message += ` \\- ${escapeNumber(event.bailAmount, 2)} JUNO`;
+						parts.push(` - ${escapeNumber(event.bailAmount, 2)} JUNO`);
 					}
-					message += `\n  ${eventDate}\n`;
+					parts.push(`\n  ${eventDate}\n`);
 				}
-				message += `\n`;
+				parts.push("\n");
 			}
 
 			// User's jail statistics
@@ -191,12 +194,13 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 					[targetUserId, "bail_paid"],
 				)?.total || 0;
 
-			message += `*User Statistics:*\n`;
-			message += `Times Jailed: ${totalJails}\n`;
-			message += `Bails Paid: ${totalBailsPaid}\n`;
-			message += `Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`;
+			parts.push(bold("User Statistics:"));
+			parts.push("\n");
+			parts.push(`Times Jailed: ${totalJails}\n`);
+			parts.push(`Bails Paid: ${totalBailsPaid}\n`);
+			parts.push(`Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`);
 
-			await ctx.reply(message, { parse_mode: "MarkdownV2" });
+			await ctx.reply(fmt(parts));
 			return;
 		}
 
@@ -236,11 +240,13 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				["unjailed"],
 			)?.count || 0;
 
-		let message = `*Jail System Statistics*\n\n`;
-		message += `*Currently Active Jails:* ${activeJails.length}\n\n`;
+		const parts = [bold("Jail System Statistics"), "\n\n"];
+		parts.push(bold("Currently Active Jails:"));
+		parts.push(` ${activeJails.length}\n\n`);
 
 		if (activeJails.length > 0) {
-			message += `*Active Prisoners:*\n`;
+			parts.push(bold("Active Prisoners:"));
+			parts.push("\n");
 			for (let index = 0; index < activeJails.length; index++) {
 				const jail = activeJails[index];
 				const timeRemaining = formatTimeRemaining(jail.timeRemaining);
@@ -248,21 +254,28 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				const bailAmount = await JailService.calculateBailAmount(
 					Math.ceil(jail.timeRemaining / 60),
 				);
-				message += `${escapeMarkdownV2(index + 1)}\\. ${escapeMarkdownV2(userDisplay)} \\- ${escapeMarkdownV2(timeRemaining)} \\(${escapeNumber(bailAmount, 2)} JUNO\\)\n`;
+				parts.push(
+					`${index + 1}. ${userDisplay} - ${timeRemaining} (${escapeNumber(bailAmount, 2)} JUNO)\n`,
+				);
 			}
-			message += `\n`;
+			parts.push("\n");
 		}
 
-		message += `*All\\-Time Statistics:*\n`;
-		message += `Total Jail Events: ${totalJailEvents}\n`;
-		message += `Unique Users Jailed: ${totalJailed}\n`;
-		message += `Bails Paid: ${totalBailsPaid}\n`;
-		message += `Total Bail Revenue: ${escapeNumber(totalBailAmount, 2)} JUNO\n`;
-		message += `Auto\\-Releases: ${totalAutoReleases}\n`;
-		message += `Manual Releases: ${totalManualReleases}\n\n`;
-		message += `_Use /jailstats \\<username\\> to view a specific user's jail history_`;
+		parts.push(bold("All-Time Statistics:"));
+		parts.push("\n");
+		parts.push(`Total Jail Events: ${totalJailEvents}\n`);
+		parts.push(`Unique Users Jailed: ${totalJailed}\n`);
+		parts.push(`Bails Paid: ${totalBailsPaid}\n`);
+		parts.push(
+			`Total Bail Revenue: ${escapeNumber(totalBailAmount, 2)} JUNO\n`,
+		);
+		parts.push(`Auto-Releases: ${totalAutoReleases}\n`);
+		parts.push(`Manual Releases: ${totalManualReleases}\n\n`);
+		parts.push(
+			`${italic("Use /jailstats <username> to view a specific user's jail history")}`,
+		);
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	});
 
 	/**
@@ -295,14 +308,14 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
 		if (!user) {
-			return ctx.reply(" User not found in database.");
+			return ctx.reply(fmt`User not found in database.`);
 		}
 
 		const now = Math.floor(Date.now() / 1000);
-		let message = `*Your Status*\n\n`;
-		message += `User: ${formatUserIdDisplay(userId)}\n`;
-		message += `Role: ${user.role}\n`;
-		message += `Warnings: ${user.warning_count}\n\n`;
+		const parts = [bold("Your Status"), "\n\n"];
+		parts.push(`User: ${formatUserIdDisplay(userId)}\n`);
+		parts.push(`Role: ${user.role}\n`);
+		parts.push(`Warnings: ${user.warning_count}\n\n`);
 
 		// Check if jailed
 		if (user.muted_until && user.muted_until > now) {
@@ -311,28 +324,30 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				Math.ceil(timeRemaining / 60),
 			);
 
-			message += `*Currently Jailed*\n`;
-			message += `Time remaining: ${formatTimeRemaining(timeRemaining)}\n`;
-			message += `Bail amount: ${bailAmount.toFixed(2)} JUNO\n\n`;
-			message += `To pay bail: /paybail\n\n`;
+			parts.push(bold("Currently Jailed"));
+			parts.push("\n");
+			parts.push(`Time remaining: ${formatTimeRemaining(timeRemaining)}\n`);
+			parts.push(`Bail amount: ${bailAmount.toFixed(2)} JUNO\n\n`);
+			parts.push("To pay bail: /paybail\n\n");
 		} else {
-			message += ` Not currently jailed\n\n`;
+			parts.push("Not currently jailed\n\n");
 		}
 
 		// Show unpaid violations
 		const violations = getUnpaidViolations(userId);
 		if (violations.length > 0) {
 			const totalFines = getTotalFines(userId);
-			message += `*Unpaid Fines*\n`;
-			message += `Count: ${violations.length}\n`;
-			message += `Total: ${totalFines.toFixed(2)} JUNO\n\n`;
-			message += `View details: /violations\n`;
-			message += `Pay fines: /payfine\n`;
+			parts.push(bold("Unpaid Fines"));
+			parts.push("\n");
+			parts.push(`Count: ${violations.length}\n`);
+			parts.push(`Total: ${totalFines.toFixed(2)} JUNO\n\n`);
+			parts.push("View details: /violations\n");
+			parts.push("Pay fines: /payfine\n");
 		} else {
-			message += ` No unpaid fines\n`;
+			parts.push("No unpaid fines\n");
 		}
 
-		await ctx.reply(message, { parse_mode: "Markdown" });
+		await ctx.reply(fmt(parts));
 	});
 
 	/**
@@ -357,10 +372,10 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const activeJails = JailService.getActiveJails();
 
 		if (activeJails.length === 0) {
-			return ctx.reply(" No users currently jailed.");
+			return ctx.reply(fmt`No users currently jailed.`);
 		}
 
-		let message = `*Active Jails* (${escapeMarkdownV2(activeJails.length)})\n\n`;
+		const parts = [bold(`Active Jails (${activeJails.length})`), "\n\n"];
 
 		for (let index = 0; index < activeJails.length; index++) {
 			const jail = activeJails[index];
@@ -370,15 +385,15 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			const timeRemaining = formatTimeRemaining(jail.timeRemaining);
 			const userDisplay = formatUserIdDisplay(jail.id);
 
-			message += `${escapeMarkdownV2(index + 1)}\\. ${escapeMarkdownV2(userDisplay)}\n`;
-			message += `   Time: ${escapeMarkdownV2(timeRemaining)}\n`;
-			message += `   Bail: ${escapeNumber(bailAmount, 2)} JUNO\n`;
-			message += `   Pay: /paybailfor ${escapeMarkdownV2(jail.id)}\n\n`;
+			parts.push(`${index + 1}. ${userDisplay}\n`);
+			parts.push(`   Time: ${timeRemaining}\n`);
+			parts.push(`   Bail: ${escapeNumber(bailAmount, 2)} JUNO\n`);
+			parts.push(`   Pay: /paybailfor ${jail.id}\n\n`);
 		}
 
-		message += `Anyone can pay bail for any user using /paybailfor <userId>`;
+		parts.push("Anyone can pay bail for any user using /paybailfor <userId>");
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	});
 
 	/**
@@ -407,13 +422,13 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
 		if (!user) {
-			return ctx.reply(" User not found in database.");
+			return ctx.reply(fmt`User not found in database.`);
 		}
 
 		const now = Math.floor(Date.now() / 1000);
 
 		if (!user.muted_until || user.muted_until <= now) {
-			return ctx.reply(" You are not currently jailed. No bail required!");
+			return ctx.reply(fmt`You are not currently jailed. No bail required!`);
 		}
 
 		const timeRemaining = user.muted_until - now;
@@ -421,17 +436,18 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			Math.ceil(timeRemaining / 60),
 		);
 
-		const message =
-			`*Pay Your Bail*\n\n` +
-			`Current jail time remaining: ${escapeMarkdownV2(formatTimeRemaining(timeRemaining))}\n` +
-			`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n` +
-			`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n` +
-			`\`${escapeMarkdownV2(JunoService.getPaymentAddress())}\`\n\n` +
-			`After payment, send:\n` +
-			`/verifybail \\<transaction\\_hash\\>\n\n` +
-			`Payment will release you from jail immediately\\!`;
+		const parts = [bold("Pay Your Bail"), "\n\n"];
+		parts.push(
+			`Current jail time remaining: ${formatTimeRemaining(timeRemaining)}\n`,
+		);
+		parts.push(`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n`);
+		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
+		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
+		parts.push("After payment, send:\n");
+		parts.push("/verifybail <transaction_hash>\n\n");
+		parts.push("Payment will release you from jail immediately!");
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	});
 
 	/**
@@ -466,20 +482,20 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const targetUserId = resolveUserId(userIdentifier);
 		if (!targetUserId) {
 			return ctx.reply(
-				" User not found. Please use a valid @username or userId.",
+				fmt`User not found. Please use a valid @username or userId.`,
 			);
 		}
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {
-			return ctx.reply(" User not found in database.");
+			return ctx.reply(fmt`User not found in database.`);
 		}
 
 		const now = Math.floor(Date.now() / 1000);
 
 		if (!user.muted_until || user.muted_until <= now) {
 			return ctx.reply(
-				` ${formatUserIdDisplay(targetUserId)} is not currently jailed.`,
+				fmt`${formatUserIdDisplay(targetUserId)} is not currently jailed.`,
 			);
 		}
 
@@ -488,17 +504,21 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			Math.ceil(timeRemaining / 60),
 		);
 
-		const message =
-			`*Pay Bail For ${escapeMarkdownV2(formatUserIdDisplay(targetUserId))}*\n\n` +
-			`Current jail time remaining: ${escapeMarkdownV2(formatTimeRemaining(timeRemaining))}\n` +
-			`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n` +
-			`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n` +
-			`\`${escapeMarkdownV2(JunoService.getPaymentAddress())}\`\n\n` +
-			`After payment, send:\n` +
-			`/verifybailfor ${escapeMarkdownV2(targetUserId)} \\<transaction\\_hash\\>\n\n` +
-			`Payment will release them from jail immediately\\!`;
+		const parts = [
+			bold(`Pay Bail For ${formatUserIdDisplay(targetUserId)}`),
+			"\n\n",
+		];
+		parts.push(
+			`Current jail time remaining: ${formatTimeRemaining(timeRemaining)}\n`,
+		);
+		parts.push(`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n`);
+		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
+		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
+		parts.push("After payment, send:\n");
+		parts.push(`/verifybailfor ${targetUserId} <transaction_hash>\n\n`);
+		parts.push("Payment will release them from jail immediately!");
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt(parts));
 	});
 
 	/**
@@ -526,14 +546,14 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
 		if (!user) {
-			return ctx.reply(" User not found in database.");
+			return ctx.reply(fmt`User not found in database.`);
 		}
 
 		const now = Math.floor(Date.now() / 1000);
 
 		if (!user.muted_until || user.muted_until <= now) {
 			return ctx.reply(
-				" You are not currently jailed. No bail payment needed.",
+				fmt`You are not currently jailed. No bail payment needed.`,
 			);
 		}
 
@@ -547,7 +567,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!verified) {
 			return ctx.reply(
-				" Payment could not be verified. Please check the transaction hash and amount.",
+				fmt`Payment could not be verified. Please check the transaction hash and amount.`,
 			);
 		}
 
@@ -603,12 +623,11 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			}
 		}
 
-		await ctx.reply(
-			`*Bail Payment Verified\\!*\n\n` +
-				`You have been released from jail\\.\n` +
-				`Transaction: \`${escapeMarkdownV2(txHash)}\``,
-			{ parse_mode: "MarkdownV2" },
-		);
+		const parts = [bold("Bail Payment Verified!"), "\n\n"];
+		parts.push("You have been released from jail.\n");
+		parts.push(`Transaction: ${code(txHash)}`);
+
+		await ctx.reply(fmt(parts));
 
 		StructuredLogger.logTransaction("Bail paid and verified", {
 			userId,
@@ -647,20 +666,20 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!targetUserId) {
 			return ctx.reply(
-				" User not found. Please use a valid @username or userId.",
+				fmt`User not found. Please use a valid @username or userId.`,
 			);
 		}
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {
-			return ctx.reply(" User not found in database.");
+			return ctx.reply(fmt`User not found in database.`);
 		}
 
 		const now = Math.floor(Date.now() / 1000);
 
 		if (!user.muted_until || user.muted_until <= now) {
 			return ctx.reply(
-				` ${formatUserIdDisplay(targetUserId)} is not currently jailed.`,
+				fmt`${formatUserIdDisplay(targetUserId)} is not currently jailed.`,
 			);
 		}
 
@@ -674,7 +693,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!verified) {
 			return ctx.reply(
-				" Payment could not be verified. Please check the transaction hash and amount.",
+				fmt`Payment could not be verified. Please check the transaction hash and amount.`,
 			);
 		}
 
@@ -742,7 +761,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		try {
 			await bot.telegram.sendMessage(
 				targetUserId,
-				` Good news! ${formatUserIdDisplay(payerId)} paid your bail of ${bailAmount.toFixed(2)} JUNO!\nYou have been released from jail.`,
+				`Good news! ${formatUserIdDisplay(payerId)} paid your bail of ${bailAmount.toFixed(2)} JUNO!\nYou have been released from jail.`,
 			);
 		} catch (dmError) {
 			logger.debug(
@@ -751,13 +770,14 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			);
 		}
 
-		await ctx.reply(
-			`*Bail Payment Verified\\!*\n\n` +
-				`${escapeMarkdownV2(formatUserIdDisplay(targetUserId))} has been released from jail\\.\n` +
-				`Paid by: ${escapeMarkdownV2(formatUserIdDisplay(payerId))}\n` +
-				`Transaction: \`${escapeMarkdownV2(txHash)}\``,
-			{ parse_mode: "MarkdownV2" },
+		const parts = [bold("Bail Payment Verified!"), "\n\n"];
+		parts.push(
+			`${formatUserIdDisplay(targetUserId)} has been released from jail.\n`,
 		);
+		parts.push(`Paid by: ${formatUserIdDisplay(payerId)}\n`);
+		parts.push(`Transaction: ${code(txHash)}`);
+
+		await ctx.reply(fmt(parts));
 
 		StructuredLogger.logTransaction("Bail paid by another user and verified", {
 			userId: targetUserId,

@@ -7,12 +7,12 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt } from "telegraf/format";
 import { execute } from "../database";
 import { ownerOnly } from "../middleware/index";
 import { JailService } from "../services/jailService";
 import { PriceService } from "../services/priceService";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeMarkdownV2 } from "../utils/markdown";
 import { isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
@@ -55,17 +55,18 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		const args = ctx.message?.text.split(" ").slice(1) || [];
 		if (args.length < 2) {
 			return ctx.reply(
-				"*Usage:* `/setfine <type> <amount_usd> [description]`\n\n" +
-					"*Fine types:*\n" +
-					"• `sticker` \\- Restricted sticker violations\n" +
-					"• `url` \\- URL posting violations\n" +
-					"• `regex` \\- Regex pattern violations\n" +
-					"• `blacklist` \\- Blacklist violations\n" +
-					"• `jail_per_minute` \\- Per\\-minute jail rate\n" +
-					"• `jail_minimum` \\- Minimum jail fine\n" +
-					"• `auto_jail` \\- Auto\\-jail fine amount\n\n" +
-					"*Example:* `/setfine sticker 0\\.05 Reduced fine`",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Usage:")} ${code("/setfine <type> <amount_usd> [description]")}
+
+${bold("Fine types:")}
+• ${code("sticker")} - Restricted sticker violations
+• ${code("url")} - URL posting violations
+• ${code("regex")} - Regex pattern violations
+• ${code("blacklist")} - Blacklist violations
+• ${code("jail_per_minute")} - Per-minute jail rate
+• ${code("jail_minimum")} - Minimum jail fine
+• ${code("auto_jail")} - Auto-jail fine amount
+
+${bold("Example:")} ${code("/setfine sticker 0.05 Reduced fine")}`,
 			);
 		}
 
@@ -84,18 +85,12 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		];
 		if (!validTypes.includes(fineType)) {
 			return ctx.reply(
-				`❌ Invalid fine type\\. Valid types: ${escapeMarkdownV2(validTypes.join(", "))}`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`Invalid fine type. Valid types: ${validTypes.join(", ")}`,
 			);
 		}
 
 		if (Number.isNaN(amountUsd) || amountUsd < 0) {
-			return ctx.reply(
-				"❌ Invalid amount\\. Please enter a positive number\\.",
-				{
-					parse_mode: "MarkdownV2",
-				},
-			);
+			return ctx.reply("Invalid amount. Please enter a positive number.");
 		}
 
 		PriceService.setFineConfigUsd(fineType, amountUsd, description, ownerId);
@@ -104,9 +99,8 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		const junoAmount = await PriceService.usdToJuno(amountUsd);
 
 		await ctx.reply(
-			`✅ Fine for '${escapeMarkdownV2(fineType)}' set to $${escapeMarkdownV2(amountUsd.toFixed(2))} USD\n` +
-				`Current equivalent: ${escapeMarkdownV2(junoAmount.toFixed(2))} JUNO`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`Fine for '${fineType}' set to $${amountUsd.toFixed(2)} USD
+Current equivalent: ${junoAmount.toFixed(2)} JUNO`,
 		);
 
 		logger.info("Fine config updated", { ownerId, fineType, amountUsd });
@@ -123,8 +117,8 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		const configs = PriceService.getAllFineConfigs();
 		const priceInfo = await PriceService.getPriceInfo();
 
-		let message = "*Fine Configuration*\n\n";
-		message += `JUNO Price: $${escapeMarkdownV2(priceInfo.average.toFixed(4))} \\(24h avg\\)\n\n`;
+		const parts = [bold("Fine Configuration"), ""];
+		parts.push(`JUNO Price: $${priceInfo.average.toFixed(4)} (24h avg)`, "");
 
 		// Show all fine types with their values
 		const allTypes = [
@@ -142,15 +136,17 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 			const junoAmount = await PriceService.usdToJuno(usdAmount);
 			const config = configs.find((c) => c.fine_type === fineType);
 
-			message += `*${escapeMarkdownV2(fineType)}*\n`;
-			message += `  $${escapeMarkdownV2(usdAmount.toFixed(2))} USD ≈ ${escapeMarkdownV2(junoAmount.toFixed(2))} JUNO\n`;
+			parts.push(bold(fineType));
+			parts.push(
+				`  $${usdAmount.toFixed(2)} USD ≈ ${junoAmount.toFixed(2)} JUNO`,
+			);
 			if (config?.description) {
-				message += `  _${escapeMarkdownV2(config.description)}_\n`;
+				parts.push(`  ${config.description}`);
 			}
-			message += "\n";
+			parts.push("");
 		}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+		await ctx.reply(fmt([parts.join("\n")]));
 	});
 
 	/**
@@ -167,14 +163,16 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 			? new Date(priceInfo.lastUpdate).toLocaleString()
 			: "Never";
 
-		const message =
-			"*JUNO Price Information*\n\n" +
-			`Current: $${escapeMarkdownV2(priceInfo.current?.toFixed(4) || "N/A")}\n` +
-			`24h Average: $${escapeMarkdownV2(priceInfo.average.toFixed(4))}\n\n` +
-			`Last Updated: ${escapeMarkdownV2(lastUpdateTime)}\n\n` +
-			"_Prices from CoinGecko API_";
+		await ctx.reply(
+			fmt`${bold("JUNO Price Information")}
 
-		await ctx.reply(message, { parse_mode: "MarkdownV2" });
+Current: $${priceInfo.current?.toFixed(4) || "N/A"}
+24h Average: $${priceInfo.average.toFixed(4)}
+
+Last Updated: ${lastUpdateTime}
+
+Prices from CoinGecko API`,
+		);
 	});
 
 	/**
@@ -198,11 +196,12 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		const args = ctx.message?.text.split(" ").slice(1) || [];
 		if (args.length < 4) {
 			return ctx.reply(
-				"*Usage:* `/customjail <@username|userId> <minutes> <juno_amount> <reason>`\n\n" +
-					"*Example:*\n" +
-					"`/customjail @alice 120 5\\.0 Repeated spamming`\n\n" +
-					"This jails the user for the specified time with a custom fine amount\\.",
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Usage:")} ${code("/customjail <@username|userId> <minutes> <juno_amount> <reason>")}
+
+${bold("Example:")}
+${code("/customjail @alice 120 5.0 Repeated spamming")}
+
+This jails the user for the specified time with a custom fine amount.`,
 			);
 		}
 
@@ -215,8 +214,7 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		const userId = resolveUserId(userIdentifier);
 		if (!userId) {
 			return ctx.reply(
-				"❌ User not found\\. Please use a valid @username or userId\\.",
-				{ parse_mode: "MarkdownV2" },
+				"User not found. Please use a valid @username or userId.",
 			);
 		}
 
@@ -224,24 +222,17 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		if (isImmuneToModeration(userId)) {
 			const userDisplay = formatUserIdDisplay(userId);
 			return ctx.reply(
-				`❌ Cannot jail ${escapeMarkdownV2(userDisplay)} \\- admins and owners are immune to moderation actions\\.`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`Cannot jail ${userDisplay} - admins and owners are immune to moderation actions.`,
 			);
 		}
 
 		if (Number.isNaN(minutes) || minutes < 1) {
-			return ctx.reply(
-				"❌ Invalid duration\\. Minutes must be a positive number\\.",
-				{
-					parse_mode: "MarkdownV2",
-				},
-			);
+			return ctx.reply("Invalid duration. Minutes must be a positive number.");
 		}
 
 		if (Number.isNaN(junoAmount) || junoAmount < 0) {
 			return ctx.reply(
-				"❌ Invalid fine amount\\. Please enter a non\\-negative number\\.",
-				{ parse_mode: "MarkdownV2" },
+				"Invalid fine amount. Please enter a non-negative number.",
 			);
 		}
 
@@ -295,20 +286,19 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 					error,
 				});
 				await ctx.reply(
-					`⚠️ Database updated but failed to restrict user in Telegram\\.\n` +
-						`Error: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
-					{ parse_mode: "MarkdownV2" },
+					fmt`Database updated but failed to restrict user in Telegram.
+Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 				);
 			}
 		}
 
 		const userDisplay = formatUserIdDisplay(userId);
 		await ctx.reply(
-			`✅ User ${escapeMarkdownV2(userDisplay)} has been jailed for ${escapeMarkdownV2(minutes.toString())} minutes\\.\n` +
-				`Custom fine: ${escapeMarkdownV2(junoAmount.toFixed(2))} JUNO\n` +
-				`Reason: ${escapeMarkdownV2(reason)}\n\n` +
-				`They can pay bail using /paybail or check their status with /mystatus`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`User ${userDisplay} has been jailed for ${minutes} minutes.
+Custom fine: ${junoAmount.toFixed(2)} JUNO
+Reason: ${reason}
+
+They can pay bail using /paybail or check their status with /mystatus`,
 		);
 
 		StructuredLogger.logSecurityEvent("Custom jail applied", {
@@ -362,10 +352,9 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		}
 
 		await ctx.reply(
-			"✅ Default fine configurations initialized\\.\n" +
-				"Use /listfines to view current settings\\.\n" +
-				"Use /setfine to adjust amounts\\.",
-			{ parse_mode: "MarkdownV2" },
+			fmt`Default fine configurations initialized.
+Use /listfines to view current settings.
+Use /setfine to adjust amounts.`,
 		);
 
 		logger.info("Fine configs initialized", { ownerId });

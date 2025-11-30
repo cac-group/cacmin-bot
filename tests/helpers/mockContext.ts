@@ -152,6 +152,20 @@ export function createPlebContext(options: MockContextOptions = {}): Partial<Con
 }
 
 /**
+ * Extracts text from a reply argument (handles both strings and FmtString objects)
+ */
+function extractText(reply: unknown): string {
+  if (typeof reply === 'string') {
+    return reply;
+  }
+  // Handle FmtString objects from telegraf/format
+  if (reply && typeof reply === 'object' && 'text' in reply) {
+    return (reply as { text: string }).text;
+  }
+  return String(reply);
+}
+
+/**
  * Extracts reply text from a mock context
  */
 export function getReplyText(ctx: Partial<Context>): string {
@@ -159,7 +173,7 @@ export function getReplyText(ctx: Partial<Context>): string {
   if (!replyMock || replyMock.mock.calls.length === 0) {
     return '';
   }
-  return replyMock.mock.calls[0][0];
+  return extractText(replyMock.mock.calls[0][0]);
 }
 
 /**
@@ -170,7 +184,7 @@ export function getAllReplies(ctx: Partial<Context>): string[] {
   if (!replyMock) {
     return [];
   }
-  return replyMock.mock.calls.map((call) => call[0]);
+  return replyMock.mock.calls.map((call) => extractText(call[0]));
 }
 
 /**

@@ -15,12 +15,12 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, code, fmt, type FmtString } from "telegraf/format";
 import type { InlineKeyboardMarkup } from "telegraf/types";
 import { get } from "../database";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
 import { logger } from "../utils/logger";
-import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Registers the help command with the bot.
@@ -76,7 +76,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 		if (ctx.chat?.type !== "private") {
 			const botInfo = await ctx.telegram.getMe();
 			return ctx.reply(
-				` The /help command is only available via direct message. Please DM me @${botInfo.username}`,
+				`The /help command is only available via direct message. Please DM me @${botInfo.username}`,
 			);
 		}
 
@@ -91,9 +91,8 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 			const keyboard: InlineKeyboardMarkup = buildHelpMenu(role);
 
 			await ctx.reply(
-				`*CAC Admin Bot*\n\nRole: \`${escapeMarkdownV2(role)}\`\n\nSelect a category to view commands:`,
+				fmt`${bold("CAC Admin Bot")}\n\nRole: ${code(role)}\n\nSelect a category to view commands:`,
 				{
-					parse_mode: "MarkdownV2",
 					reply_markup: keyboard,
 				},
 			);
@@ -115,9 +114,8 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 			const keyboard: InlineKeyboardMarkup = buildHelpMenu(role);
 
 			await ctx.editMessageText(
-				`*CAC Admin Bot*\n\nRole: \`${escapeMarkdownV2(role)}\`\n\nSelect a category to view commands:`,
+				fmt`${bold("CAC Admin Bot")}\n\nRole: ${code(role)}\n\nSelect a category to view commands:`,
 				{
-					parse_mode: "MarkdownV2",
 					reply_markup: keyboard,
 				},
 			);
@@ -153,7 +151,6 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 				};
 
 				await ctx.editMessageText(helpText, {
-					parse_mode: "MarkdownV2",
 					reply_markup: backKeyboard,
 				});
 				await ctx.answerCbQuery();
@@ -200,192 +197,224 @@ function buildHelpMenu(role: string): InlineKeyboardMarkup {
 /**
  * Help content map for each category
  */
-const helpContent: Record<string, string> = {
-	wallet:
-		`*Wallet Commands*\n\n` +
-		`/balance \\(or /bal\\)\n` +
-		`  View your current JUNO balance in the internal wallet\\. This shows funds available for transfers and withdrawals\\.\n\n` +
-		`/deposit\n` +
-		`  Get your unique deposit address and memo\\. Send JUNO from any wallet to this address with your memo to credit your account\\.\n\n` +
-		`/verifydeposit \\<txhash\\>\n` +
-		`  Verify a deposit transaction and check its processing status\\.\n\n` +
-		`/withdraw \\<amount\\> \\<address\\>\n` +
-		`  Send JUNO from your internal balance to any external Juno address\\. Requires sufficient balance plus network fees\\.\n\n` +
-		`/send \\<amount\\> \\<user\\> \\(or /transfer\\)\n` +
-		`  Transfer JUNO to another bot user instantly with no fees\\. Use @username or user ID\\.\n\n` +
-		`/transactions \\[limit\\] \\(or /history\\)\n` +
-		`  View your transaction history including deposits, withdrawals, transfers, and fines\\. Optional limit parameter \\(default: 10\\)\\.\n\n` +
-		`/checkdeposit \\<txhash\\> \\(or /checktx\\)\n` +
-		`  Check the status of a specific deposit transaction\\.\n\n` +
-		`/wallethelp\n` +
-		`  Display detailed wallet command help and examples\\.`,
+const helpContent: Record<string, FmtString> = {
+	wallet: fmt([
+		bold("Wallet Commands"),
+		"\n\n",
+		"/balance (or /bal)\n",
+		"  View your current JUNO balance in the internal wallet. This shows funds available for transfers and withdrawals.\n\n",
+		"/deposit\n",
+		"  Get your unique deposit address and memo. Send JUNO from any wallet to this address with your memo to credit your account.\n\n",
+		"/verifydeposit <txhash>\n",
+		"  Verify a deposit transaction and check its processing status.\n\n",
+		"/withdraw <amount> <address>\n",
+		"  Send JUNO from your internal balance to any external Juno address. Requires sufficient balance plus network fees.\n\n",
+		"/send <amount> <user> (or /transfer)\n",
+		"  Transfer JUNO to another bot user instantly with no fees. Use @username or user ID.\n\n",
+		"/transactions [limit] (or /history)\n",
+		"  View your transaction history including deposits, withdrawals, transfers, and fines. Optional limit parameter (default: 10).\n\n",
+		"/checkdeposit <txhash> (or /checktx)\n",
+		"  Check the status of a specific deposit transaction.\n\n",
+		"/wallethelp\n",
+		"  Display detailed wallet command help and examples.",
+	]),
 
-	shared:
-		`*Shared Account Commands*\n\n` +
-		`/myshared\n` +
-		`  List all shared accounts you have access to and your permission level \\(view, spend, admin\\) for each\\.\n\n` +
-		`/sharedbalance \\<name\\>\n` +
-		`  Check the current balance of a shared account\\. You must have at least view permissions\\.\n\n` +
-		`/sharedinfo \\<name\\>\n` +
-		`  View detailed info about a shared account including all members and their permissions\\.\n\n` +
-		`/sharedsend \\<name\\> \\<amount\\> \\<user\\>\n` +
-		`  Send JUNO from a shared account to another user\\. Requires spend or admin permissions and respects spending limits\\.\n\n` +
-		`/shareddeposit \\<name\\>\n` +
-		`  Get deposit instructions for a shared account\\.\n\n` +
-		`/sharedhistory \\<name\\> \\[limit\\]\n` +
-		`  View transaction history for a shared account\\.\n\n` +
-		`/grantaccess \\<name\\> \\<user\\> \\<level\\>\n` +
-		`  Grant another user access to a shared account\\. Requires admin permissions\\. Levels: view, spend, admin\\.\n\n` +
-		`/revokeaccess \\<name\\> \\<user\\>\n` +
-		`  Remove a user's access to a shared account\\. Requires admin permissions\\.\n\n` +
-		`/updateaccess \\<name\\> \\<user\\> \\<level\\>\n` +
-		`  Update a user's permission level on a shared account\\. Requires admin permissions\\.`,
+	shared: fmt([
+		bold("Shared Account Commands"),
+		"\n\n",
+		"/myshared\n",
+		"  List all shared accounts you have access to and your permission level (view, spend, admin) for each.\n\n",
+		"/sharedbalance <name>\n",
+		"  Check the current balance of a shared account. You must have at least view permissions.\n\n",
+		"/sharedinfo <name>\n",
+		"  View detailed info about a shared account including all members and their permissions.\n\n",
+		"/sharedsend <name> <amount> <user>\n",
+		"  Send JUNO from a shared account to another user. Requires spend or admin permissions and respects spending limits.\n\n",
+		"/shareddeposit <name>\n",
+		"  Get deposit instructions for a shared account.\n\n",
+		"/sharedhistory <name> [limit]\n",
+		"  View transaction history for a shared account.\n\n",
+		"/grantaccess <name> <user> <level>\n",
+		"  Grant another user access to a shared account. Requires admin permissions. Levels: view, spend, admin.\n\n",
+		"/revokeaccess <name> <user>\n",
+		"  Remove a user's access to a shared account. Requires admin permissions.\n\n",
+		"/updateaccess <name> <user> <level>\n",
+		"  Update a user's permission level on a shared account. Requires admin permissions.",
+	]),
 
-	user:
-		`*User Commands*\n\n` +
-		`/mystatus\n` +
-		`  View your complete user profile including role, whitelist/blacklist status, warnings, active jails, and current restrictions\\.\n\n` +
-		`/jails\n` +
-		`  View all currently jailed users, their jail duration, remaining time, and bail amounts\\.\n\n` +
-		`/violations\n` +
-		`  View your violation history including fines, payment status, and violation reasons\\.\n\n` +
-		`/viewwhitelist\n` +
-		`  Display all users on the whitelist who are exempt from certain automated restrictions\\.\n\n` +
-		`/viewblacklist\n` +
-		`  Display all blacklisted users and their blacklist reasons\\.\n\n` +
-		`/viewactions\n` +
-		`  View all currently active global restrictions \\(no stickers, no URLs, etc\\) applied to the chat\\.`,
+	user: fmt([
+		bold("User Commands"),
+		"\n\n",
+		"/mystatus\n",
+		"  View your complete user profile including role, whitelist/blacklist status, warnings, active jails, and current restrictions.\n\n",
+		"/jails\n",
+		"  View all currently jailed users, their jail duration, remaining time, and bail amounts.\n\n",
+		"/violations\n",
+		"  View your violation history including fines, payment status, and violation reasons.\n\n",
+		"/viewwhitelist\n",
+		"  Display all users on the whitelist who are exempt from certain automated restrictions.\n\n",
+		"/viewblacklist\n",
+		"  Display all blacklisted users and their blacklist reasons.\n\n",
+		"/viewactions\n",
+		"  View all currently active global restrictions (no stickers, no URLs, etc) applied to the chat.",
+	]),
 
-	giveaways:
-		`*Giveaway Commands*\n\n` +
-		`/giveaway \\<amount\\>\n` +
-		`  Create an open giveaway funded from your balance\\. After entering the amount, you'll select how many slots \\(10, 25, 50, or 100\\) to split it into\\. Each user can claim one slot\\.\n\n` +
-		`  Example: \`/giveaway 100\` with 10 slots = 10 JUNO per claim\n\n` +
-		`/cancelgiveaway \\[id\\]\n` +
-		`  Cancel an active giveaway you created\\. Unclaimed funds are returned to your balance\\. Without an ID, shows your active giveaways\\.\n\n` +
-		`*How Giveaways Work:*\n` +
-		`1\\. Run \`/giveaway \\<amount\\>\` with the total JUNO to give away\n` +
-		`2\\. Select number of slots \\(10, 25, 50, or 100\\)\n` +
-		`3\\. Funds are debited from your balance into escrow\n` +
-		`4\\. A message with a Claim button appears in chat\n` +
-		`5\\. Users click Claim to receive their share \\(one claim per user\\)\n` +
-		`6\\. When all slots are claimed, the giveaway completes\n\n` +
-		`*Notes:*\n` +
-		`\\- Admins/owners can choose to fund from treasury instead\n` +
-		`\\- You can cancel anytime to reclaim unclaimed funds\n` +
-		`\\- Each giveaway has a unique ID shown in the confirmation`,
+	giveaways: fmt([
+		bold("Giveaway Commands"),
+		"\n\n",
+		"/giveaway <amount>\n",
+		"  Create an open giveaway funded from your balance. After entering the amount, you'll select how many slots (10, 25, 50, or 100) to split it into. Each user can claim one slot.\n\n",
+		"  Example: ",
+		code("/giveaway 100"),
+		" with 10 slots = 10 JUNO per claim\n\n",
+		"/cancelgiveaway [id]\n",
+		"  Cancel an active giveaway you created. Unclaimed funds are returned to your balance. Without an ID, shows your active giveaways.\n\n",
+		bold("How Giveaways Work:"),
+		"\n",
+		"1. Run ",
+		code("/giveaway <amount>"),
+		" with the total JUNO to give away\n",
+		"2. Select number of slots (10, 25, 50, or 100)\n",
+		"3. Funds are debited from your balance into escrow\n",
+		"4. A message with a Claim button appears in chat\n",
+		"5. Users click Claim to receive their share (one claim per user)\n",
+		"6. When all slots are claimed, the giveaway completes\n\n",
+		bold("Notes:"),
+		"\n",
+		"- Admins/owners can choose to fund from treasury instead\n",
+		"- You can cancel anytime to reclaim unclaimed funds\n",
+		"- Each giveaway has a unique ID shown in the confirmation",
+	]),
 
-	payments:
-		`*Payment Commands*\n\n` +
-		`/payfine \\<id\\>\n` +
-		`  Pay a specific fine by its violation ID\\. Deducts the fine amount from your wallet balance\\.\n\n` +
-		`/payfines\n` +
-		`  View all your unpaid fines with payment options\\.\n\n` +
-		`/payallfines\n` +
-		`  Pay all your outstanding unpaid fines at once\\. Shows total amount before confirmation\\.\n\n` +
-		`/paybail\n` +
-		`  Pay your bail amount to immediately get unjailed\\. Requires sufficient wallet balance\\.\n\n` +
-		`/paybailfor \\<user\\>\n` +
-		`  Pay bail for another jailed user\\. Deducts from your balance\\.\n\n` +
-		`/verifypayment \\<txhash\\>\n` +
-		`  Verify an on\\-chain fine payment transaction\\.\n\n` +
-		`/verifybail \\<txhash\\>\n` +
-		`  Verify an on\\-chain bail payment transaction\\.\n\n` +
-		`/verifybailfor \\<user\\> \\<txhash\\>\n` +
-		`  Verify an on\\-chain bail payment made for another user\\.`,
+	payments: fmt([
+		bold("Payment Commands"),
+		"\n\n",
+		"/payfine <id>\n",
+		"  Pay a specific fine by its violation ID. Deducts the fine amount from your wallet balance.\n\n",
+		"/payfines\n",
+		"  View all your unpaid fines with payment options.\n\n",
+		"/payallfines\n",
+		"  Pay all your outstanding unpaid fines at once. Shows total amount before confirmation.\n\n",
+		"/paybail\n",
+		"  Pay your bail amount to immediately get unjailed. Requires sufficient wallet balance.\n\n",
+		"/paybailfor <user>\n",
+		"  Pay bail for another jailed user. Deducts from your balance.\n\n",
+		"/verifypayment <txhash>\n",
+		"  Verify an on-chain fine payment transaction.\n\n",
+		"/verifybail <txhash>\n",
+		"  Verify an on-chain bail payment transaction.\n\n",
+		"/verifybailfor <user> <txhash>\n",
+		"  Verify an on-chain bail payment made for another user.",
+	]),
 
-	elevated:
-		`*Elevated Commands*\n\n` +
-		`/jailstats\n` +
-		`  View comprehensive jail statistics including total jails, active jails, average duration, and bail revenue\\.\n\n` +
-		`/createshared \\<name\\>\n` +
-		`  Create a new shared account that multiple users can access\\. You become the initial admin with full permissions\\.\n\n` +
-		`/listshared\n` +
-		`  View all shared accounts in the system, their balances, and admin information\\.\n\n` +
-		`/listadmins\n` +
-		`  View all users with admin or owner roles\\.\n\n` +
-		`/listrestrictions \\<user\\>\n` +
-		`  View all active restrictions for a user\\.\n\n` +
-		`/removerestriction \\<user\\> \\<type\\>\n` +
-		`  Remove a specific content restriction from a user\\.`,
+	elevated: fmt([
+		bold("Elevated Commands"),
+		"\n\n",
+		"/jailstats\n",
+		"  View comprehensive jail statistics including total jails, active jails, average duration, and bail revenue.\n\n",
+		"/createshared <name>\n",
+		"  Create a new shared account that multiple users can access. You become the initial admin with full permissions.\n\n",
+		"/listshared\n",
+		"  View all shared accounts in the system, their balances, and admin information.\n\n",
+		"/listadmins\n",
+		"  View all users with admin or owner roles.\n\n",
+		"/listrestrictions <user>\n",
+		"  View all active restrictions for a user.\n\n",
+		"/removerestriction <user> <type>\n",
+		"  Remove a specific content restriction from a user.",
+	]),
 
-	admin:
-		`*Admin Commands*\n\n` +
-		`*Moderation:*\n` +
-		`/jail \\<user\\> \\<minutes\\> \\(or /silence\\)\n` +
-		`  Jail a user by removing chat permissions for the specified duration\\. User can pay bail to unjail early\\.\n\n` +
-		`/unjail \\<user\\> \\(or /unsilence\\)\n` +
-		`  Immediately release a jailed user and restore their chat permissions\\.\n\n` +
-		`/warn \\<user\\> \\<reason\\>\n` +
-		`  Issue a formal warning to a user\\. Increments warning count and creates a violation record\\.\n\n` +
-		`*Role Management:*\n` +
-		`/elevate \\<user\\>\n` +
-		`  Promote a user from 'pleb' to 'elevated' role\\.\n\n` +
-		`/revoke \\<user\\>\n` +
-		`  Demote an elevated user back to 'pleb' role\\.\n\n` +
-		`*Restrictions:*\n` +
-		`/addrestriction \\<user\\> \\<type\\> \\[action\\] \\[until\\] \\[severity\\]\n` +
-		`  Add a content restriction\\. Types: no\\_stickers, no\\_urls, no\\_media, no\\_photos, no\\_videos, no\\_documents, no\\_gifs, no\\_voice, no\\_forwarding, regex\\_block, muted\\. Severity: delete, mute, jail\\.\n\n` +
-		`/regexhelp\n` +
-		`  Display regex pattern examples for text blocking\\.\n\n` +
-		`/addaction \\<type\\> \\[action\\]\n` +
-		`  Add a global restriction that applies to all non\\-elevated users\\.\n\n` +
-		`/removeaction \\<type\\>\n` +
-		`  Remove a global restriction\\.\n\n` +
-		`*Whitelist/Blacklist:*\n` +
-		`/addwhitelist \\<user\\>\n` +
-		`  Add a user to the whitelist \\(exempt from automated restrictions\\)\\.\n\n` +
-		`/removewhitelist \\<user\\>\n` +
-		`  Remove a user from the whitelist\\.\n\n` +
-		`/addblacklist \\<user\\>\n` +
-		`  Add a user to the blacklist \\(stricter moderation\\)\\.\n\n` +
-		`/removeblacklist \\<user\\>\n` +
-		`  Remove a user from the blacklist\\.`,
+	admin: fmt([
+		bold("Admin Commands"),
+		"\n\n",
+		bold("Moderation:"),
+		"\n",
+		"/jail <user> <minutes> (or /silence)\n",
+		"  Jail a user by removing chat permissions for the specified duration. User can pay bail to unjail early.\n\n",
+		"/unjail <user> (or /unsilence)\n",
+		"  Immediately release a jailed user and restore their chat permissions.\n\n",
+		"/warn <user> <reason>\n",
+		"  Issue a formal warning to a user. Increments warning count and creates a violation record.\n\n",
+		bold("Role Management:"),
+		"\n",
+		"/elevate <user>\n",
+		"  Promote a user from 'pleb' to 'elevated' role.\n\n",
+		"/revoke <user>\n",
+		"  Demote an elevated user back to 'pleb' role.\n\n",
+		bold("Restrictions:"),
+		"\n",
+		"/addrestriction <user> <type> [action] [until] [severity]\n",
+		"  Add a content restriction. Types: no_stickers, no_urls, no_media, no_photos, no_videos, no_documents, no_gifs, no_voice, no_forwarding, regex_block, muted. Severity: delete, mute, jail.\n\n",
+		"/regexhelp\n",
+		"  Display regex pattern examples for text blocking.\n\n",
+		"/addaction <type> [action]\n",
+		"  Add a global restriction that applies to all non-elevated users.\n\n",
+		"/removeaction <type>\n",
+		"  Remove a global restriction.\n\n",
+		bold("Whitelist/Blacklist:"),
+		"\n",
+		"/addwhitelist <user>\n",
+		"  Add a user to the whitelist (exempt from automated restrictions).\n\n",
+		"/removewhitelist <user>\n",
+		"  Remove a user from the whitelist.\n\n",
+		"/addblacklist <user>\n",
+		"  Add a user to the blacklist (stricter moderation).\n\n",
+		"/removeblacklist <user>\n",
+		"  Remove a user from the blacklist.",
+	]),
 
-	owner:
-		`*Owner Commands*\n\n` +
-		`*Role Management:*\n` +
-		`/makeadmin \\<user\\>\n` +
-		`  Promote a user to admin role with full moderation powers\\.\n\n` +
-		`/grantowner \\<user\\>\n` +
-		`  Grant owner role to another user\\. Full system access\\.\n\n` +
-		`/setowner \\<user\\>\n` +
-		`  Set the primary owner \\(first\\-time setup only\\)\\.\n\n` +
-		`*Treasury:*\n` +
-		`/treasury\n` +
-		`  View treasury and ledger status with on\\-chain balance\\.\n\n` +
-		`/botbalance\n` +
-		`  Check the bot's on\\-chain wallet balance\\.\n\n` +
-		`/reconcile\n` +
-		`  Trigger balance reconciliation between ledger and on\\-chain wallet\\.\n\n` +
-		`/adjustbalance \\<user\\> \\<amount\\> \\[reason\\]\n` +
-		`  Manually adjust a user's balance \\(positive to add, negative to subtract\\)\\.\n\n` +
-		`*Statistics:*\n` +
-		`/stats\n` +
-		`  View comprehensive bot statistics\\.\n\n` +
-		`/walletstats\n` +
-		`  View detailed wallet and transaction statistics\\.\n\n` +
-		`*Deposits:*\n` +
-		`/unclaimeddeposits\n` +
-		`  List deposits without valid memo \\(held in UNCLAIMED\\)\\.\n\n` +
-		`/processdeposit \\<txhash\\> \\<userid\\>\n` +
-		`  Manually assign an unclaimed deposit to a user\\.\n\n` +
-		`/claimdeposit \\<txhash\\>\n` +
-		`  Process a specific deposit claim\\.\n\n` +
-		`*Fines Configuration:*\n` +
-		`/setfine \\<type\\> \\<amount\\>\n` +
-		`  Set the fine amount for a violation type\\.\n\n` +
-		`/listfines\n` +
-		`  View all configured fine amounts\\.\n\n` +
-		`/initfines\n` +
-		`  Initialize default fine configuration\\.\n\n` +
-		`/customjail \\<user\\> \\<min\\> \\<fine\\> \\[reason\\]\n` +
-		`  Jail with custom fine amount\\.\n\n` +
-		`/junoprice\n` +
-		`  Check current JUNO price\\.\n\n` +
-		`*Moderation:*\n` +
-		`/clearviolations \\<user\\>\n` +
-		`  Clear all violations for a user\\.`,
+	owner: fmt([
+		bold("Owner Commands"),
+		"\n\n",
+		bold("Role Management:"),
+		"\n",
+		"/makeadmin <user>\n",
+		"  Promote a user to admin role with full moderation powers.\n\n",
+		"/grantowner <user>\n",
+		"  Grant owner role to another user. Full system access.\n\n",
+		"/setowner <user>\n",
+		"  Set the primary owner (first-time setup only).\n\n",
+		bold("Treasury:"),
+		"\n",
+		"/treasury\n",
+		"  View treasury and ledger status with on-chain balance.\n\n",
+		"/botbalance\n",
+		"  Check the bot's on-chain wallet balance.\n\n",
+		"/reconcile\n",
+		"  Trigger balance reconciliation between ledger and on-chain wallet.\n\n",
+		"/adjustbalance <user> <amount> [reason]\n",
+		"  Manually adjust a user's balance (positive to add, negative to subtract).\n\n",
+		bold("Statistics:"),
+		"\n",
+		"/stats\n",
+		"  View comprehensive bot statistics.\n\n",
+		"/walletstats\n",
+		"  View detailed wallet and transaction statistics.\n\n",
+		bold("Deposits:"),
+		"\n",
+		"/unclaimeddeposits\n",
+		"  List deposits without valid memo (held in UNCLAIMED).\n\n",
+		"/processdeposit <txhash> <userid>\n",
+		"  Manually assign an unclaimed deposit to a user.\n\n",
+		"/claimdeposit <txhash>\n",
+		"  Process a specific deposit claim.\n\n",
+		bold("Fines Configuration:"),
+		"\n",
+		"/setfine <type> <amount>\n",
+		"  Set the fine amount for a violation type.\n\n",
+		"/listfines\n",
+		"  View all configured fine amounts.\n\n",
+		"/initfines\n",
+		"  Initialize default fine configuration.\n\n",
+		"/customjail <user> <min> <fine> [reason]\n",
+		"  Jail with custom fine amount.\n\n",
+		"/junoprice\n",
+		"  Check current JUNO price.\n\n",
+		bold("Moderation:"),
+		"\n",
+		"/clearviolations <user>\n",
+		"  Clear all violations for a user.",
+	]),
 };
 
 /**
@@ -405,7 +434,10 @@ const categoryRoleRequirements: Record<string, string[]> = {
 /**
  * Get help text for a specific category
  */
-function getHelpTextForCategory(category: string, role: string): string | null {
+function getHelpTextForCategory(
+	category: string,
+	role: string,
+): FmtString | null {
 	const allowedRoles = categoryRoleRequirements[category];
 	if (!allowedRoles || !allowedRoles.includes(role)) {
 		return null;

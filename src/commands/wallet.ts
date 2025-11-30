@@ -7,6 +7,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, fmt } from "telegraf/format";
 import {
 	handleAdjustBalance,
 	handleBalance,
@@ -19,7 +20,6 @@ import {
 } from "../handlers/wallet";
 import { ownerOnly } from "../middleware/index";
 import { financialLockCheck } from "../middleware/lockCheck";
-import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Registers all wallet-related commands with the bot.
@@ -137,33 +137,34 @@ export function registerWalletCommands(bot: Telegraf<Context>): void {
 	 * Syntax: /wallethelp
 	 */
 	bot.command("wallethelp", async (ctx) => {
-		const userId = ctx.from?.id
-			? escapeMarkdownV2(ctx.from.id.toString())
-			: "unknown";
+		const userId = ctx.from?.id ? ctx.from.id.toString() : "unknown";
 		await ctx.reply(
-			`*Wallet Commands*\n\n` +
-				`*Basic Commands:*\n` +
-				`/balance \\- Check your balance\n` +
-				`/deposit \\- Get deposit instructions\n` +
-				`/withdraw \\<amount\\> \\<address\\> \\- Withdraw to external wallet\n` +
-				`/send \\<amount\\> \\<recipient\\> \\- Send to user or wallet\n` +
-				`/transactions \\- View transaction history\n` +
-				`/checkdeposit \\<tx\\_hash\\> \\- Check a specific deposit\n\n` +
-				`*Send Recipients:*\n` +
-				`\\- @username \\- Send to another user\n` +
-				`\\- User ID \\- Send to user by ID\n` +
-				`\\- juno1\\.\\.\\. \\- Send to external wallet\n\n` +
-				`*Owner Commands:*\n` +
-				`/walletstats \\- System statistics\n` +
-				`/giveaway \\<@user|id\\> \\<amount\\> \\- Send giveaway to user\n` +
-				`/reconcile \\- Check internal ledger vs on\\-chain balance\n` +
-				`/adjustbalance \\<amt\\> \\<debit|credit\\> \\- Fix ledger discrepancies\n\n` +
-				`*Important:*\n` +
-				`\\- Always include your user ID \\(${userId}\\) as memo when depositing\n` +
-				`\\- Withdrawals are locked to prevent double\\-spending\n` +
-				`\\- Internal transfers are instant and free\n` +
-				`\\- External transfers incur network fees`,
-			{ parse_mode: "MarkdownV2" },
+			fmt`${bold("Wallet Commands")}
+
+${bold("Basic Commands:")}
+/balance - Check your balance
+/deposit - Get deposit instructions
+/withdraw <amount> <address> - Withdraw to external wallet
+/send <amount> <recipient> - Send to user or wallet
+/transactions - View transaction history
+/checkdeposit <tx_hash> - Check a specific deposit
+
+${bold("Send Recipients:")}
+- @username - Send to another user
+- User ID - Send to user by ID
+- juno1... - Send to external wallet
+
+${bold("Owner Commands:")}
+/walletstats - System statistics
+/giveaway <@user|id> <amount> - Send giveaway to user
+/reconcile - Check internal ledger vs on-chain balance
+/adjustbalance <amt> <debit|credit> - Fix ledger discrepancies
+
+${bold("Important:")}
+- Always include your user ID (${userId}) as memo when depositing
+- Withdrawals are locked to prevent double-spending
+- Internal transfers are instant and free
+- External transfers incur network fees`,
 		);
 	});
 }

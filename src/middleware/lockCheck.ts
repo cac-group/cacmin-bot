@@ -6,9 +6,9 @@
  */
 
 import type { Context } from "telegraf";
+import { bold, fmt } from "telegraf/format";
 import { TransactionLockService } from "../services/transactionLock";
 import { logger } from "../utils/logger";
-import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Middleware that checks if a user has an active transaction lock.
@@ -57,11 +57,12 @@ export async function lockCheckMiddleware(
 			const remainingSeconds = Math.max(0, timeout - age);
 
 			await ctx.reply(
-				`*Transaction in Progress*\n\n` +
-					`You have a ${escapeMarkdownV2(lock.lockType)} transaction in progress\\.\n` +
-					`Please wait ${escapeMarkdownV2(remainingSeconds.toString())} seconds for it to complete\\.\n\n` +
-					`If this persists, contact an admin\\.`,
-				{ parse_mode: "MarkdownV2" },
+				fmt`${bold("Transaction in Progress")}
+
+You have a ${lock.lockType} transaction in progress.
+Please wait ${remainingSeconds} seconds for it to complete.
+
+If this persists, contact an admin.`,
 			);
 
 			logger.info("User command blocked due to active lock", {
@@ -131,7 +132,7 @@ export async function financialLockCheck(
 
 			if (isLocked) {
 				await ctx.reply(
-					`You have another transaction in progress\\. Please wait for it to complete before initiating a new one\\.`,
+					fmt`You have another transaction in progress. Please wait for it to complete before initiating a new one.`,
 				);
 				return;
 			}
