@@ -15,6 +15,7 @@ import {
 } from "../services/unifiedWalletService";
 import { giveawayClaimKeyboard, mainMenuKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { AmountPrecision } from "../utils/precision";
 
 interface Giveaway {
@@ -170,10 +171,10 @@ async function handleRestrictionCallback(
 	setSession(userId, "add_restriction", 1, { restrictionType });
 
 	await ctx.editMessageText(
-		`*Add Restriction: ${restrictionType}*\n\n` +
-			`Please reply with the user ID or @username to restrict.\n\n` +
+		`*Add Restriction: ${escapeMarkdownV2(restrictionType)}*\n\n` +
+			`Please reply with the user ID or @username to restrict\\.\n\n` +
 			`Format: \`userId\` or \`@username\``,
-		{ parse_mode: "Markdown" },
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -190,10 +191,10 @@ async function handleJailCallback(
 		await ctx.editMessageText(
 			"*Custom Jail Duration*\n\n" +
 				"Please reply with:\n" +
-				"1. User ID or @username\n" +
-				"2. Duration in minutes\n\n" +
+				"1\\. User ID or @username\n" +
+				"2\\. Duration in minutes\n\n" +
 				"Format: `@username 45` or `123456 30`",
-			{ parse_mode: "Markdown" },
+			{ parse_mode: "MarkdownV2" },
 		);
 		return;
 	}
@@ -203,9 +204,9 @@ async function handleJailCallback(
 
 	await ctx.editMessageText(
 		`*Jail User for ${minutes} minutes*\n\n` +
-			`Please reply with the user ID or @username to jail.\n\n` +
+			`Please reply with the user ID or @username to jail\\.\n\n` +
 			`Format: \`userId\` or \`@username\``,
-		{ parse_mode: "Markdown" },
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -235,9 +236,9 @@ async function handleDurationCallback(
 
 	const durationText = duration ? `${duration / 3600} hours` : "permanent";
 	await ctx.editMessageText(
-		`Duration set to: ${durationText}\n\n` +
-			`Restriction will be applied. Use /listrestrictions <userId> to verify.`,
-		{ parse_mode: "Markdown" },
+		`Duration set to: ${escapeMarkdownV2(durationText)}\n\n` +
+			`Restriction will be applied\\. Use /listrestrictions \\<userId\\> to verify\\.`,
+		{ parse_mode: "MarkdownV2" },
 	);
 
 	// Clear session after completion
@@ -257,10 +258,10 @@ async function handleGiveawayCallback(
 		await ctx.editMessageText(
 			"*Custom Giveaway Amount*\n\n" +
 				"Please reply with:\n" +
-				"1. User ID or @username\n" +
-				"2. Amount in JUNO\n\n" +
+				"1\\. User ID or @username\n" +
+				"2\\. Amount in JUNO\n\n" +
 				"Format: `@username 15.5` or `123456 20`",
-			{ parse_mode: "Markdown" },
+			{ parse_mode: "MarkdownV2" },
 		);
 		return;
 	}
@@ -270,9 +271,9 @@ async function handleGiveawayCallback(
 
 	await ctx.editMessageText(
 		`*Giveaway: ${amount} JUNO*\n\n` +
-			`Please reply with the user ID or @username to receive the giveaway.\n\n` +
+			`Please reply with the user ID or @username to receive the giveaway\\.\n\n` +
 			`Format: \`userId\` or \`@username\``,
-		{ parse_mode: "Markdown" },
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -289,11 +290,11 @@ async function handleGlobalActionCallback(
 	setSession(userId, "add_global_action", 1, { actionType });
 
 	await ctx.editMessageText(
-		`*Add Global Action: ${actionType}*\n\n` +
-			`This will restrict ALL users from: ${actionType}\n\n` +
-			`Optionally, reply with a specific action to restrict (e.g., specific sticker pack name, domain, etc.)\n` +
-			`Or type "apply" to apply globally.`,
-		{ parse_mode: "Markdown" },
+		`*Add Global Action: ${escapeMarkdownV2(actionType)}*\n\n` +
+			`This will restrict ALL users from: ${escapeMarkdownV2(actionType)}\n\n` +
+			`Optionally, reply with a specific action to restrict \\(e\\.g\\., specific sticker pack name, domain, etc\\.\\)\n` +
+			`Or type "apply" to apply globally\\.`,
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -312,18 +313,18 @@ async function handleRoleCallback(
 	let message = "";
 	if (roleAction === "admin") {
 		message =
-			"*Make Admin*\n\nPlease reply with the user ID or @username to promote to admin.";
+			"*Make Admin*\n\nPlease reply with the user ID or @username to promote to admin\\.";
 	} else if (roleAction === "elevated") {
 		message =
-			"*Elevate User*\n\nPlease reply with the user ID or @username to elevate.";
+			"*Elevate User*\n\nPlease reply with the user ID or @username to elevate\\.";
 	} else if (roleAction === "revoke") {
 		message =
-			"*Revoke Role*\n\nPlease reply with the user ID or @username to demote.";
+			"*Revoke Role*\n\nPlease reply with the user ID or @username to demote\\.";
 	}
 
 	await ctx.editMessageText(
 		`${message}\n\nFormat: \`@username\` or \`userId\``,
-		{ parse_mode: "Markdown" },
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -355,12 +356,13 @@ async function handleListCallback(
 
 		const message = users
 			.map(
-				(u) => `• ${u.username ? `@${u.username}` : `User ${u.id}`} (${u.id})`,
+				(u) =>
+					`\\- ${u.username ? `@${escapeMarkdownV2(u.username)}` : `User ${u.id}`} \\(${u.id}\\)`,
 			)
 			.join("\n");
 		await ctx.editMessageText(
 			`*${listType.charAt(0).toUpperCase() + listType.slice(1)}:*\n\n${message}`,
-			{ parse_mode: "Markdown" },
+			{ parse_mode: "MarkdownV2" },
 		);
 		return;
 	}
@@ -369,10 +371,10 @@ async function handleListCallback(
 
 	await ctx.editMessageText(
 		`*List Management*\n\n` +
-			`Action: ${action}\n\n` +
-			`Please reply with the user ID or @username.\n\n` +
+			`Action: ${escapeMarkdownV2(action)}\n\n` +
+			`Please reply with the user ID or @username\\.\n\n` +
 			`Format: \`@username\` or \`userId\``,
-		{ parse_mode: "Markdown" },
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -396,8 +398,9 @@ async function handlePermissionCallback(
 	setSession(userId, session.action, session.step + 1, session.data);
 
 	await ctx.editMessageText(
-		`Permission level set to: ${permission}\n\n` +
-			`Access will be granted when you confirm.`,
+		`Permission level set to: ${escapeMarkdownV2(permission)}\n\n` +
+			`Access will be granted when you confirm\\.`,
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -418,27 +421,29 @@ async function handleConfirmationCallback(
 	}
 
 	// Execute the confirmed action
-	await ctx.editMessageText(`${action} confirmed and executed!`);
+	await ctx.editMessageText(`${escapeMarkdownV2(action)} confirmed and executed\\!`, {
+		parse_mode: "MarkdownV2",
+	});
 	clearSession(userId);
 }
 
 /**
- * Menu content map for main menu navigation
+ * Menu content map for main menu navigation (MarkdownV2 format)
  */
 const menuContent: Record<string, string> = {
 	wallet:
-		"*Wallet Commands*\n\n/balance - Check balance\n/deposit - Get deposit instructions\n/withdraw - Withdraw funds\n/send - Send funds\n/transactions - View history",
+		"*Wallet Commands*\n\n/balance \\- Check balance\n/deposit \\- Get deposit instructions\n/withdraw \\- Withdraw funds\n/send \\- Send funds\n/transactions \\- View history",
 	shared:
-		"*Shared Account Commands*\n\n/myshared - View your shared accounts\n/createshared - Create new shared account\n/sharedbalance - Check shared balance",
+		"*Shared Account Commands*\n\n/myshared \\- View your shared accounts\n/createshared \\- Create new shared account\n/sharedbalance \\- Check shared balance",
 	moderation:
-		"*Moderation Commands*\n\n/jail - Jail user\n/unjail - Release user\n/warn - Issue warning\n/addrestriction - Add restriction",
+		"*Moderation Commands*\n\n/jail \\- Jail user\n/unjail \\- Release user\n/warn \\- Issue warning\n/addrestriction \\- Add restriction",
 	lists:
-		"*List Management*\n\n/viewwhitelist - View whitelist\n/viewblacklist - View blacklist\n/addwhitelist - Add to whitelist\n/addblacklist - Add to blacklist",
+		"*List Management*\n\n/viewwhitelist \\- View whitelist\n/viewblacklist \\- View blacklist\n/addwhitelist \\- Add to whitelist\n/addblacklist \\- Add to blacklist",
 	roles:
-		"*Role Management*\n\n/makeadmin - Promote to admin\n/elevate - Elevate user\n/revoke - Revoke privileges\n/listadmins - List all admins",
+		"*Role Management*\n\n/makeadmin \\- Promote to admin\n/elevate \\- Elevate user\n/revoke \\- Revoke privileges\n/listadmins \\- List all admins",
 	stats:
-		"*Statistics*\n\n/stats - Bot statistics\n/jailstats - Jail statistics\n/walletstats - Wallet statistics",
-	help: "*Help*\n\nUse /help in a DM for comprehensive command reference.",
+		"*Statistics*\n\n/stats \\- Bot statistics\n/jailstats \\- Jail statistics\n/walletstats \\- Wallet statistics",
+	help: "*Help*\n\nUse /help in a DM for comprehensive command reference\\.",
 };
 
 /**
@@ -454,7 +459,7 @@ async function handleMenuCallback(
 
 	if (message) {
 		await ctx.editMessageText(message, {
-			parse_mode: "Markdown",
+			parse_mode: "MarkdownV2",
 			reply_markup: mainMenuKeyboard,
 		});
 	}
@@ -480,7 +485,8 @@ async function handleUserSelectionCallback(
 	setSession(userId, session.action, session.step + 1, session.data);
 
 	await ctx.editMessageText(
-		`User ${selectedUserId} selected. Proceeding with ${session.action}...`,
+		`User ${selectedUserId} selected\\. Proceeding with ${escapeMarkdownV2(session.action)}\\.\\.\\.`,
+		{ parse_mode: "MarkdownV2" },
 	);
 }
 
@@ -510,18 +516,21 @@ async function handleGiveawayFundCallback(
 	}
 
 	const slotInfo = [10, 25, 50, 100]
-		.map((s) => `- ${s} slots = ${(totalAmount / s).toFixed(6)} JUNO each`)
+		.map(
+			(s) =>
+				`\\- ${s} slots \\= ${escapeMarkdownV2((totalAmount / s).toFixed(6))} JUNO each`,
+		)
 		.join("\n");
 
 	const sourceLabel =
 		fundingSource === "treasury" ? "Treasury" : "Your Balance";
 
 	await ctx.editMessageText(
-		`*Create Giveaway: ${totalAmount} JUNO*\n\n` +
+		`*Create Giveaway: ${escapeMarkdownV2(totalAmount)} JUNO*\n\n` +
 			`Funding from: ${sourceLabel}\n\n` +
 			`Select number of slots:\n${slotInfo}`,
 		{
-			parse_mode: "Markdown",
+			parse_mode: "MarkdownV2",
 			reply_markup: {
 				inline_keyboard: [
 					[
@@ -646,20 +655,21 @@ async function handleGiveawayCreateCallback(
 
 		// Edit the original message to show creation confirmation
 		await ctx.editMessageText(
-			`Giveaway #${giveawayId} created!\n` +
-				`Total: ${totalAmount} JUNO (debited from ${sourceLabel})\n` +
+			`Giveaway \\#${giveawayId} created\\!\n` +
+				`Total: ${escapeMarkdownV2(totalAmount)} JUNO \\(debited from ${sourceLabel}\\)\n` +
 				`Slots: ${totalSlots}\n` +
-				`Per slot: ${amountPerSlot.toFixed(6)} JUNO`,
+				`Per slot: ${escapeMarkdownV2(amountPerSlot.toFixed(6))} JUNO`,
+			{ parse_mode: "MarkdownV2" },
 		);
 
 		// Send the actual giveaway message with claim button
 		const giveawayMsg = await ctx.reply(
 			`*JUNO Giveaway*\n\n` +
-				`${amountPerSlot.toFixed(6)} JUNO per claim\n` +
+				`${escapeMarkdownV2(amountPerSlot.toFixed(6))} JUNO per claim\n` +
 				`Slots: ${totalSlots}/${totalSlots} available\n\n` +
-				`Click below to claim your share!`,
+				`Click below to claim your share\\!`,
 			{
-				parse_mode: "Markdown",
+				parse_mode: "MarkdownV2",
 				reply_markup: giveawayClaimKeyboard(giveawayId, 0, totalSlots),
 			},
 		);
@@ -782,11 +792,11 @@ async function handleGiveawayClaimCallback(
 			if (isComplete) {
 				await ctx.editMessageText(
 					`*JUNO Giveaway Complete*\n\n` +
-						`${giveaway.amount_per_slot.toFixed(6)} JUNO per claim\n` +
-						`All ${giveaway.total_slots} slots claimed!\n\n` +
-						`Total distributed: ${giveaway.total_amount.toFixed(6)} JUNO`,
+						`${escapeMarkdownV2(giveaway.amount_per_slot.toFixed(6))} JUNO per claim\n` +
+						`All ${giveaway.total_slots} slots claimed\\!\n\n` +
+						`Total distributed: ${escapeMarkdownV2(giveaway.total_amount.toFixed(6))} JUNO`,
 					{
-						parse_mode: "Markdown",
+						parse_mode: "MarkdownV2",
 						reply_markup: {
 							inline_keyboard: [
 								[{ text: "Giveaway Complete", callback_data: "noop" }],
@@ -797,11 +807,11 @@ async function handleGiveawayClaimCallback(
 			} else {
 				await ctx.editMessageText(
 					`*JUNO Giveaway*\n\n` +
-						`${giveaway.amount_per_slot.toFixed(6)} JUNO per claim\n` +
+						`${escapeMarkdownV2(giveaway.amount_per_slot.toFixed(6))} JUNO per claim\n` +
 						`Slots: ${remaining}/${giveaway.total_slots} available\n\n` +
-						`Click below to claim your share!`,
+						`Click below to claim your share\\!`,
 					{
-						parse_mode: "Markdown",
+						parse_mode: "MarkdownV2",
 						reply_markup: giveawayClaimKeyboard(
 							giveawayId,
 							newClaimedSlots,

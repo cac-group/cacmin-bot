@@ -6,6 +6,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { logger } from "../utils/logger";
 
 /**
@@ -41,14 +42,14 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 			// Once we have the file_id, we can send the actual sticker
 			await ctx.reply(
 				"*CACGifs Sticker Pack*\n\n" +
-					"To send stickers from this pack, I need the sticker file_id.\n\n" +
-					"Pack link: https://t.me/addstickers/CACGifs\n\n" +
-					"To get the file_id:\n" +
-					"1. Send me any sticker from this pack in a DM\n" +
-					"2. I will log the file_id\n" +
-					"3. Update the code with the file_id\n" +
-					"4. Then I can send stickers directly!",
-				{ parse_mode: "Markdown" },
+					"To send stickers from this pack, I need the sticker file\\_id\\.\n\n" +
+					"Pack link: https://t\\.me/addstickers/CACGifs\n\n" +
+					"To get the file\\_id:\n" +
+					"1\\. Send me any sticker from this pack in a DM\n" +
+					"2\\. I will log the file\\_id\n" +
+					"3\\. Update the code with the file\\_id\n" +
+					"4\\. Then I can send stickers directly\\!",
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Error sending sticker", { error });
@@ -69,7 +70,7 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 
 			if (!replyMessage || !("sticker" in replyMessage)) {
 				return ctx.reply(
-					"Please reply to a sticker with /getsticker to get its file_id",
+					"Please reply to a sticker with /getsticker to get its file\\_id",
 				);
 			}
 
@@ -81,12 +82,12 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 
 			await ctx.reply(
 				`*Sticker Information*\n\n` +
-					`File ID: \`${fileId}\`\n` +
-					`Unique ID: \`${fileUniqueId}\`\n` +
-					`Set Name: ${stickerSetName || "N/A"}\n` +
-					`Emoji: ${emoji || "N/A"}\n\n` +
-					`Use this file_id to send this sticker programmatically.`,
-				{ parse_mode: "Markdown" },
+					`File ID: \`${escapeMarkdownV2(fileId)}\`\n` +
+					`Unique ID: \`${escapeMarkdownV2(fileUniqueId)}\`\n` +
+					`Set Name: ${escapeMarkdownV2(stickerSetName || "N/A")}\n` +
+					`Emoji: ${escapeMarkdownV2(emoji || "N/A")}\n\n` +
+					`Use this file\\_id to send this sticker programmatically\\.`,
+				{ parse_mode: "MarkdownV2" },
 			);
 
 			logger.info("Sticker file_id retrieved", {
@@ -124,10 +125,10 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 				// Optionally notify in DM
 				if (ctx.chat.type === "private") {
 					await ctx.reply(
-						`CACGifs sticker logged!\n\n` +
-							`File ID: \`${fileId}\`\n` +
-							`Emoji: ${emoji || "N/A"}`,
-						{ parse_mode: "Markdown" },
+						`CACGifs sticker logged\\!\n\n` +
+							`File ID: \`${escapeMarkdownV2(fileId)}\`\n` +
+							`Emoji: ${escapeMarkdownV2(emoji || "N/A")}`,
+						{ parse_mode: "MarkdownV2" },
 					);
 				}
 			}
@@ -148,9 +149,9 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 			// Check if we have the file_id
 			if (!STICKER_PACK.cacgifs.first) {
 				return ctx.reply(
-					"Sticker not configured yet!\n\n" +
-						"Please send me the first sticker from https://t.me/addstickers/CACGifs\n" +
-						"in a DM, and I will save it for this command.",
+					"Sticker not configured yet\\!\n\n" +
+						"Please send me the first sticker from https://t\\.me/addstickers/CACGifs\n" +
+						"in a DM, and I will save it for this command\\.",
 				);
 			}
 

@@ -14,6 +14,7 @@ import {
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { logger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Registers all wallet test commands with the bot.
@@ -67,14 +68,14 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			const botBalance = await UnifiedWalletService.getBotBalance();
 
 			await ctx.reply(
-				` *Balance Test*\n\n` +
-					`Your balance: \`${balance.toFixed(6)} JUNO\`\n` +
-					`Bot treasury: \`${botBalance.toFixed(6)} JUNO\``,
-				{ parse_mode: "Markdown" },
+				`*Balance Test*\n\n` +
+					`Your balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\`\n` +
+					`Bot treasury: \`${escapeMarkdownV2(botBalance.toFixed(6))} JUNO\``,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Balance test failed", { userId, error });
-			await ctx.reply(" Balance test failed");
+			await ctx.reply("Balance test failed");
 		}
 	});
 
@@ -93,15 +94,15 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			const instructions = UnifiedWalletService.getDepositInstructions(userId);
 
 			await ctx.reply(
-				` *Deposit Test Instructions*\n\n` +
-					`Address:\n\`${instructions.address}\`\n\n` +
-					`Memo: \`${instructions.memo}\`\n\n` +
-					`${instructions.instructions}`,
-				{ parse_mode: "Markdown" },
+				`*Deposit Test Instructions*\n\n` +
+					`Address:\n\`${escapeMarkdownV2(instructions.address)}\`\n\n` +
+					`Memo: \`${escapeMarkdownV2(instructions.memo)}\`\n\n` +
+					`${escapeMarkdownV2(instructions.instructions)}`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Deposit test failed", { userId, error });
-			await ctx.reply(" Deposit test failed");
+			await ctx.reply("Deposit test failed");
 		}
 	});
 
@@ -138,18 +139,18 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 
 			if (result.success) {
 				await ctx.reply(
-					` *Transfer Test Successful*\n\n` +
-						`Sent \`${amount.toFixed(6)} JUNO\` to user ${toUserId}\n` +
-						`Your new balance: \`${result.fromBalance?.toFixed(6)} JUNO\`\n` +
-						`Recipient balance: \`${result.toBalance?.toFixed(6)} JUNO\``,
-					{ parse_mode: "Markdown" },
+					`*Transfer Test Successful*\n\n` +
+						`Sent \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\` to user ${escapeMarkdownV2(toUserId.toString())}\n` +
+						`Your new balance: \`${escapeMarkdownV2(result.fromBalance?.toFixed(6) || "0")} JUNO\`\n` +
+						`Recipient balance: \`${escapeMarkdownV2(result.toBalance?.toFixed(6) || "0")} JUNO\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(` Transfer failed: ${result.error}`);
+				await ctx.reply(`Transfer failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
 			}
 		} catch (error) {
 			logger.error("Transfer test failed", { userId, toUserId, amount, error });
-			await ctx.reply(" Transfer test failed");
+			await ctx.reply("Transfer test failed");
 		}
 	});
 
@@ -182,18 +183,18 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 				const botBalance = await UnifiedWalletService.getBotBalance();
 
 				await ctx.reply(
-					` *Fine Test Successful*\n\n` +
-						`Paid \`${amount.toFixed(6)} JUNO\` fine\n` +
-						`Your new balance: \`${result.newBalance?.toFixed(6)} JUNO\`\n` +
-						`Bot treasury balance: \`${botBalance.toFixed(6)} JUNO\``,
-					{ parse_mode: "Markdown" },
+					`*Fine Test Successful*\n\n` +
+						`Paid \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\` fine\n` +
+						`Your new balance: \`${escapeMarkdownV2(result.newBalance?.toFixed(6) || "0")} JUNO\`\n` +
+						`Bot treasury balance: \`${escapeMarkdownV2(botBalance.toFixed(6))} JUNO\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(` Fine payment failed: ${result.error}`);
+				await ctx.reply(`Fine payment failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
 			}
 		} catch (error) {
 			logger.error("Fine test failed", { userId, amount, error });
-			await ctx.reply(" Fine test failed");
+			await ctx.reply("Fine test failed");
 		}
 	});
 
@@ -226,21 +227,21 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 
 			if (balance < amount) {
 				await ctx.reply(
-					` *Withdrawal Test Failed*\n\n` +
+					`*Withdrawal Test Failed*\n\n` +
 						`Insufficient balance\n` +
-						`Requested: \`${amount.toFixed(6)} JUNO\`\n` +
-						`Available: \`${balance.toFixed(6)} JUNO\``,
-					{ parse_mode: "Markdown" },
+						`Requested: \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n` +
+						`Available: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
 				await ctx.reply(
-					` *Withdrawal Test (DRY RUN)*\n\n` +
-						`Would withdraw \`${amount.toFixed(6)} JUNO\`\n` +
-						`To: \`${address}\`\n` +
-						`Current balance: \`${balance.toFixed(6)} JUNO\`\n` +
-						`Balance after: \`${(balance - amount).toFixed(6)} JUNO\`\n\n` +
-						` This was a dry run - no actual withdrawal`,
-					{ parse_mode: "Markdown" },
+					`*Withdrawal Test \\(DRY RUN\\)*\n\n` +
+						`Would withdraw \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n` +
+						`To: \`${escapeMarkdownV2(address)}\`\n` +
+						`Current balance: \`${escapeMarkdownV2(balance.toFixed(6))} JUNO\`\n` +
+						`Balance after: \`${escapeMarkdownV2((balance - amount).toFixed(6))} JUNO\`\n\n` +
+						`This was a dry run \\- no actual withdrawal`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 		} catch (error) {
@@ -250,7 +251,7 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 				amount,
 				error,
 			});
-			await ctx.reply(" Withdrawal test failed");
+			await ctx.reply("Withdrawal test failed");
 		}
 	});
 
@@ -274,20 +275,20 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 
 			if (result.verified) {
 				await ctx.reply(
-					` *Transaction Verified*\n\n` +
-						`Hash: \`${txHash}\`\n` +
-						`Amount: \`${result.amount?.toFixed(6)} JUNO\`\n` +
-						`From: \`${result.from}\`\n` +
-						`To: \`${result.to}\`\n` +
-						`Memo: ${result.memo || "None"}`,
-					{ parse_mode: "Markdown" },
+					`*Transaction Verified*\n\n` +
+						`Hash: \`${escapeMarkdownV2(txHash)}\`\n` +
+						`Amount: \`${escapeMarkdownV2(result.amount?.toFixed(6) || "0")} JUNO\`\n` +
+						`From: \`${escapeMarkdownV2(result.from || "")}\`\n` +
+						`To: \`${escapeMarkdownV2(result.to || "")}\`\n` +
+						`Memo: ${escapeMarkdownV2(result.memo || "None")}`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(` Transaction not found or invalid`);
+				await ctx.reply("Transaction not found or invalid");
 			}
 		} catch (error) {
 			logger.error("Verification test failed", { txHash, error });
-			await ctx.reply(" Verification test failed");
+			await ctx.reply("Verification test failed");
 		}
 	});
 
@@ -303,24 +304,24 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			const stats = await UnifiedWalletService.getStats();
 
 			await ctx.reply(
-				` *Wallet Statistics*\n\n` +
+				`*Wallet Statistics*\n\n` +
 					`*System Wallet*\n` +
-					`Address: \`${stats.walletAddress}\`\n` +
-					`On-chain balance: \`${stats.onChainBalance.toFixed(6)} JUNO\`\n\n` +
+					`Address: \`${escapeMarkdownV2(stats.walletAddress)}\`\n` +
+					`On\\-chain balance: \`${escapeMarkdownV2(stats.onChainBalance.toFixed(6))} JUNO\`\n\n` +
 					`*Internal Ledger*\n` +
-					`Total user balances: \`${stats.internalTotal.toFixed(6)} JUNO\`\n` +
-					`Bot treasury: \`${stats.botBalance.toFixed(6)} JUNO\`\n` +
-					`Unclaimed deposits: \`${stats.unclaimedBalance.toFixed(6)} JUNO\`\n\n` +
+					`Total user balances: \`${escapeMarkdownV2(stats.internalTotal.toFixed(6))} JUNO\`\n` +
+					`Bot treasury: \`${escapeMarkdownV2(stats.botBalance.toFixed(6))} JUNO\`\n` +
+					`Unclaimed deposits: \`${escapeMarkdownV2(stats.unclaimedBalance.toFixed(6))} JUNO\`\n\n` +
 					`*Status*\n` +
-					`Active users: ${stats.activeUsers}\n` +
-					`Pending deposits: ${stats.pendingDeposits}\n` +
-					`Reconciled: ${stats.reconciled ? " Yes" : " No"}\n` +
-					`${!stats.reconciled ? `Difference: ${Math.abs(stats.onChainBalance - stats.internalTotal).toFixed(6)} JUNO` : ""}`,
-				{ parse_mode: "Markdown" },
+					`Active users: ${escapeMarkdownV2(stats.activeUsers.toString())}\n` +
+					`Pending deposits: ${escapeMarkdownV2(stats.pendingDeposits.toString())}\n` +
+					`Reconciled: ${stats.reconciled ? "Yes" : "No"}\n` +
+					`${!stats.reconciled ? `Difference: ${escapeMarkdownV2(Math.abs(stats.onChainBalance - stats.internalTotal).toFixed(6))} JUNO` : ""}`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Wallet stats test failed", { error });
-			await ctx.reply(" Wallet stats test failed");
+			await ctx.reply("Wallet stats test failed");
 		}
 	});
 
@@ -355,14 +356,14 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 
 			if (result.success) {
 				await ctx.reply(
-					` *Deposit Simulation Successful*\n\n` +
-						`User ${targetUserId} credited with \`${amount.toFixed(6)} JUNO\`\n` +
-						`New balance: \`${result.newBalance.toFixed(6)} JUNO\`\n\n` +
-						` This is a simulated deposit for testing`,
-					{ parse_mode: "Markdown" },
+					`*Deposit Simulation Successful*\n\n` +
+						`User ${escapeMarkdownV2(targetUserId.toString())} credited with \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n` +
+						`New balance: \`${escapeMarkdownV2(result.newBalance.toFixed(6))} JUNO\`\n\n` +
+						`This is a simulated deposit for testing`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(` Deposit simulation failed: ${result.error}`);
+				await ctx.reply(`Deposit simulation failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
 			}
 		} catch (error) {
 			logger.error("Deposit simulation failed", {
@@ -370,7 +371,7 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 				amount,
 				error,
 			});
-			await ctx.reply(" Deposit simulation failed");
+			await ctx.reply("Deposit simulation failed");
 		}
 	});
 
@@ -399,23 +400,23 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 				const amount = tx.amount;
 				const isCredit = tx.toUserId === userId;
 
-				message += `${isCredit ? "" : ""} ${type.toUpperCase()}: \`${amount.toFixed(6)} JUNO\`\n`;
+				message += `${isCredit ? "" : ""} ${escapeMarkdownV2(type.toUpperCase())}: \`${escapeMarkdownV2(amount.toFixed(6))} JUNO\`\n`;
 
 				if (tx.description) {
-					message += `   ${tx.description}\n`;
+					message += `   ${escapeMarkdownV2(tx.description)}\n`;
 				}
 
 				if (tx.txHash) {
-					message += `   Hash: \`${tx.txHash.substring(0, 10)}...\`\n`;
+					message += `   Hash: \`${escapeMarkdownV2(tx.txHash.substring(0, 10))}\\.\\.\\.\`\n`;
 				}
 
 				message += "\n";
 			}
 
-			await ctx.reply(message, { parse_mode: "Markdown" });
+			await ctx.reply(message, { parse_mode: "MarkdownV2" });
 		} catch (error) {
 			logger.error("History test failed", { userId, error });
-			await ctx.reply(" History test failed");
+			await ctx.reply("History test failed");
 		}
 	});
 
@@ -437,12 +438,12 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
-		await ctx.reply(" Starting full wallet flow test...");
+		await ctx.reply("Starting full wallet flow test...");
 
 		try {
 			// 1. Check initial balance
 			const initialBalance = await UnifiedWalletService.getBalance(userId);
-			await ctx.reply(`1⃣ Initial balance: ${initialBalance.toFixed(6)} JUNO`);
+			await ctx.reply(`1 Initial balance: ${escapeMarkdownV2(initialBalance.toFixed(6))} JUNO`);
 
 			// 2. Simulate a deposit
 			const depositAmount = 100;
@@ -459,7 +460,7 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			}
 
 			await ctx.reply(
-				`2⃣ Deposit: +${depositAmount} JUNO (balance: ${depositResult.newBalance.toFixed(6)})`,
+				`2 Deposit: +${escapeMarkdownV2(depositAmount.toString())} JUNO (balance: ${escapeMarkdownV2(depositResult.newBalance.toFixed(6))})`,
 			);
 
 			// 3. Pay a fine
@@ -475,7 +476,7 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			}
 
 			await ctx.reply(
-				`3⃣ Fine paid: -${fineAmount} JUNO (balance: ${fineResult.newBalance?.toFixed(6)})`,
+				`3 Fine paid: -${escapeMarkdownV2(fineAmount.toString())} JUNO (balance: ${escapeMarkdownV2(fineResult.newBalance?.toFixed(6) || "0")})`,
 			);
 
 			// 4. Transfer to bot
@@ -492,7 +493,7 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			}
 
 			await ctx.reply(
-				`4⃣ Transfer to bot: -${transferAmount} JUNO (balance: ${transferResult.fromBalance?.toFixed(6)})`,
+				`4 Transfer to bot: -${escapeMarkdownV2(transferAmount.toString())} JUNO (balance: ${escapeMarkdownV2(transferResult.fromBalance?.toFixed(6) || "0")})`,
 			);
 
 			// 5. Check final balances
@@ -500,20 +501,20 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			const botBalance = await UnifiedWalletService.getBotBalance();
 
 			await ctx.reply(
-				` *Full Flow Test Complete*\n\n` +
-					`Initial balance: \`${initialBalance.toFixed(6)} JUNO\`\n` +
-					`Deposited: \`+${depositAmount} JUNO\`\n` +
-					`Fine paid: \`-${fineAmount} JUNO\`\n` +
-					`Transferred: \`-${transferAmount} JUNO\`\n\n` +
-					`Expected: \`${(initialBalance + depositAmount - fineAmount - transferAmount).toFixed(6)} JUNO\`\n` +
-					`Actual: \`${finalUserBalance.toFixed(6)} JUNO\`\n\n` +
-					`Bot treasury: \`${botBalance.toFixed(6)} JUNO\``,
-				{ parse_mode: "Markdown" },
+				`*Full Flow Test Complete*\n\n` +
+					`Initial balance: \`${escapeMarkdownV2(initialBalance.toFixed(6))} JUNO\`\n` +
+					`Deposited: \`${escapeMarkdownV2("+" + depositAmount)} JUNO\`\n` +
+					`Fine paid: \`${escapeMarkdownV2("-" + fineAmount)} JUNO\`\n` +
+					`Transferred: \`${escapeMarkdownV2("-" + transferAmount)} JUNO\`\n\n` +
+					`Expected: \`${escapeMarkdownV2((initialBalance + depositAmount - fineAmount - transferAmount).toFixed(6))} JUNO\`\n` +
+					`Actual: \`${escapeMarkdownV2(finalUserBalance.toFixed(6))} JUNO\`\n\n` +
+					`Bot treasury: \`${escapeMarkdownV2(botBalance.toFixed(6))} JUNO\``,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Full flow test failed", { userId, error });
 			await ctx.reply(
-				` Full flow test failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+				`Full flow test failed: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}`,
 			);
 		}
 	});

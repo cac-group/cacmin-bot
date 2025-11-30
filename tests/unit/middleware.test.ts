@@ -772,12 +772,12 @@ describe('Middleware and Utilities Test Suite', () => {
         expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
           config.adminChatId,
           expect.stringContaining('Admin Alert'),
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'MarkdownV2' }
         );
         expect(mockBot.telegram.sendMessage).toHaveBeenCalledWith(
           config.adminChatId,
           expect.stringContaining('Test notification'),
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'MarkdownV2' }
         );
       });
 
@@ -810,9 +810,9 @@ describe('Middleware and Utilities Test Suite', () => {
         await notifyAdmin('Critical error occurred');
 
         const calls = (mockBot.telegram.sendMessage as Mock).mock.calls;
-        expect(calls[0][1]).toContain(' *Admin Alert*');
+        expect(calls[0][1]).toContain('*Admin Alert*');
         expect(calls[0][1]).toContain('Critical error occurred');
-        expect(calls[0][2]).toEqual({ parse_mode: 'Markdown' });
+        expect(calls[0][2]).toEqual({ parse_mode: 'MarkdownV2' });
       });
     });
   });

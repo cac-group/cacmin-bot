@@ -12,6 +12,7 @@ import { adminOrHigher, ownerOnly } from "../middleware/index";
 import { JailService } from "../services/jailService";
 import { getCommandArgs, getUserIdentifier } from "../utils/commandHelper";
 import { logger, StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
@@ -76,16 +77,16 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 
 		if (!userIdentifier) {
 			return ctx.reply(
-				" *Usage:*\n" +
+				"⚠️ *Usage:*\n" +
 					"• Reply to a user: `/jail <minutes>`\n" +
 					"• Direct: `/jail <@username|userId> <minutes>`\n" +
 					"• Alias: `/silence`",
-				{ parse_mode: "Markdown" },
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
 		if (args.length < 1) {
-			return ctx.reply(" Please specify duration in minutes.");
+			return ctx.reply("⚠️ Please specify duration in minutes\\.");
 		}
 
 		const minutesStr = args[0];
@@ -95,7 +96,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const userId = resolveUserId(userIdentifier);
 		if (!userId) {
 			return ctx.reply(
-				" User not found. Please use a valid @username or userId.",
+				"⚠️ User not found\\. Please use a valid @username or userId\\.",
 			);
 		}
 
@@ -103,12 +104,12 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		if (isImmuneToModeration(userId)) {
 			const userDisplay = formatUserIdDisplay(userId);
 			return ctx.reply(
-				` Cannot jail ${userDisplay} - admins and owners are immune to moderation actions.`,
+				`⛔ Cannot jail ${escapeMarkdownV2(userDisplay)} \\- admins and owners are immune to moderation actions\\.`,
 			);
 		}
 
 		if (Number.isNaN(minutes) || minutes < 1) {
-			return ctx.reply(" Invalid duration. Minutes must be a positive number.");
+			return ctx.reply("⚠️ Invalid duration\\. Minutes must be a positive number\\.");
 		}
 
 		// Check if bot has admin permissions in this chat
@@ -126,9 +127,9 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 
 				if (!canDelete) {
 					await ctx.reply(
-						' Warning: Bot is not an administrator or lacks "Delete Messages" permission.\n' +
-							"User will be marked as jailed, but messages cannot be deleted automatically.\n" +
-							"Please make the bot an admin with delete permissions.",
+						'⚠️ Warning: Bot is not an administrator or lacks "Delete Messages" permission\\.\n' +
+							"User will be marked as jailed, but messages cannot be deleted automatically\\.\n" +
+							"Please make the bot an admin with delete permissions\\.",
 					);
 				}
 			} catch (error) {
@@ -189,17 +190,17 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 					error,
 				});
 				await ctx.reply(
-					` Database updated but failed to restrict user in Telegram.\n` +
-						`Error: ${error instanceof Error ? error.message : "Unknown error"}\n` +
-						`The bot may lack admin permissions or the user may have left.`,
+					`⚠️ Database updated but failed to restrict user in Telegram\\.\n` +
+						`Error: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}\n` +
+						`The bot may lack admin permissions or the user may have left\\.`,
 				);
 			}
 		}
 
 		const userDisplay = formatUserIdDisplay(userId);
 		await ctx.reply(
-			` User ${userDisplay} has been jailed for ${minutes} minutes.\n` +
-				`Bail amount: ${bailAmount.toFixed(2)} JUNO\n\n` +
+			`🔒 User ${escapeMarkdownV2(userDisplay)} has been jailed for ${escapeMarkdownV2(minutes.toString())} minutes\\.\n` +
+				`Bail amount: ${escapeMarkdownV2(bailAmount.toFixed(2))} JUNO\n\n` +
 				`They can pay bail using /paybail or check their status with /mystatus`,
 		);
 		logger.info("User jailed", { adminId, userId, minutes, bailAmount });
@@ -233,7 +234,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 				: "";
 		if (!userIdentifier) {
 			return ctx.reply(
-				"Usage: /unjail <@username|userId> or /unsilence <@username|userId>",
+				"Usage: /unjail <@username\\|userId> or /unsilence <@username\\|userId>",
 			);
 		}
 
@@ -241,7 +242,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const userId = resolveUserId(userIdentifier);
 		if (!userId) {
 			return ctx.reply(
-				" User not found. Please use a valid @username or userId.",
+				"⚠️ User not found\\. Please use a valid @username or userId\\.",
 			);
 		}
 
@@ -291,15 +292,15 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 					error,
 				});
 				await ctx.reply(
-					` Database updated but failed to restore user permissions in Telegram.\n` +
-						`Error: ${error instanceof Error ? error.message : "Unknown error"}\n` +
-						`The bot may lack admin permissions or the user may have left.`,
+					`⚠️ Database updated but failed to restore user permissions in Telegram\\.\n` +
+						`Error: ${escapeMarkdownV2(error instanceof Error ? error.message : "Unknown error")}\n` +
+						`The bot may lack admin permissions or the user may have left\\.`,
 				);
 			}
 		}
 
 		const userDisplay = formatUserIdDisplay(userId);
-		await ctx.reply(` User ${userDisplay} has been released from jail.`);
+		await ctx.reply(`🔓 User ${escapeMarkdownV2(userDisplay)} has been released from jail\\.`);
 		logger.info("User unjailed", { adminId, userId });
 	};
 
@@ -331,13 +332,13 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const reason = args.slice(1).join(" ");
 
 		if (Number.isNaN(userId)) {
-			return ctx.reply(" Invalid user ID");
+			return ctx.reply("⚠️ Invalid user ID");
 		}
 
 		// Check if target user is immune to moderation
 		if (isImmuneToModeration(userId)) {
 			return ctx.reply(
-				` Cannot warn user ${userId} - admins and owners are immune to moderation actions.`,
+				`⛔ Cannot warn user ${escapeMarkdownV2(userId.toString())} \\- admins and owners are immune to moderation actions\\.`,
 			);
 		}
 
@@ -352,13 +353,14 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 			[Math.floor(Date.now() / 1000), userId],
 		);
 
-		await ctx.reply(` User ${userId} has been warned.\nReason: ${reason}`);
+		await ctx.reply(`⚠️ User ${escapeMarkdownV2(userId.toString())} has been warned\\.\nReason: ${escapeMarkdownV2(reason)}`);
 
 		// Try to notify the user
 		try {
 			await bot.telegram.sendMessage(
 				userId,
-				` You have received a warning from an admin.\nReason: ${reason}\nPlease follow the group rules.`,
+				`⚠️ You have received a warning from an admin\\.\nReason: ${escapeMarkdownV2(reason)}\nPlease follow the group rules\\.`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.debug("Could not send warning to user", { userId, error });
@@ -393,7 +395,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 			userId,
 		]);
 
-		await ctx.reply(` All violations cleared for user ${userId}.`);
+		await ctx.reply(`✅ All violations cleared for user ${escapeMarkdownV2(userId.toString())}\\.`);
 		logger.info("Violations cleared", { ownerId, userId });
 	});
 
@@ -479,22 +481,22 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		};
 
 		const message =
-			` *Bot Statistics*\n\n` +
+			`📊 *Bot Statistics*\n\n` +
 			`*Users*\n` +
-			`Total: ${stats.totalUsers}\n` +
-			`Blacklisted: ${stats.blacklisted}\n` +
-			`Whitelisted: ${stats.whitelisted}\n\n` +
+			`Total: ${escapeMarkdownV2(stats.totalUsers.toString())}\n` +
+			`Blacklisted: ${escapeMarkdownV2(stats.blacklisted.toString())}\n` +
+			`Whitelisted: ${escapeMarkdownV2(stats.whitelisted.toString())}\n\n` +
 			`*Violations*\n` +
-			`Total: ${stats.totalViolations}\n` +
-			`Unpaid Fines: ${stats.unpaidFines.toFixed(2)} JUNO\n` +
-			`Paid Fines: ${stats.paidFines.toFixed(2)} JUNO\n\n` +
+			`Total: ${escapeMarkdownV2(stats.totalViolations.toString())}\n` +
+			`Unpaid Fines: ${escapeMarkdownV2(stats.unpaidFines.toFixed(2))} JUNO\n` +
+			`Paid Fines: ${escapeMarkdownV2(stats.paidFines.toFixed(2))} JUNO\n\n` +
 			`*Jails*\n` +
-			`Currently Jailed: ${stats.activeJails}\n` +
-			`Total Jail Events: ${stats.totalJailEvents}\n` +
-			`Bails Paid: ${stats.totalBailsPaid}\n` +
-			`Total Bail Revenue: ${stats.totalBailAmount.toFixed(2)} JUNO\n\n` +
-			`Active Restrictions: ${stats.activeRestrictions}`;
+			`Currently Jailed: ${escapeMarkdownV2(stats.activeJails.toString())}\n` +
+			`Total Jail Events: ${escapeMarkdownV2(stats.totalJailEvents.toString())}\n` +
+			`Bails Paid: ${escapeMarkdownV2(stats.totalBailsPaid.toString())}\n` +
+			`Total Bail Revenue: ${escapeMarkdownV2(stats.totalBailAmount.toFixed(2))} JUNO\n\n` +
+			`Active Restrictions: ${escapeMarkdownV2(stats.activeRestrictions.toString())}`;
 
-		await ctx.reply(message, { parse_mode: "Markdown" });
+		await ctx.reply(message, { parse_mode: "MarkdownV2" });
 	});
 }

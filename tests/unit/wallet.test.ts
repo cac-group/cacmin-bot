@@ -101,8 +101,8 @@ describe('Wallet Commands', () => {
 
       expect(UnifiedWalletService.getBalance).toHaveBeenCalledWith(444444444);
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('125.500000 JUNO'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.stringContaining('125\\.500000 JUNO'),
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('@pleb'),
@@ -118,7 +118,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleBalance(ctx as Context);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('0.000000 JUNO'),
+        expect.stringContaining('0\\.000000 JUNO'),
         expect.any(Object)
       );
     });
@@ -180,7 +180,7 @@ describe('Wallet Commands', () => {
       expect(UnifiedWalletService.getDepositInstructions).toHaveBeenCalledWith(444444444);
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('juno1testuserfundsaddress'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('444444444'),
@@ -232,7 +232,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Invalid format'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Usage:'),
@@ -291,7 +291,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Insufficient balance'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Requested: `200 JUNO`'),
@@ -344,7 +344,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Withdrawal Failed'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Network timeout'),
@@ -385,7 +385,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Invalid format'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Usage:'),
@@ -536,7 +536,8 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleSend(ctx as Context);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid recipient format')
+        expect.stringContaining('Invalid recipient format'),
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
     });
   });
@@ -571,14 +572,14 @@ describe('Wallet Commands', () => {
       expect(UnifiedWalletService.getTxHistory).toHaveBeenCalledWith(444444444, 10);
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Recent Transactions'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('+100.000000 JUNO (Deposit)'),
+        expect.stringContaining('\\+100\\.000000 JUNO \\(Deposit\\)'),
         expect.any(Object)
       );
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('-25.000000 JUNO (Withdrawal)'),
+        expect.stringContaining('\\-25\\.000000 JUNO \\(Withdrawal\\)'),
         expect.any(Object)
       );
     });
@@ -617,7 +618,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleTransactions(ctx as Context);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('-10.000000 JUNO (Sent)'),
+        expect.stringContaining('\\-10\\.000000 JUNO \\(Sent\\)'),
         expect.any(Object)
       );
     });
@@ -644,7 +645,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleTransactions(ctx as Context);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('+15.000000 JUNO (Received)'),
+        expect.stringContaining('\\+15\\.000000 JUNO \\(Received\\)'),
         expect.any(Object)
       );
     });
@@ -683,15 +684,15 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleTransactions(ctx as Context);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('-5.000000 JUNO (Fine)'),
+        expect.stringContaining('\\-5\\.000000 JUNO \\(Fine\\)'),
         expect.any(Object)
       );
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('-10.000000 JUNO (Bail)'),
+        expect.stringContaining('\\-10\\.000000 JUNO \\(Bail\\)'),
         expect.any(Object)
       );
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('+50.000000 JUNO (Giveaway)'),
+        expect.stringContaining('\\+50\\.000000 JUNO \\(Giveaway\\)'),
         expect.any(Object)
       );
     });
@@ -758,7 +759,7 @@ describe('Wallet Commands', () => {
       const replies = getAllReplies(ctx);
       expect(replies).toContainEqual(expect.stringContaining('Fetching wallet statistics'));
       expect(replies).toContainEqual(expect.stringContaining('Wallet System Statistics'));
-      expect(replies).toContainEqual(expect.stringContaining('500.000000 JUNO'));
+      expect(replies).toContainEqual(expect.stringContaining('500\\.000000 JUNO'));
       expect(replies).toContainEqual(expect.stringContaining('Balanced'));
     });
 
@@ -838,7 +839,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Invalid format'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
     });
 
@@ -885,7 +886,7 @@ describe('Wallet Commands', () => {
       expect(replies).toContainEqual(expect.stringContaining('Distributing 25 JUNO'));
       expect(replies).toContainEqual(expect.stringContaining('Giveaway Complete'));
       expect(replies).toContainEqual(expect.stringContaining('Successful: 3'));
-      expect(replies).toContainEqual(expect.stringContaining('75.000000 JUNO'));
+      expect(replies).toContainEqual(expect.stringContaining('75\\.000000 JUNO'));
     });
 
     it('should handle user not found', async () => {
@@ -955,7 +956,7 @@ describe('Wallet Commands', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.stringContaining('Invalid format'),
-        expect.objectContaining({ parse_mode: 'Markdown' })
+        expect.objectContaining({ parse_mode: 'MarkdownV2' })
       );
     });
 

@@ -16,6 +16,7 @@ import {
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { AmountPrecision } from "../utils/precision";
 
 interface ProcessedDeposit {
@@ -79,8 +80,8 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		try {
 			const instructions = UnifiedWalletService.getDepositInstructions(userId);
 			await ctx.reply(
-				`${instructions.markdown}\n\n_Experimental software - deposit at your own risk_`,
-				{ parse_mode: "Markdown" },
+				`${instructions.markdown}\n\n_Experimental software \\- deposit at your own risk_`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Failed to send deposit response", { userId, error });
@@ -113,9 +114,9 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				" **Usage**: /verifydeposit <transaction_hash>\n\n" +
-					"Provide the transaction hash of your deposit to verify and credit it.",
-				{ parse_mode: "Markdown" },
+				"**Usage**: /verifydeposit <transaction\\_hash>\n\n" +
+					"Provide the transaction hash of your deposit to verify and credit it\\.",
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
@@ -137,17 +138,17 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 			if (!verification.valid) {
 				return ctx.reply(
-					` **Deposit Verification Failed**\n\n` +
-						`${verification.error}\n\n` +
+					`**Deposit Verification Failed**\n\n` +
+						`${escapeMarkdownV2(verification.error || "Unknown error")}\n\n` +
 						(verification.memo !== undefined
-							? `Memo found: \`${verification.memo || "none"}\`\n` +
-								`Expected: \`${userId}\`\n\n`
+							? `Memo found: \`${escapeMarkdownV2(verification.memo || "none")}\`\n` +
+								`Expected: \`${escapeMarkdownV2(userId.toString())}\`\n\n`
 							: "") +
 						`Please ensure:\n` +
-						`• Transaction is confirmed on-chain\n` +
-						`• Funds were sent to: \`${walletAddress}\`\n` +
-						`• Memo was exactly: \`${userId}\``,
-					{ parse_mode: "Markdown" },
+						`• Transaction is confirmed on\\-chain\n` +
+						`• Funds were sent to: \`${escapeMarkdownV2(walletAddress)}\`\n` +
+						`• Memo was exactly: \`${escapeMarkdownV2(userId.toString())}\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -163,11 +164,11 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 			if (existing?.processed) {
 				return ctx.reply(
-					` **Already Processed**\n\n` +
-						`This deposit has already been credited.\n` +
-						`Amount: \`${AmountPrecision.format(verifiedAmount)} JUNO\`\n` +
-						`From: \`${verifiedSender}\``,
-					{ parse_mode: "Markdown" },
+					`**Already Processed**\n\n` +
+						`This deposit has already been credited\\.\n` +
+						`Amount: \`${escapeMarkdownV2(AmountPrecision.format(verifiedAmount))} JUNO\`\n` +
+						`From: \`${escapeMarkdownV2(verifiedSender)}\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -221,7 +222,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 						txHash,
 						result.newBalance,
 					),
-					{ parse_mode: "Markdown" },
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
 				// Mark deposit as failed in database
@@ -249,17 +250,17 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				}
 
 				await ctx.reply(
-					` **Failed to credit deposit**\n\n` +
-						`${result.error}\n\n` +
-						`Please contact an admin for assistance.`,
-					{ parse_mode: "Markdown" },
+					`**Failed to credit deposit**\n\n` +
+						`${escapeMarkdownV2(result.error || "Unknown error")}\n\n` +
+						`Please contact an admin for assistance\\.`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 		} catch (error) {
 			logger.error("Deposit verification failed", { userId, txHash, error });
 			await ctx.reply(
-				" Failed to verify deposit. Please try again or contact an admin.",
-				{ parse_mode: "Markdown" },
+				"Failed to verify deposit\\. Please try again or contact an admin\\.",
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 	});
@@ -293,7 +294,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			);
 
 			if (unclaimedBalance === 0) {
-				return ctx.reply(" No unclaimed deposits");
+				return ctx.reply("No unclaimed deposits");
 			}
 
 			// Get recent unclaimed deposits
@@ -305,21 +306,21 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				[SYSTEM_USER_IDS.UNCLAIMED],
 			);
 
-			let message = ` **Unclaimed Deposits**\n\n`;
-			message += `Total: \`${AmountPrecision.format(unclaimedBalance)} JUNO\`\n\n`;
+			let message = `**Unclaimed Deposits**\n\n`;
+			message += `Total: \`${escapeMarkdownV2(AmountPrecision.format(unclaimedBalance))} JUNO\`\n\n`;
 
 			if (unclaimed.length > 0) {
 				message += `**Recent deposits without valid memo:**\n`;
 				for (const deposit of unclaimed) {
-					message += `• \`${deposit.tx_hash.substring(0, 10)}...\`\n`;
-					message += `  Amount: ${AmountPrecision.format(deposit.amount)} JUNO\n`;
-					message += `  Memo: "${deposit.memo || "none"}"\n\n`;
+					message += `• \`${escapeMarkdownV2(deposit.tx_hash.substring(0, 10))}\\.\\.\\.\`\n`;
+					message += `  Amount: ${escapeMarkdownV2(AmountPrecision.format(deposit.amount))} JUNO\n`;
+					message += `  Memo: "${escapeMarkdownV2(deposit.memo || "none")}"\n\n`;
 				}
 			}
 
 			message += DepositInstructionService.getUnclaimedInstructions();
 
-			await ctx.reply(message, { parse_mode: "Markdown" });
+			await ctx.reply(message, { parse_mode: "MarkdownV2" });
 		} catch (error) {
 			logger.error("Failed to get unclaimed deposits", { userId, error });
 			await ctx.reply(" Failed to retrieve unclaimed deposits");
@@ -353,16 +354,16 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			!isOwner &&
 			(!admin || (admin.role !== "owner" && admin.role !== "admin"))
 		) {
-			return ctx.reply(" This command requires admin permissions");
+			return ctx.reply("This command requires admin permissions");
 		}
 
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 2) {
 			return ctx.reply(
-				" **Usage**: /claimdeposit <transaction_hash> <user_id>\n\n" +
-					"Assign an unclaimed deposit to a user.",
-				{ parse_mode: "Markdown" },
+				"**Usage**: /claimdeposit <transaction\\_hash> <user\\_id>\n\n" +
+					"Assign an unclaimed deposit to a user\\.",
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
@@ -370,7 +371,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const targetUserId = parseInt(args[1], 10);
 
 		if (Number.isNaN(targetUserId)) {
-			return ctx.reply(" Invalid user ID");
+			return ctx.reply("Invalid user ID");
 		}
 
 		try {
@@ -389,15 +390,15 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				});
 
 				await ctx.reply(
-					` **Deposit Claimed**\n\n` +
-						`Amount: \`${AmountPrecision.format(result.amount ?? 0)} JUNO\`\n` +
-						`Assigned to user: \`${targetUserId}\`\n` +
-						`Transaction: \`${txHash.substring(0, 10)}...\``,
-					{ parse_mode: "Markdown" },
+					`**Deposit Claimed**\n\n` +
+						`Amount: \`${escapeMarkdownV2(AmountPrecision.format(result.amount ?? 0))} JUNO\`\n` +
+						`Assigned to user: \`${escapeMarkdownV2(targetUserId.toString())}\`\n` +
+						`Transaction: \`${escapeMarkdownV2(txHash.substring(0, 10))}\\.\\.\\.\``,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(` **Failed to claim deposit**\n\n${result.error}`, {
-					parse_mode: "Markdown",
+				await ctx.reply(`**Failed to claim deposit**\n\n${escapeMarkdownV2(result.error || "Unknown error")}`, {
+					parse_mode: "MarkdownV2",
 				});
 			}
 		} catch (error) {
@@ -407,7 +408,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				targetUserId,
 				error,
 			});
-			await ctx.reply(" Failed to claim deposit");
+			await ctx.reply("Failed to claim deposit");
 		}
 	});
 
@@ -444,9 +445,9 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				"Usage: /processdeposit <transaction_hash>\n\n" +
-					"Manually process a pending deposit. The deposit must have a valid user ID in the memo.",
-				{ parse_mode: "Markdown" },
+				"Usage: /processdeposit <transaction\\_hash>\n\n" +
+					"Manually process a pending deposit\\. The deposit must have a valid user ID in the memo\\.",
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
@@ -461,8 +462,8 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 			if (!txResult.success || !txResult.data) {
 				return ctx.reply(
-					`Failed to fetch transaction\n\n${txResult.error || "Transaction not found"}`,
-					{ parse_mode: "Markdown" },
+					`Failed to fetch transaction\n\n${escapeMarkdownV2(txResult.error || "Transaction not found")}`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -471,15 +472,15 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			// Check transaction status
 			if (tx.status !== 0) {
 				return ctx.reply(
-					`Transaction failed on-chain\n\nStatus code: ${tx.status}`,
-					{ parse_mode: "Markdown" },
+					`Transaction failed on\\-chain\n\nStatus code: ${escapeMarkdownV2(tx.status.toString())}`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
 			// Extract deposit information from transfers
 			if (!tx.transfers || tx.transfers.length === 0) {
 				return ctx.reply(`No transfers found in transaction`, {
-					parse_mode: "Markdown",
+					parse_mode: "MarkdownV2",
 				});
 			}
 
@@ -490,8 +491,8 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 			if (!deposit) {
 				return ctx.reply(
-					`No transfer to bot treasury found\n\nExpected recipient: ${config.botTreasuryAddress}`,
-					{ parse_mode: "Markdown" },
+					`No transfer to bot treasury found\n\nExpected recipient: ${escapeMarkdownV2(config.botTreasuryAddress || "")}`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -501,9 +502,9 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			if (!userId || Number.isNaN(userId)) {
 				return ctx.reply(
 					`No valid user ID found in memo\n\n` +
-						`Memo: ${tx.memo || "none"}\n\n` +
-						`Use /claimdeposit to manually assign this deposit to a user.`,
-					{ parse_mode: "Markdown" },
+						`Memo: ${escapeMarkdownV2(tx.memo || "none")}\n\n` +
+						`Use /claimdeposit to manually assign this deposit to a user\\.`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -516,10 +517,10 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			if (existing?.processed) {
 				return ctx.reply(
 					`Deposit Already Processed\n\n` +
-						`Amount: ${AmountPrecision.format(deposit.amount)} JUNO\n` +
-						`User: ${userId}\n` +
-						`This deposit has already been credited.`,
-					{ parse_mode: "Markdown" },
+						`Amount: ${escapeMarkdownV2(AmountPrecision.format(deposit.amount))} JUNO\n` +
+						`User: ${escapeMarkdownV2(userId.toString())}\n` +
+						`This deposit has already been credited\\.`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -569,12 +570,12 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 				await ctx.reply(
 					`Deposit Processed\n\n` +
-						`Amount: ${AmountPrecision.format(deposit.amount)} JUNO\n` +
-						`From: ${deposit.sender}\n` +
-						`Credited to user: ${userId}\n` +
-						`New balance: ${AmountPrecision.format(result.newBalance)} JUNO\n` +
-						`Transaction: ${txHash.substring(0, 16)}...`,
-					{ parse_mode: "Markdown" },
+						`Amount: ${escapeMarkdownV2(AmountPrecision.format(deposit.amount))} JUNO\n` +
+						`From: ${escapeMarkdownV2(deposit.sender)}\n` +
+						`Credited to user: ${escapeMarkdownV2(userId.toString())}\n` +
+						`New balance: ${escapeMarkdownV2(AmountPrecision.format(result.newBalance))} JUNO\n` +
+						`Transaction: ${escapeMarkdownV2(txHash.substring(0, 16))}\\.\\.\\.`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
 				// Mark deposit as failed in database
@@ -601,14 +602,14 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 					]);
 				}
 
-				await ctx.reply(`Failed to process deposit\n\n${result.error}`, {
-					parse_mode: "Markdown",
+				await ctx.reply(`Failed to process deposit\n\n${escapeMarkdownV2(result.error || "Unknown error")}`, {
+					parse_mode: "MarkdownV2",
 				});
 			}
 		} catch (error) {
 			logger.error("Failed to process deposit", { adminId, txHash, error });
 			await ctx.reply(
-				"Failed to process deposit. Please check logs for details.",
+				"Failed to process deposit\\. Please check logs for details\\.",
 			);
 		}
 	});

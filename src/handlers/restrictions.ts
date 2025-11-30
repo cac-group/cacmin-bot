@@ -15,6 +15,7 @@ import {
 } from "../services/userService";
 import { restrictionTypeKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { isImmuneToModeration } from "../utils/roles";
 
 /**
@@ -66,32 +67,32 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 			return ctx.reply(
 				"*Add User Restriction*\n\n" +
 					"Select a restriction type to apply:\n\n" +
-					"**Restriction Types:**\n" +
-					"• **No Stickers** - Block all stickers or specific packs\n" +
-					"• **No URLs** - Block URL links or specific domains\n" +
-					"• **No Media (All)** - Block photos, videos, documents, audio\n" +
-					"• **No Photos** - Block only photo messages\n" +
-					"• **No Videos** - Block only video messages\n" +
-					"• **No Documents** - Block only document files\n" +
-					"• **No GIFs** - Block GIF animations\n" +
-					"• **No Voice** - Block voice messages and video notes\n" +
-					"• **No Forwarding** - Block forwarded messages\n" +
-					"• **Regex Block** - Block messages matching text patterns\n\n" +
-					"**Severity Levels:**\n" +
-					"• **delete** (default) - Just delete the violating message\n" +
-					"• **mute** - 30-minute mute on each violation\n" +
-					"• **jail** - Immediate 1-hour jail with 5 JUNO fine\n\n" +
+					"*Restriction Types:*\n" +
+					"• *No Stickers* \\- Block all stickers or specific packs\n" +
+					"• *No URLs* \\- Block URL links or specific domains\n" +
+					"• *No Media \\(All\\)* \\- Block photos, videos, documents, audio\n" +
+					"• *No Photos* \\- Block only photo messages\n" +
+					"• *No Videos* \\- Block only video messages\n" +
+					"• *No Documents* \\- Block only document files\n" +
+					"• *No GIFs* \\- Block GIF animations\n" +
+					"• *No Voice* \\- Block voice messages and video notes\n" +
+					"• *No Forwarding* \\- Block forwarded messages\n" +
+					"• *Regex Block* \\- Block messages matching text patterns\n\n" +
+					"*Severity Levels:*\n" +
+					"• *delete* \\(default\\) \\- Just delete the violating message\n" +
+					"• *mute* \\- 30\\-minute mute on each violation\n" +
+					"• *jail* \\- Immediate 1\\-hour jail with 5 JUNO fine\n\n" +
 					"_Command format:_\n" +
 					"`/addrestriction <userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]`\n\n" +
-					"**Examples:**\n" +
-					"`/addrestriction 123456 no_photos` (delete only)\n" +
-					"`/addrestriction 123456 no_photos - - mute` (mute 30min)\n" +
-					"`/addrestriction 123456 no_stickers - - delete 3` (auto-jail after 3 violations)\n" +
-					'`/addrestriction 123456 regex_block "spam" - jail` (instant jail)\n\n' +
-					"_Auto-escalation:_ After threshold violations (default 5) within 60 minutes, user gets auto-jailed for jailDuration (default 2880 min = 2 days) with jailFine (default 10 JUNO).\n\n" +
+					"*Examples:*\n" +
+					"`/addrestriction 123456 no_photos` \\(delete only\\)\n" +
+					"`/addrestriction 123456 no_photos - - mute` \\(mute 30min\\)\n" +
+					"`/addrestriction 123456 no_stickers - - delete 3` \\(auto\\-jail after 3 violations\\)\n" +
+					"`/addrestriction 123456 regex_block \"spam\" - jail` \\(instant jail\\)\n\n" +
+					"_Auto\\-escalation:_ After threshold violations \\(default 5\\) within 60 minutes, user gets auto\\-jailed for jailDuration \\(default 2880 min = 2 days\\) with jailFine \\(default 10 JUNO\\)\\.\n\n" +
 					"_For regex pattern examples:_ `/regexhelp`",
 				{
-					parse_mode: "Markdown",
+					parse_mode: "MarkdownV2",
 					reply_markup: restrictionTypeKeyboard,
 				},
 			);
@@ -103,7 +104,8 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 			// Check if target user is immune to moderation
 			if (isImmuneToModeration(targetUserId)) {
 				return ctx.reply(
-					` Cannot restrict user ${targetUserId} - admins and owners are immune to moderation actions.`,
+					`Cannot restrict user ${escapeMarkdownV2(targetUserId.toString())} \\- admins and owners are immune to moderation actions\\.`,
+					{ parse_mode: "MarkdownV2" },
 				);
 			}
 
@@ -160,11 +162,11 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 				autoJailFine: jailFine,
 			});
 
-			let reply = `Restriction '${restriction}' added for user ${userId}.\n`;
-			reply += `Severity: ${severityLevel}\n`;
-			reply += `Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, ${jailFine} JUNO fine)`;
+			let reply = `Restriction '${escapeMarkdownV2(restriction)}' added for user ${escapeMarkdownV2(userId)}\\.\\n`;
+			reply += `Severity: ${escapeMarkdownV2(severityLevel)}\\n`;
+			reply += `Auto\\-jail after ${escapeMarkdownV2(threshold.toString())} violations in 60 minutes \\(${escapeMarkdownV2(jailDuration.toString())} min jail, ${escapeMarkdownV2(jailFine.toFixed(1))} JUNO fine\\)`;
 
-			await ctx.reply(reply);
+			await ctx.reply(reply, { parse_mode: "MarkdownV2" });
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
@@ -193,7 +195,9 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 
 		const [userId, restriction] = ctx.message?.text.split(" ").slice(1) || [];
 		if (!userId || !restriction) {
-			return ctx.reply("Usage: /removerestriction <userId> <restriction>");
+			return ctx.reply("Usage: /removerestriction <userId> <restriction>", {
+				parse_mode: "MarkdownV2",
+			});
 		}
 
 		try {
@@ -205,7 +209,8 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 				restriction,
 			});
 			await ctx.reply(
-				`Restriction '${restriction}' removed for user ${userId}.`,
+				`Restriction '${escapeMarkdownV2(restriction)}' removed for user ${escapeMarkdownV2(userId)}\\.`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
@@ -235,31 +240,36 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 
 		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
 		if (!userId) {
-			return ctx.reply("Usage: /listrestrictions <userId>");
+			return ctx.reply("Usage: /listrestrictions <userId>", {
+				parse_mode: "MarkdownV2",
+			});
 		}
 
 		try {
 			const restrictions = getUserRestrictions(parseInt(userId, 10));
 			if (restrictions.length === 0) {
-				return ctx.reply(`No restrictions found for user ${userId}.`);
+				return ctx.reply(
+					`No restrictions found for user ${escapeMarkdownV2(userId)}\\.`,
+					{ parse_mode: "MarkdownV2" },
+				);
 			}
 
 			const message = restrictions
 				.map((r) => {
 					const lines = [
-						`**Type:** ${r.restriction}`,
-						`**Action:** ${r.restrictedAction || "N/A"}`,
-						`**Severity:** ${r.severity || "delete"}`,
-						`**Threshold:** ${r.violationThreshold || 5} violations in 60 min`,
-						`**Auto-jail:** ${r.autoJailDuration || 2880} min (${Math.round((r.autoJailDuration || 2880) / 1440)} days)`,
-						`**Fine:** ${r.autoJailFine || 10.0} JUNO`,
-						`**Expires:** ${r.restrictedUntil ? new Date(r.restrictedUntil * 1000).toLocaleString() : "Never (Permanent)"}`,
+						`*Type:* ${escapeMarkdownV2(r.restriction)}`,
+						`*Action:* ${escapeMarkdownV2(r.restrictedAction || "N/A")}`,
+						`*Severity:* ${escapeMarkdownV2(r.severity || "delete")}`,
+						`*Threshold:* ${escapeMarkdownV2((r.violationThreshold || 5).toString())} violations in 60 min`,
+						`*Auto\\-jail:* ${escapeMarkdownV2((r.autoJailDuration || 2880).toString())} min \\(${escapeMarkdownV2(Math.round((r.autoJailDuration || 2880) / 1440).toString())} days\\)`,
+						`*Fine:* ${escapeMarkdownV2((r.autoJailFine || 10.0).toFixed(1))} JUNO`,
+						`*Expires:* ${escapeMarkdownV2(r.restrictedUntil ? new Date(r.restrictedUntil * 1000).toLocaleString() : "Never (Permanent)")}`,
 					];
 					return lines.join("\n");
 				})
 				.join("\n\n━━━━━━━━━━━━━━\n\n");
-			await ctx.reply(`*Restrictions for user ${userId}:*\n\n${message}`, {
-				parse_mode: "Markdown",
+			await ctx.reply(`*Restrictions for user ${escapeMarkdownV2(userId)}:*\n\n${message}`, {
+				parse_mode: "MarkdownV2",
 			});
 
 			StructuredLogger.logUserAction("Restrictions queried", {
@@ -291,15 +301,15 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 
 *Pattern Types:*
 
-*Simple Text* (exact phrase, case-insensitive)
+*Simple Text* \\(exact phrase, case\\-insensitive\\)
 \`/addrestriction 123456 regex_block "buy now"\`
 Blocks: "buy now", "BUY NOW", "Buy Now"
 
-*Wildcards* (* = any chars, ? = one char)
+*Wildcards* \\(\\* = any chars, ? = one char\\)
 \`/addrestriction 123456 regex_block "*crypto scam*"\`
 \`/addrestriction 123456 regex_block "test?pattern"\`
 
-*Full Regex* (/pattern/flags format)
+*Full Regex* \\(/pattern/flags format\\)
 \`/addrestriction 123456 regex_block "/spam.*here/i"\`
 
 ━━━━━━━━━━━━━━━━━━
@@ -321,7 +331,7 @@ Blocks: "buy now", "BUY NOW", "Buy Now"
 
 *Block repeated chars:*
 \`/addrestriction 123456 regex_block "/(.)\\\\1{4,}/"\`
-Blocks: "aaaaa", "!!!!!", "😂😂😂😂😂"
+Blocks: "aaaaa", "\\!\\!\\!\\!\\!", "😂😂😂😂😂"
 
 *Block profanity:*
 \`/addrestriction 123456 regex_block "/\\\\b(word1|word2|word3)\\\\b/i"\`
@@ -333,14 +343,14 @@ Blocks: "aaaaa", "!!!!!", "😂😂😂😂😂"
 
 *Testing Tips:*
 • Test in a test group first
-• Use temporary restrictions (add seconds at end)
+• Use temporary restrictions \\(add seconds at end\\)
 • Start with simple patterns, then expand
 
 *Example with 1 hour timeout:*
 \`/addrestriction 123456 regex_block "test" 3600\`
 
-Full documentation: See REGEX\\_PATTERNS.md`;
+Full documentation: See REGEX\\_PATTERNS\\.md`;
 
-		await ctx.reply(helpMessage, { parse_mode: "Markdown" });
+		await ctx.reply(helpMessage, { parse_mode: "MarkdownV2" });
 	});
 };

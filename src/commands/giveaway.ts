@@ -8,6 +8,7 @@
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
 import { execute, get, query } from "../database";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { ownerOnly } from "../middleware/index";
 import { LedgerService } from "../services/ledgerService";
 import {
@@ -72,18 +73,18 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 			const balance = await UnifiedWalletService.getBotBalance();
 
 			if (!balance) {
-				return ctx.reply(" Unable to fetch wallet balance.");
+				return ctx.reply("Unable to fetch wallet balance\\.");
 			}
 
 			await ctx.reply(
-				` *Bot Wallet Balance*\n\n` +
-					`Address: \`${config.botTreasuryAddress}\`\n` +
-					`Balance: *${balance.toFixed(6)} JUNO*`,
-				{ parse_mode: "Markdown" },
+				`*Bot Wallet Balance*\n\n` +
+					`Address: \`${escapeMarkdownV2(config.botTreasuryAddress || "")}\`\n` +
+					`Balance: *${escapeMarkdownV2(balance.toFixed(6))} JUNO*`,
+				{ parse_mode: "MarkdownV2" },
 			);
 		} catch (error) {
 			logger.error("Error fetching balance", error);
-			await ctx.reply(" Error fetching wallet balance.");
+			await ctx.reply("Error fetching wallet balance\\.");
 		}
 	});
 
@@ -110,16 +111,16 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 				"*Open Giveaway*\n\n" +
 					"Usage: `/giveaway <total_amount>`\n\n" +
 					"Example: `/giveaway 100`\n" +
-					"Creates a 100 JUNO giveaway. You'll then choose how many slots (10, 25, 50, or 100) to split it into.\n\n" +
+					"Creates a 100 JUNO giveaway\\. You'll then choose how many slots \\(10, 25, 50, or 100\\) to split it into\\.\n\n" +
 					"*How it works:*\n" +
-					"1. Enter total amount to give away\n" +
-					"2. Select number of slots (e.g., 10 slots = 10 JUNO each)\n" +
-					"3. Funds are held in escrow\n" +
-					"4. Users click Claim button (one per user)\n" +
-					"5. Cancel anytime with `/cancelgiveaway` to reclaim unclaimed funds\n\n" +
-					"Funds come from your wallet balance.\n" +
-					"Admins/owners can also fund from treasury.",
-				{ parse_mode: "Markdown" },
+					"1\\. Enter total amount to give away\n" +
+					"2\\. Select number of slots \\(e\\.g\\., 10 slots \\= 10 JUNO each\\)\n" +
+					"3\\. Funds are held in escrow\n" +
+					"4\\. Users click Claim button \\(one per user\\)\n" +
+					"5\\. Cancel anytime with `/cancelgiveaway` to reclaim unclaimed funds\n\n" +
+					"Funds come from your wallet balance\\.\n" +
+					"Admins/owners can also fund from treasury\\.",
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
@@ -153,9 +154,9 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 			isOwnerOrAdmin && treasuryBalance >= totalAmount;
 
 		if (!canAffordFromBalance && !canAffordFromTreasury) {
-			let msg = `Insufficient balance.\nYour balance: ${userBalance.toFixed(6)} JUNO`;
+			let msg = `Insufficient balance\\.\nYour balance: ${escapeMarkdownV2(userBalance.toFixed(6))} JUNO`;
 			if (isOwnerOrAdmin) {
-				msg += `\nTreasury balance: ${treasuryBalance.toFixed(6)} JUNO`;
+				msg += `\nTreasury balance: ${escapeMarkdownV2(treasuryBalance.toFixed(6))} JUNO`;
 			}
 			return ctx.reply(msg);
 		}
@@ -163,18 +164,18 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 		// Build slot selection keyboard
 		const slotOptions = [10, 25, 50, 100];
 		const slotInfo = slotOptions
-			.map((s) => `- ${s} slots = ${(totalAmount / s).toFixed(6)} JUNO each`)
+			.map((s) => `\\- ${escapeMarkdownV2(s.toString())} slots \\= ${escapeMarkdownV2((totalAmount / s).toFixed(6))} JUNO each`)
 			.join("\n");
 
 		// For owners/admins who can afford from both sources, show funding choice
 		if (isOwnerOrAdmin && canAffordFromBalance && canAffordFromTreasury) {
 			await ctx.reply(
-				`*Create Giveaway: ${totalAmount} JUNO*\n\n` +
+				`*Create Giveaway: ${escapeMarkdownV2(totalAmount.toString())} JUNO*\n\n` +
 					"Select funding source:\n" +
-					`Your balance: ${userBalance.toFixed(6)} JUNO\n` +
-					`Treasury: ${treasuryBalance.toFixed(6)} JUNO`,
+					`Your balance: ${escapeMarkdownV2(userBalance.toFixed(6))} JUNO\n` +
+					`Treasury: ${escapeMarkdownV2(treasuryBalance.toFixed(6))} JUNO`,
 				{
-					parse_mode: "Markdown",
+					parse_mode: "MarkdownV2",
 					reply_markup: {
 						inline_keyboard: [
 							[
@@ -201,11 +202,11 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 		) {
 			// Admin can only use treasury
 			await ctx.reply(
-				`*Create Giveaway: ${totalAmount} JUNO*\n\n` +
-					`Funding from Treasury (${treasuryBalance.toFixed(6)} JUNO)\n\n` +
+				`*Create Giveaway: ${escapeMarkdownV2(totalAmount.toString())} JUNO*\n\n` +
+					`Funding from Treasury \\(${escapeMarkdownV2(treasuryBalance.toFixed(6))} JUNO\\)\n\n` +
 					`Select number of slots:\n${slotInfo}`,
 				{
-					parse_mode: "Markdown",
+					parse_mode: "MarkdownV2",
 					reply_markup: {
 						inline_keyboard: [
 							[
@@ -236,11 +237,11 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 		} else {
 			// Regular user or admin using own balance
 			await ctx.reply(
-				`*Create Giveaway: ${totalAmount} JUNO*\n\n` +
-					`Funding from your balance (${userBalance.toFixed(6)} JUNO)\n\n` +
+				`*Create Giveaway: ${escapeMarkdownV2(totalAmount.toString())} JUNO*\n\n` +
+					`Funding from your balance \\(${escapeMarkdownV2(userBalance.toFixed(6))} JUNO\\)\n\n` +
 					`Select number of slots:\n${slotInfo}`,
 				{
-					parse_mode: "Markdown",
+					parse_mode: "MarkdownV2",
 					reply_markup: {
 						inline_keyboard: [
 							[
@@ -303,13 +304,13 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 			const list = activeGiveaways
 				.map(
 					(g) =>
-						`ID ${g.id}: ${g.total_amount} JUNO (${g.claimed_slots}/${g.total_slots} claimed)`,
+						`ID ${escapeMarkdownV2(g.id.toString())}: ${escapeMarkdownV2(g.total_amount.toString())} JUNO \\(${escapeMarkdownV2(g.claimed_slots.toString())}/${escapeMarkdownV2(g.total_slots.toString())} claimed\\)`,
 				)
 				.join("\n");
 
 			return ctx.reply(
 				`*Active Giveaways*\n\n${list}\n\nUsage: \`/cancelgiveaway <id>\``,
-				{ parse_mode: "Markdown" },
+				{ parse_mode: "MarkdownV2" },
 			);
 		}
 
@@ -379,8 +380,8 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 		});
 
 		await ctx.reply(
-			`Giveaway #${giveawayId} cancelled.\n` +
-				`${unclaimed} unclaimed slots (${unclaimedAmount.toFixed(6)} JUNO) refunded to ${refundTarget}.`,
+			`Giveaway \\#${escapeMarkdownV2(giveawayId.toString())} cancelled\\.\n` +
+				`${escapeMarkdownV2(unclaimed.toString())} unclaimed slots \\(${escapeMarkdownV2(unclaimedAmount.toFixed(6))} JUNO\\) refunded to ${escapeMarkdownV2(refundTarget)}\\.`,
 		);
 	});
 
@@ -440,23 +441,23 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 
 			await ctx.reply(
 				`Treasury & Ledger Status\n\n` +
-					`On-Chain Treasury Wallet:\n` +
-					`Address: ${treasuryAddress}\n` +
-					`Balance: ${treasuryBalance?.toFixed(6) || "0"} JUNO\n` +
-					`Purpose: Receives bail/fine payments via on-chain transfers\n\n` +
+					`On\\-Chain Treasury Wallet:\n` +
+					`Address: ${escapeMarkdownV2(treasuryAddress || "")}\n` +
+					`Balance: ${escapeMarkdownV2(treasuryBalance?.toFixed(6) || "0")} JUNO\n` +
+					`Purpose: Receives bail/fine payments via on\\-chain transfers\n\n` +
 					`Internal Ledger System:\n` +
-					`Total User Balances: ${totalUserBalances.toFixed(6)} JUNO\n` +
-					`Fines Collected: ${totalFines.toFixed(6)} JUNO - deducted from users\n` +
-					`Bail Collected: ${totalBail.toFixed(6)} JUNO - deducted from users\n\n` +
-					`Note: Treasury and ledger are separate systems.\n` +
-					`• Treasury: On-chain wallet for direct payments\n` +
+					`Total User Balances: ${escapeMarkdownV2(totalUserBalances.toFixed(6))} JUNO\n` +
+					`Fines Collected: ${escapeMarkdownV2(totalFines.toFixed(6))} JUNO \\- deducted from users\n` +
+					`Bail Collected: ${escapeMarkdownV2(totalBail.toFixed(6))} JUNO \\- deducted from users\n\n` +
+					`Note: Treasury and ledger are separate systems\\.\n` +
+					`• Treasury: On\\-chain wallet for direct payments\n` +
 					`• Ledger: Internal accounting for user balances\n\n` +
 					`Use /giveaway to distribute funds\n` +
 					`Use /walletstats for detailed reconciliation`,
 			);
 		} catch (error) {
 			logger.error("Error fetching treasury info", error);
-			await ctx.reply(" Error fetching treasury information.");
+			await ctx.reply("Error fetching treasury information\\.");
 		}
 	});
 }

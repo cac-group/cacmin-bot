@@ -7,6 +7,7 @@
 
 import type { Telegraf } from "telegraf";
 import { config } from "../config";
+import { escapeMarkdownV2 } from "./markdown";
 import { logger } from "./logger";
 
 let botInstance: Telegraf | null = null;
@@ -61,8 +62,8 @@ export async function notifyAdmin(message: string): Promise<void> {
 	try {
 		await botInstance.telegram.sendMessage(
 			config.adminChatId,
-			` *Admin Alert*\n\n${message}`,
-			{ parse_mode: "Markdown" },
+			`⚠️ *Admin Alert*\n\n${escapeMarkdownV2(message)}`,
+			{ parse_mode: "MarkdownV2" },
 		);
 	} catch (error) {
 		logger.error("Failed to send admin notification", { error, message });

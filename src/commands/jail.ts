@@ -74,14 +74,14 @@ function formatTimeRemaining(seconds: number): string {
 export function registerJailCommands(bot: Telegraf<Context>): void {
 	/**
 	 * Command: /jailstats
-	 * View comprehensive jail system statistics.
+	 * View comprehensive jail system statistics or specific user jail info.
 	 *
 	 * Permission: Elevated users or higher (enforced by elevatedOrHigher middleware)
-	 * Syntax: /jailstats
+	 * Syntax: /jailstats [username|userId]
 	 *
 	 * Displays:
-	 * - Currently active jails with time remaining and bail amounts
-	 * - All-time statistics (total jails, bails paid, releases)
+	 * - Without argument: Currently active jails with time remaining and bail amounts
+	 * - With argument: Specific user's current jail status and history
 	 *
 	 * @example
 	 * User: /jailstats
@@ -92,15 +92,119 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      Active Prisoners:
 	 *      1. User 123456 - 45m 30s (5.00 JUNO)
 	 *      2. @alice - 1h 15m 0s (10.50 JUNO)
+	 *
+	 * @example
+	 * User: /jailstats @alice
+	 * Bot: Jail Status for @alice
+	 *
+	 *      Currently Jailed: Yes
+	 *      Time Remaining: 1h 15m 0s
+	 *      Bail Amount: 10.50 JUNO
+	 *      ...
 	 */
 	bot.command("jailstats", elevatedOrHigher, async (ctx) => {
-		const userId = ctx.from?.id;
-		if (!userId) return;
+		const requesterId = ctx.from?.id;
+		if (!requesterId) return;
 
-		const { get: getRecord } = await import("../database");
-		const _now = Math.floor(Date.now() / 1000);
+		const { get: getRecord, query: queryRecords } = await import(
+			"../database"
+		);
+		const now = Math.floor(Date.now() / 1000);
 
-		// Get statistics
+		// Check if a specific user was requested
+		const args = ctx.message?.text.split(" ").slice(1);
+		const userIdentifier = args?.[0];
+
+		if (userIdentifier) {
+			// Show stats for specific user
+			const targetUserId = resolveUserId(userIdentifier);
+			if (!targetUserId) {
+				return ctx.reply(
+					"User not found\\. Please use a valid @username or userId\\.",
+					{ parse_mode: "MarkdownV2" },
+				);
+			}
+
+			const user = get<User>("SELECT * FROM users WHERE id = ?", [
+				targetUserId,
+			]);
+			if (!user) {
+				return ctx.reply("User not found in database\\.", {
+					parse_mode: "MarkdownV2",
+				});
+			}
+
+			const userDisplay = formatUserIdDisplay(targetUserId);
+			let message = `*Jail Status for ${escapeMarkdownV2(userDisplay)}*\n\n`;
+
+			// Current jail status
+			if (user.muted_until && user.muted_until > now) {
+				const timeRemaining = user.muted_until - now;
+				const bailAmount = await JailService.calculateBailAmount(
+					Math.ceil(timeRemaining / 60),
+				);
+
+				message += `*Currently Jailed:* Yes\n`;
+				message += `Time Remaining: ${escapeMarkdownV2(formatTimeRemaining(timeRemaining))}\n`;
+				message += `Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`;
+				message += `Jailed Until: ${escapeMarkdownV2(new Date(user.muted_until * 1000).toLocaleString())}\n\n`;
+			} else {
+				message += `*Currently Jailed:* No\n\n`;
+			}
+
+			// Jail history for this user
+			const jailEvents = JailService.getUserJailEvents(targetUserId, 5);
+			if (jailEvents.length > 0) {
+				message += `*Recent Jail History:*\n`;
+				for (const event of jailEvents) {
+					const eventDate = escapeMarkdownV2(
+						new Date((event.timestamp || 0) * 1000).toLocaleString(),
+					);
+					const eventType = escapeMarkdownV2(
+						event.eventType.replace("_", " "),
+					);
+
+					message += `\\- ${eventType}`;
+					if (event.durationMinutes) {
+						message += ` \\(${event.durationMinutes}min\\)`;
+					}
+					if (event.bailAmount && event.bailAmount > 0) {
+						message += ` \\- ${escapeNumber(event.bailAmount, 2)} JUNO`;
+					}
+					message += `\n  ${eventDate}\n`;
+				}
+				message += `\n`;
+			}
+
+			// User's jail statistics
+			const totalJails =
+				getRecord<{ count: number }>(
+					"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
+					[targetUserId, "jailed"],
+				)?.count || 0;
+
+			const totalBailsPaid =
+				getRecord<{ count: number }>(
+					"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
+					[targetUserId, "bail_paid"],
+				)?.count || 0;
+
+			const totalBailSpent =
+				getRecord<{ total: number }>(
+					"SELECT SUM(bail_amount) as total FROM jail_events WHERE user_id = ? AND event_type = ?",
+					[targetUserId, "bail_paid"],
+				)?.total || 0;
+
+			message += `*User Statistics:*\n`;
+			message += `Times Jailed: ${totalJails}\n`;
+			message += `Bails Paid: ${totalBailsPaid}\n`;
+			message += `Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`;
+
+			await ctx.reply(message, { parse_mode: "MarkdownV2" });
+			return;
+		}
+
+		// Show global statistics (original behavior)
 		const activeJails = JailService.getActiveJails();
 		const totalJailEvents =
 			getRecord<{ count: number }>("SELECT COUNT(*) as count FROM jail_events")
@@ -148,20 +252,21 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				const bailAmount = await JailService.calculateBailAmount(
 					Math.ceil(jail.timeRemaining / 60),
 				);
-				message += `${index + 1}. ${userDisplay} - ${timeRemaining} (${bailAmount.toFixed(2)} JUNO)\n`;
+				message += `${escapeMarkdownV2(index + 1)}\\. ${escapeMarkdownV2(userDisplay)} \\- ${escapeMarkdownV2(timeRemaining)} \\(${escapeNumber(bailAmount, 2)} JUNO\\)\n`;
 			}
 			message += `\n`;
 		}
 
-		message += `*All-Time Statistics:*\n`;
+		message += `*All\\-Time Statistics:*\n`;
 		message += `Total Jail Events: ${totalJailEvents}\n`;
 		message += `Unique Users Jailed: ${totalJailed}\n`;
 		message += `Bails Paid: ${totalBailsPaid}\n`;
-		message += `Total Bail Revenue: ${totalBailAmount.toFixed(2)} JUNO\n`;
-		message += `Auto-Releases: ${totalAutoReleases}\n`;
-		message += `Manual Releases: ${totalManualReleases}\n`;
+		message += `Total Bail Revenue: ${escapeNumber(totalBailAmount, 2)} JUNO\n`;
+		message += `Auto\\-Releases: ${totalAutoReleases}\n`;
+		message += `Manual Releases: ${totalManualReleases}\n\n`;
+		message += `_Use /jailstats \\<username\\> to view a specific user's jail history_`;
 
-		await ctx.reply(message, { parse_mode: "Markdown" });
+		await ctx.reply(message, { parse_mode: "MarkdownV2" });
 	});
 
 	/**
