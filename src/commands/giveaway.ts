@@ -110,8 +110,15 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 				"*Open Giveaway*\n\n" +
 					"Usage: `/giveaway <total_amount>`\n\n" +
 					"Example: `/giveaway 100`\n" +
-					"Creates a giveaway for 100 JUNO split among claimants.\n\n" +
-					"Funds come from your wallet balance.",
+					"Creates a 100 JUNO giveaway. You'll then choose how many slots (10, 25, 50, or 100) to split it into.\n\n" +
+					"*How it works:*\n" +
+					"1. Enter total amount to give away\n" +
+					"2. Select number of slots (e.g., 10 slots = 10 JUNO each)\n" +
+					"3. Funds are held in escrow\n" +
+					"4. Users click Claim button (one per user)\n" +
+					"5. Cancel anytime with `/cancelgiveaway` to reclaim unclaimed funds\n\n" +
+					"Funds come from your wallet balance.\n" +
+					"Admins/owners can also fund from treasury.",
 				{ parse_mode: "Markdown" },
 			);
 		}

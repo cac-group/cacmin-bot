@@ -130,7 +130,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 
 	// Handle help category callbacks - specific categories only, exclude 'menu'
 	bot.action(
-		/^help_(wallet|shared|user|payments|elevated|admin|owner)$/,
+		/^help_(wallet|shared|user|giveaways|payments|elevated|admin|owner)$/,
 		async (ctx) => {
 			const category = ctx.match[1];
 			const userId = ctx.from?.id;
@@ -176,8 +176,9 @@ function buildHelpMenu(role: string): InlineKeyboardMarkup {
 		],
 		[
 			{ text: "User", callback_data: "help_user" },
-			{ text: "Payments", callback_data: "help_payments" },
+			{ text: "Giveaways", callback_data: "help_giveaways" },
 		],
+		[{ text: "Payments", callback_data: "help_payments" }],
 	];
 
 	// Add elevated, admin, owner buttons based on role
@@ -247,7 +248,32 @@ const helpContent: Record<string, string> = {
 		`/jails\n` +
 		`  View all currently jailed users, their jail duration, remaining time, and bail amounts\\.\n\n` +
 		`/violations\n` +
-		`  View your violation history including fines, payment status, and violation reasons\\.`,
+		`  View your violation history including fines, payment status, and violation reasons\\.\n\n` +
+		`/viewwhitelist\n` +
+		`  Display all users on the whitelist who are exempt from certain automated restrictions\\.\n\n` +
+		`/viewblacklist\n` +
+		`  Display all blacklisted users and their blacklist reasons\\.\n\n` +
+		`/viewactions\n` +
+		`  View all currently active global restrictions \\(no stickers, no URLs, etc\\) applied to the chat\\.`,
+
+	giveaways:
+		`*Giveaway Commands*\n\n` +
+		`/giveaway \\<amount\\>\n` +
+		`  Create an open giveaway funded from your balance\\. After entering the amount, you'll select how many slots \\(10, 25, 50, or 100\\) to split it into\\. Each user can claim one slot\\.\n\n` +
+		`  Example: \`/giveaway 100\` with 10 slots = 10 JUNO per claim\n\n` +
+		`/cancelgiveaway \\[id\\]\n` +
+		`  Cancel an active giveaway you created\\. Unclaimed funds are returned to your balance\\. Without an ID, shows your active giveaways\\.\n\n` +
+		`*How Giveaways Work:*\n` +
+		`1\\. Run \`/giveaway <amount>\` with the total JUNO to give away\n` +
+		`2\\. Select number of slots \\(10, 25, 50, or 100\\)\n` +
+		`3\\. Funds are debited from your balance into escrow\n` +
+		`4\\. A message with a Claim button appears in chat\n` +
+		`5\\. Users click Claim to receive their share \\(one claim per user\\)\n` +
+		`6\\. When all slots are claimed, the giveaway completes\n\n` +
+		`*Notes:*\n` +
+		`\\- Admins/owners can choose to fund from treasury instead\n` +
+		`\\- You can cancel anytime to reclaim unclaimed funds\n` +
+		`\\- Each giveaway has a unique ID shown in the confirmation`,
 
 	payments:
 		`*Payment Commands*\n\n` +
@@ -270,20 +296,14 @@ const helpContent: Record<string, string> = {
 
 	elevated:
 		`*Elevated Commands*\n\n` +
-		`/viewactions\n` +
-		`  View all currently active global restrictions \\(no stickers, no URLs, etc\\) applied to the chat\\.\n\n` +
-		`/viewwhitelist\n` +
-		`  Display all users on the whitelist who are exempt from certain automated restrictions\\.\n\n` +
-		`/viewblacklist\n` +
-		`  Display all blacklisted users and their blacklist reasons\\.\n\n` +
 		`/jailstats\n` +
 		`  View comprehensive jail statistics including total jails, active jails, average duration, and bail revenue\\.\n\n` +
 		`/createshared \\<name\\>\n` +
 		`  Create a new shared account that multiple users can access\\. You become the initial admin with full permissions\\.\n\n` +
-		`/deleteshared \\<name\\>\n` +
-		`  Delete a shared account\\. Requires admin permissions on the account\\.\n\n` +
 		`/listshared\n` +
 		`  View all shared accounts in the system, their balances, and admin information\\.\n\n` +
+		`/listadmins\n` +
+		`  View all users with admin or owner roles\\.\n\n` +
 		`/listrestrictions \\<user\\>\n` +
 		`  View all active restrictions for a user\\.\n\n` +
 		`/removerestriction \\<user\\> \\<type\\>\n` +
@@ -303,8 +323,6 @@ const helpContent: Record<string, string> = {
 		`  Promote a user from 'pleb' to 'elevated' role\\.\n\n` +
 		`/revoke \\<user\\>\n` +
 		`  Demote an elevated user back to 'pleb' role\\.\n\n` +
-		`/listadmins\n` +
-		`  View all users with admin or owner roles\\.\n\n` +
 		`*Restrictions:*\n` +
 		`/addrestriction \\<user\\> \\<type\\> \\[action\\] \\[until\\] \\[severity\\]\n` +
 		`  Add a content restriction\\. Types: no\\_stickers, no\\_urls, no\\_media, no\\_photos, no\\_videos, no\\_documents, no\\_gifs, no\\_voice, no\\_forwarding, regex\\_block, muted\\. Severity: delete, mute, jail\\.\n\n` +
@@ -338,10 +356,10 @@ const helpContent: Record<string, string> = {
 		`  View treasury and ledger status with on\\-chain balance\\.\n\n` +
 		`/botbalance\n` +
 		`  Check the bot's on\\-chain wallet balance\\.\n\n` +
-		`/giveaway \\<user\\> \\<amount\\>\n` +
-		`  Distribute JUNO to a user's internal balance\\.\n\n` +
 		`/reconcile\n` +
 		`  Trigger balance reconciliation between ledger and on\\-chain wallet\\.\n\n` +
+		`/adjustbalance \\<user\\> \\<amount\\> \\[reason\\]\n` +
+		`  Manually adjust a user's balance \\(positive to add, negative to subtract\\)\\.\n\n` +
 		`*Statistics:*\n` +
 		`/stats\n` +
 		`  View comprehensive bot statistics\\.\n\n` +
@@ -377,6 +395,7 @@ const categoryRoleRequirements: Record<string, string[]> = {
 	wallet: ["pleb", "elevated", "admin", "owner"],
 	shared: ["pleb", "elevated", "admin", "owner"],
 	user: ["pleb", "elevated", "admin", "owner"],
+	giveaways: ["pleb", "elevated", "admin", "owner"],
 	payments: ["pleb", "elevated", "admin", "owner"],
 	elevated: ["elevated", "admin", "owner"],
 	admin: ["admin", "owner"],
