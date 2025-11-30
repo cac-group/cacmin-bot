@@ -300,10 +300,10 @@ const helpContent: Record<string, string> = {
 		`  View comprehensive jail statistics including total jails, active jails, average duration, and bail revenue\\.\n\n` +
 		`/createshared \\<name\\>\n` +
 		`  Create a new shared account that multiple users can access\\. You become the initial admin with full permissions\\.\n\n` +
-		`/deleteshared \\<name\\>\n` +
-		`  Delete a shared account\\. Requires admin permissions on the account\\.\n\n` +
 		`/listshared\n` +
 		`  View all shared accounts in the system, their balances, and admin information\\.\n\n` +
+		`/listadmins\n` +
+		`  View all users with admin or owner roles\\.\n\n` +
 		`/listrestrictions \\<user\\>\n` +
 		`  View all active restrictions for a user\\.\n\n` +
 		`/removerestriction \\<user\\> \\<type\\>\n` +
@@ -323,8 +323,6 @@ const helpContent: Record<string, string> = {
 		`  Promote a user from 'pleb' to 'elevated' role\\.\n\n` +
 		`/revoke \\<user\\>\n` +
 		`  Demote an elevated user back to 'pleb' role\\.\n\n` +
-		`/listadmins\n` +
-		`  View all users with admin or owner roles\\.\n\n` +
 		`*Restrictions:*\n` +
 		`/addrestriction \\<user\\> \\<type\\> \\[action\\] \\[until\\] \\[severity\\]\n` +
 		`  Add a content restriction\\. Types: no\\_stickers, no\\_urls, no\\_media, no\\_photos, no\\_videos, no\\_documents, no\\_gifs, no\\_voice, no\\_forwarding, regex\\_block, muted\\. Severity: delete, mute, jail\\.\n\n` +
