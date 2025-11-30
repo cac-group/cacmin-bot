@@ -102,7 +102,10 @@ export class RestrictionService {
 	): Promise<boolean> {
 		// Handle regex_block separately (async with timeout protection)
 		if (restriction.restriction === "regex_block") {
-			return RestrictionService.checkRegex(message, restriction.restrictedAction);
+			return RestrictionService.checkRegex(
+				message,
+				restriction.restrictedAction,
+			);
 		}
 
 		// Use handler map for all other restriction types
