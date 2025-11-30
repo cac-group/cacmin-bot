@@ -421,9 +421,12 @@ async function handleConfirmationCallback(
 	}
 
 	// Execute the confirmed action
-	await ctx.editMessageText(`${escapeMarkdownV2(action)} confirmed and executed\\!`, {
-		parse_mode: "MarkdownV2",
-	});
+	await ctx.editMessageText(
+		`${escapeMarkdownV2(action)} confirmed and executed\\!`,
+		{
+			parse_mode: "MarkdownV2",
+		},
+	);
 	clearSession(userId);
 }
 

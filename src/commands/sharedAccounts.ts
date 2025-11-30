@@ -133,7 +133,9 @@ async function handleDeleteShared(ctx: Context): Promise<void> {
 
 		const account = await SharedAccountService.getSharedAccountByName(name);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(name)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(name)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -212,7 +214,9 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -248,7 +252,9 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 				`Account: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
 				`User: ${escapeMarkdownV2(targetUser)}\n` +
 				`Level: ${escapeMarkdownV2(level)}\n` +
-				(spendLimit ? `Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n` : ""),
+				(spendLimit
+					? `Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n`
+					: ""),
 			{ parse_mode: "MarkdownV2" },
 		);
 
@@ -296,7 +302,9 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -381,7 +389,9 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -415,7 +425,9 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 				`Account: ${escapeMarkdownV2(account.displayName || accountName)}\n` +
 				`User: ${escapeMarkdownV2(targetUser)}\n` +
 				`New Level: ${escapeMarkdownV2(level)}\n` +
-				(spendLimit ? `New Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n` : ""),
+				(spendLimit
+					? `New Spend Limit: ${escapeMarkdownV2(spendLimit.toString())} JUNO\n`
+					: ""),
 			{ parse_mode: "MarkdownV2" },
 		);
 
@@ -462,7 +474,9 @@ async function handleSharedBalance(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -538,7 +552,9 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -572,7 +588,9 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 		);
 
 		if (!result.success) {
-			await ctx.reply(`Transaction failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
+			await ctx.reply(
+				`Transaction failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+			);
 			return;
 		}
 
@@ -632,7 +650,9 @@ async function handleSharedDeposit(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -645,7 +665,9 @@ async function handleSharedDeposit(ctx: Context): Promise<void> {
 		);
 
 		if (!result.success) {
-			await ctx.reply(`Deposit failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
+			await ctx.reply(
+				`Deposit failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+			);
 			return;
 		}
 
@@ -745,7 +767,9 @@ async function handleSharedInfo(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 
@@ -823,7 +847,9 @@ async function handleSharedHistory(ctx: Context): Promise<void> {
 		const account =
 			await SharedAccountService.getSharedAccountByName(accountName);
 		if (!account) {
-			await ctx.reply(`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`);
+			await ctx.reply(
+				`Shared account '${escapeMarkdownV2(accountName)}' not found\\.`,
+			);
 			return;
 		}
 

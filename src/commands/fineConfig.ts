@@ -8,11 +8,11 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { execute } from "../database";
-import { escapeMarkdownV2 } from "../utils/markdown";
 import { ownerOnly } from "../middleware/index";
 import { JailService } from "../services/jailService";
 import { PriceService } from "../services/priceService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
@@ -90,9 +90,12 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		}
 
 		if (Number.isNaN(amountUsd) || amountUsd < 0) {
-			return ctx.reply("❌ Invalid amount\\. Please enter a positive number\\.", {
-				parse_mode: "MarkdownV2",
-			});
+			return ctx.reply(
+				"❌ Invalid amount\\. Please enter a positive number\\.",
+				{
+					parse_mode: "MarkdownV2",
+				},
+			);
 		}
 
 		PriceService.setFineConfigUsd(fineType, amountUsd, description, ownerId);
@@ -227,9 +230,12 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 		}
 
 		if (Number.isNaN(minutes) || minutes < 1) {
-			return ctx.reply("❌ Invalid duration\\. Minutes must be a positive number\\.", {
-				parse_mode: "MarkdownV2",
-			});
+			return ctx.reply(
+				"❌ Invalid duration\\. Minutes must be a positive number\\.",
+				{
+					parse_mode: "MarkdownV2",
+				},
+			);
 		}
 
 		if (Number.isNaN(junoAmount) || junoAmount < 0) {

@@ -109,7 +109,9 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		}
 
 		if (Number.isNaN(minutes) || minutes < 1) {
-			return ctx.reply("⚠️ Invalid duration\\. Minutes must be a positive number\\.");
+			return ctx.reply(
+				"⚠️ Invalid duration\\. Minutes must be a positive number\\.",
+			);
 		}
 
 		// Check if bot has admin permissions in this chat
@@ -300,7 +302,9 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		}
 
 		const userDisplay = formatUserIdDisplay(userId);
-		await ctx.reply(`🔓 User ${escapeMarkdownV2(userDisplay)} has been released from jail\\.`);
+		await ctx.reply(
+			`🔓 User ${escapeMarkdownV2(userDisplay)} has been released from jail\\.`,
+		);
 		logger.info("User unjailed", { adminId, userId });
 	};
 
@@ -353,7 +357,9 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 			[Math.floor(Date.now() / 1000), userId],
 		);
 
-		await ctx.reply(`⚠️ User ${escapeMarkdownV2(userId.toString())} has been warned\\.\nReason: ${escapeMarkdownV2(reason)}`);
+		await ctx.reply(
+			`⚠️ User ${escapeMarkdownV2(userId.toString())} has been warned\\.\nReason: ${escapeMarkdownV2(reason)}`,
+		);
 
 		// Try to notify the user
 		try {
@@ -395,7 +401,9 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 			userId,
 		]);
 
-		await ctx.reply(`✅ All violations cleared for user ${escapeMarkdownV2(userId.toString())}\\.`);
+		await ctx.reply(
+			`✅ All violations cleared for user ${escapeMarkdownV2(userId.toString())}\\.`,
+		);
 		logger.info("Violations cleared", { ownerId, userId });
 	});
 

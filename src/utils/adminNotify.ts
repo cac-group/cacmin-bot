@@ -7,8 +7,8 @@
 
 import type { Telegraf } from "telegraf";
 import { config } from "../config";
-import { escapeMarkdownV2 } from "./markdown";
 import { logger } from "./logger";
+import { escapeMarkdownV2 } from "./markdown";
 
 let botInstance: Telegraf | null = null;
 

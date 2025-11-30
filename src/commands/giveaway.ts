@@ -8,7 +8,6 @@
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
 import { execute, get, query } from "../database";
-import { escapeMarkdownV2 } from "../utils/markdown";
 import { ownerOnly } from "../middleware/index";
 import { LedgerService } from "../services/ledgerService";
 import {
@@ -17,6 +16,7 @@ import {
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 import { AmountPrecision } from "../utils/precision";
 import { hasRole } from "../utils/roles";
 
@@ -164,7 +164,10 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 		// Build slot selection keyboard
 		const slotOptions = [10, 25, 50, 100];
 		const slotInfo = slotOptions
-			.map((s) => `\\- ${escapeMarkdownV2(s.toString())} slots \\= ${escapeMarkdownV2((totalAmount / s).toFixed(6))} JUNO each`)
+			.map(
+				(s) =>
+					`\\- ${escapeMarkdownV2(s.toString())} slots \\= ${escapeMarkdownV2((totalAmount / s).toFixed(6))} JUNO each`,
+			)
 			.join("\n");
 
 		// For owners/admins who can afford from both sources, show funding choice

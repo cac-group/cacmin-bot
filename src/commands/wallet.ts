@@ -137,7 +137,9 @@ export function registerWalletCommands(bot: Telegraf<Context>): void {
 	 * Syntax: /wallethelp
 	 */
 	bot.command("wallethelp", async (ctx) => {
-		const userId = ctx.from?.id ? escapeMarkdownV2(ctx.from.id.toString()) : "unknown";
+		const userId = ctx.from?.id
+			? escapeMarkdownV2(ctx.from.id.toString())
+			: "unknown";
 		await ctx.reply(
 			`*Wallet Commands*\n\n` +
 				`*Basic Commands:*\n` +

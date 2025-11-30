@@ -346,9 +346,12 @@ export async function handleSend(ctx: Context): Promise<void> {
 					recipient,
 				});
 
-				await ctx.reply(`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`, {
-					parse_mode: "MarkdownV2",
-				});
+				await ctx.reply(
+					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+					{
+						parse_mode: "MarkdownV2",
+					},
+				);
 			}
 		} else if (recipient.startsWith("@")) {
 			// Internal transfer by username
@@ -389,9 +392,12 @@ export async function handleSend(ctx: Context): Promise<void> {
 					recipient,
 				});
 
-				await ctx.reply(`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`, {
-					parse_mode: "MarkdownV2",
-				});
+				await ctx.reply(
+					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+					{
+						parse_mode: "MarkdownV2",
+					},
+				);
 			}
 		} else if (/^\d+$/.test(recipient)) {
 			// Internal transfer by userId
@@ -437,9 +443,12 @@ export async function handleSend(ctx: Context): Promise<void> {
 					recipientId: recipientId.toString(),
 				});
 
-				await ctx.reply(`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`, {
-					parse_mode: "MarkdownV2",
-				});
+				await ctx.reply(
+					`*Transfer Failed*\n\nError: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+					{
+						parse_mode: "MarkdownV2",
+					},
+				);
 			}
 		} else {
 			await ctx.reply(
@@ -835,7 +844,9 @@ export async function handleCheckDeposit(ctx: Context): Promise<void> {
 					(recipientUserId
 						? `Recipient User ID: ${recipientUserId}\n`
 						: "No valid user ID in memo\n") +
-					(result.memo ? `Memo: ${escapeMarkdownV2(result.memo)}\n` : "No memo\n") +
+					(result.memo
+						? `Memo: ${escapeMarkdownV2(result.memo)}\n`
+						: "No memo\n") +
 					`Status: Pending processing`,
 				{ parse_mode: "MarkdownV2" },
 			);

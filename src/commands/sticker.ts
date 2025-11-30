@@ -6,8 +6,8 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
-import { escapeMarkdownV2 } from "../utils/markdown";
 import { logger } from "../utils/logger";
+import { escapeMarkdownV2 } from "../utils/markdown";
 
 /**
  * Sticker file IDs from CACGifs pack

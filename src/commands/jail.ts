@@ -106,9 +106,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const requesterId = ctx.from?.id;
 		if (!requesterId) return;
 
-		const { get: getRecord, query: queryRecords } = await import(
-			"../database"
-		);
+		const { get: getRecord } = await import("../database");
 		const now = Math.floor(Date.now() / 1000);
 
 		// Check if a specific user was requested
@@ -160,9 +158,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 					const eventDate = escapeMarkdownV2(
 						new Date((event.timestamp || 0) * 1000).toLocaleString(),
 					);
-					const eventType = escapeMarkdownV2(
-						event.eventType.replace("_", " "),
-					);
+					const eventType = escapeMarkdownV2(event.eventType.replace("_", " "));
 
 					message += `\\- ${eventType}`;
 					if (event.durationMinutes) {

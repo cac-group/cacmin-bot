@@ -397,9 +397,12 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(`**Failed to claim deposit**\n\n${escapeMarkdownV2(result.error || "Unknown error")}`, {
-					parse_mode: "MarkdownV2",
-				});
+				await ctx.reply(
+					`**Failed to claim deposit**\n\n${escapeMarkdownV2(result.error || "Unknown error")}`,
+					{
+						parse_mode: "MarkdownV2",
+					},
+				);
 			}
 		} catch (error) {
 			logger.error("Failed to claim deposit", {
@@ -602,9 +605,12 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 					]);
 				}
 
-				await ctx.reply(`Failed to process deposit\n\n${escapeMarkdownV2(result.error || "Unknown error")}`, {
-					parse_mode: "MarkdownV2",
-				});
+				await ctx.reply(
+					`Failed to process deposit\n\n${escapeMarkdownV2(result.error || "Unknown error")}`,
+					{
+						parse_mode: "MarkdownV2",
+					},
+				);
 			}
 		} catch (error) {
 			logger.error("Failed to process deposit", { adminId, txHash, error });

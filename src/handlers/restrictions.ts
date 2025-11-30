@@ -88,7 +88,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 					"`/addrestriction 123456 no_photos` \\(delete only\\)\n" +
 					"`/addrestriction 123456 no_photos - - mute` \\(mute 30min\\)\n" +
 					"`/addrestriction 123456 no_stickers - - delete 3` \\(auto\\-jail after 3 violations\\)\n" +
-					"`/addrestriction 123456 regex_block \"spam\" - jail` \\(instant jail\\)\n\n" +
+					'`/addrestriction 123456 regex_block "spam" - jail` \\(instant jail\\)\n\n' +
 					"_Auto\\-escalation:_ After threshold violations \\(default 5\\) within 60 minutes, user gets auto\\-jailed for jailDuration \\(default 2880 min = 2 days\\) with jailFine \\(default 10 JUNO\\)\\.\n\n" +
 					"_For regex pattern examples:_ `/regexhelp`",
 				{
@@ -268,9 +268,12 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 					return lines.join("\n");
 				})
 				.join("\n\n━━━━━━━━━━━━━━\n\n");
-			await ctx.reply(`*Restrictions for user ${escapeMarkdownV2(userId)}:*\n\n${message}`, {
-				parse_mode: "MarkdownV2",
-			});
+			await ctx.reply(
+				`*Restrictions for user ${escapeMarkdownV2(userId)}:*\n\n${message}`,
+				{
+					parse_mode: "MarkdownV2",
+				},
+			);
 
 			StructuredLogger.logUserAction("Restrictions queried", {
 				adminId,

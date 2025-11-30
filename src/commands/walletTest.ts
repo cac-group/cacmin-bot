@@ -146,7 +146,9 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(`Transfer failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
+				await ctx.reply(
+					`Transfer failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+				);
 			}
 		} catch (error) {
 			logger.error("Transfer test failed", { userId, toUserId, amount, error });
@@ -190,7 +192,9 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(`Fine payment failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
+				await ctx.reply(
+					`Fine payment failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+				);
 			}
 		} catch (error) {
 			logger.error("Fine test failed", { userId, amount, error });
@@ -363,7 +367,9 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 					{ parse_mode: "MarkdownV2" },
 				);
 			} else {
-				await ctx.reply(`Deposit simulation failed: ${escapeMarkdownV2(result.error || "Unknown error")}`);
+				await ctx.reply(
+					`Deposit simulation failed: ${escapeMarkdownV2(result.error || "Unknown error")}`,
+				);
 			}
 		} catch (error) {
 			logger.error("Deposit simulation failed", {
@@ -443,7 +449,9 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 		try {
 			// 1. Check initial balance
 			const initialBalance = await UnifiedWalletService.getBalance(userId);
-			await ctx.reply(`1 Initial balance: ${escapeMarkdownV2(initialBalance.toFixed(6))} JUNO`);
+			await ctx.reply(
+				`1 Initial balance: ${escapeMarkdownV2(initialBalance.toFixed(6))} JUNO`,
+			);
 
 			// 2. Simulate a deposit
 			const depositAmount = 100;
@@ -503,9 +511,9 @@ export const registerWalletTestCommands = (bot: Telegraf<Context>) => {
 			await ctx.reply(
 				`*Full Flow Test Complete*\n\n` +
 					`Initial balance: \`${escapeMarkdownV2(initialBalance.toFixed(6))} JUNO\`\n` +
-					`Deposited: \`${escapeMarkdownV2("+" + depositAmount)} JUNO\`\n` +
-					`Fine paid: \`${escapeMarkdownV2("-" + fineAmount)} JUNO\`\n` +
-					`Transferred: \`${escapeMarkdownV2("-" + transferAmount)} JUNO\`\n\n` +
+					`Deposited: \`${escapeMarkdownV2(`+${depositAmount}`)} JUNO\`\n` +
+					`Fine paid: \`${escapeMarkdownV2(`-${fineAmount}`)} JUNO\`\n` +
+					`Transferred: \`${escapeMarkdownV2(`-${transferAmount}`)} JUNO\`\n\n` +
 					`Expected: \`${escapeMarkdownV2((initialBalance + depositAmount - fineAmount - transferAmount).toFixed(6))} JUNO\`\n` +
 					`Actual: \`${escapeMarkdownV2(finalUserBalance.toFixed(6))} JUNO\`\n\n` +
 					`Bot treasury: \`${escapeMarkdownV2(botBalance.toFixed(6))} JUNO\``,
