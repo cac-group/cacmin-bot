@@ -264,7 +264,7 @@ const helpContent: Record<string, string> = {
 		`/cancelgiveaway \\[id\\]\n` +
 		`  Cancel an active giveaway you created\\. Unclaimed funds are returned to your balance\\. Without an ID, shows your active giveaways\\.\n\n` +
 		`*How Giveaways Work:*\n` +
-		`1\\. Run \`/giveaway <amount>\` with the total JUNO to give away\n` +
+		`1\\. Run \`/giveaway \\<amount\\>\` with the total JUNO to give away\n` +
 		`2\\. Select number of slots \\(10, 25, 50, or 100\\)\n` +
 		`3\\. Funds are debited from your balance into escrow\n` +
 		`4\\. A message with a Claim button appears in chat\n` +
