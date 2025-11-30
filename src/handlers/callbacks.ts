@@ -84,6 +84,36 @@ function clearSession(userId: number): void {
 }
 
 /**
+ * Callback handler type for dispatch table
+ */
+type CallbackHandler = (
+	ctx: Context,
+	data: string,
+	userId: number,
+) => Promise<void>;
+
+/**
+ * Dispatch table mapping callback prefixes to their handlers.
+ * Order matters - more specific prefixes should come before general ones.
+ */
+const callbackHandlers: Array<{ prefix: string; handler: CallbackHandler }> = [
+	{ prefix: "restrict_", handler: handleRestrictionCallback },
+	{ prefix: "jail_", handler: handleJailCallback },
+	{ prefix: "duration_", handler: handleDurationCallback },
+	{ prefix: "giveaway_fund_", handler: handleGiveawayFundCallback },
+	{ prefix: "giveaway_create_", handler: handleGiveawayCreateCallback },
+	{ prefix: "claim_giveaway_", handler: handleGiveawayClaimCallback },
+	{ prefix: "give_", handler: handleGiveawayCallback },
+	{ prefix: "action_", handler: handleGlobalActionCallback },
+	{ prefix: "role_", handler: handleRoleCallback },
+	{ prefix: "list_", handler: handleListCallback },
+	{ prefix: "perm_", handler: handlePermissionCallback },
+	{ prefix: "confirm_", handler: handleConfirmationCallback },
+	{ prefix: "menu_", handler: handleMenuCallback },
+	{ prefix: "select_user_", handler: handleUserSelectionCallback },
+];
+
+/**
  * Registers all callback query handlers with the bot
  */
 export function registerCallbackHandlers(bot: Telegraf<Context>): void {
@@ -101,45 +131,23 @@ export function registerCallbackHandlers(bot: Telegraf<Context>): void {
 			// Answer the callback to remove loading state
 			await ctx.answerCbQuery();
 
-			// Handle cancel
+			// Handle special cases first
 			if (data === "cancel") {
 				clearSession(userId);
 				await ctx.editMessageText("Action cancelled.");
 				return;
 			}
 
-			// Route to appropriate handler based on callback data prefix
-			if (data.startsWith("restrict_")) {
-				await handleRestrictionCallback(ctx, data, userId);
-			} else if (data.startsWith("jail_")) {
-				await handleJailCallback(ctx, data, userId);
-			} else if (data.startsWith("duration_")) {
-				await handleDurationCallback(ctx, data, userId);
-			} else if (data.startsWith("giveaway_fund_")) {
-				await handleGiveawayFundCallback(ctx, data, userId);
-			} else if (data.startsWith("giveaway_create_")) {
-				await handleGiveawayCreateCallback(ctx, data, userId);
-			} else if (data.startsWith("claim_giveaway_")) {
-				await handleGiveawayClaimCallback(ctx, data, userId);
-			} else if (data.startsWith("give_")) {
-				await handleGiveawayCallback(ctx, data, userId);
-			} else if (data === "noop") {
-				// No-op for completed giveaway buttons
+			if (data === "noop") {
 				return;
-			} else if (data.startsWith("action_")) {
-				await handleGlobalActionCallback(ctx, data, userId);
-			} else if (data.startsWith("role_")) {
-				await handleRoleCallback(ctx, data, userId);
-			} else if (data.startsWith("list_")) {
-				await handleListCallback(ctx, data, userId);
-			} else if (data.startsWith("perm_")) {
-				await handlePermissionCallback(ctx, data, userId);
-			} else if (data.startsWith("confirm_")) {
-				await handleConfirmationCallback(ctx, data, userId);
-			} else if (data.startsWith("menu_")) {
-				await handleMenuCallback(ctx, data, userId);
-			} else if (data.startsWith("select_user_")) {
-				await handleUserSelectionCallback(ctx, data, userId);
+			}
+
+			// Route using dispatch table
+			for (const { prefix, handler } of callbackHandlers) {
+				if (data.startsWith(prefix)) {
+					await handler(ctx, data, userId);
+					return;
+				}
 			}
 		} catch (error) {
 			logger.error("Error handling callback query", { userId, data, error });
@@ -415,6 +423,25 @@ async function handleConfirmationCallback(
 }
 
 /**
+ * Menu content map for main menu navigation
+ */
+const menuContent: Record<string, string> = {
+	wallet:
+		"*Wallet Commands*\n\n/balance - Check balance\n/deposit - Get deposit instructions\n/withdraw - Withdraw funds\n/send - Send funds\n/transactions - View history",
+	shared:
+		"*Shared Account Commands*\n\n/myshared - View your shared accounts\n/createshared - Create new shared account\n/sharedbalance - Check shared balance",
+	moderation:
+		"*Moderation Commands*\n\n/jail - Jail user\n/unjail - Release user\n/warn - Issue warning\n/addrestriction - Add restriction",
+	lists:
+		"*List Management*\n\n/viewwhitelist - View whitelist\n/viewblacklist - View blacklist\n/addwhitelist - Add to whitelist\n/addblacklist - Add to blacklist",
+	roles:
+		"*Role Management*\n\n/makeadmin - Promote to admin\n/elevate - Elevate user\n/revoke - Revoke privileges\n/listadmins - List all admins",
+	stats:
+		"*Statistics*\n\n/stats - Bot statistics\n/jailstats - Jail statistics\n/walletstats - Wallet statistics",
+	help: "*Help*\n\nUse /help in a DM for comprehensive command reference.",
+};
+
+/**
  * Handle main menu navigation
  */
 async function handleMenuCallback(
@@ -423,43 +450,14 @@ async function handleMenuCallback(
 	_userId: number,
 ): Promise<void> {
 	const menuItem = data.replace("menu_", "");
+	const message = menuContent[menuItem] || "";
 
-	let message = "";
-	switch (menuItem) {
-		case "wallet":
-			message =
-				"*Wallet Commands*\n\n/balance - Check balance\n/deposit - Get deposit instructions\n/withdraw - Withdraw funds\n/send - Send funds\n/transactions - View history";
-			break;
-		case "shared":
-			message =
-				"*Shared Account Commands*\n\n/myshared - View your shared accounts\n/createshared - Create new shared account\n/sharedbalance - Check shared balance";
-			break;
-		case "moderation":
-			message =
-				"*Moderation Commands*\n\n/jail - Jail user\n/unjail - Release user\n/warn - Issue warning\n/addrestriction - Add restriction";
-			break;
-		case "lists":
-			message =
-				"*List Management*\n\n/viewwhitelist - View whitelist\n/viewblacklist - View blacklist\n/addwhitelist - Add to whitelist\n/addblacklist - Add to blacklist";
-			break;
-		case "roles":
-			message =
-				"*Role Management*\n\n/makeadmin - Promote to admin\n/elevate - Elevate user\n/revoke - Revoke privileges\n/listadmins - List all admins";
-			break;
-		case "stats":
-			message =
-				"*Statistics*\n\n/stats - Bot statistics\n/jailstats - Jail statistics\n/walletstats - Wallet statistics";
-			break;
-		case "help":
-			message =
-				"*Help*\n\nUse /help in a DM for comprehensive command reference.";
-			break;
+	if (message) {
+		await ctx.editMessageText(message, {
+			parse_mode: "Markdown",
+			reply_markup: mainMenuKeyboard,
+		});
 	}
-
-	await ctx.editMessageText(message, {
-		parse_mode: "Markdown",
-		reply_markup: mainMenuKeyboard,
-	});
 }
 
 /**

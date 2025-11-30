@@ -7,6 +7,44 @@ import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
 import { JailService } from "./jailService";
 import { createViolation } from "./violationService";
 
+/**
+ * Restriction check handler type
+ */
+type RestrictionCheckFn = (
+	message: any,
+	restrictedAction?: string,
+) => boolean | Promise<boolean>;
+
+/**
+ * Map of restriction types to their check functions.
+ * Each function returns true if the message violates the restriction.
+ */
+const restrictionChecks: Record<string, RestrictionCheckFn> = {
+	no_stickers: (msg, action) => {
+		if (!msg.sticker) return false;
+		if (!action) return true; // Block all stickers
+		return msg.sticker.set_name === action;
+	},
+	no_urls: (msg, action) => {
+		if (!msg.text && !msg.caption) return false;
+		const text = msg.text || msg.caption || "";
+		const urlRegex =
+			/https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/gi;
+		const urls = text.match(urlRegex);
+		if (!urls) return false;
+		if (!action) return true; // Block all URLs
+		return urls.some((url: string) => url.includes(action));
+	},
+	no_media: (msg) => !!(msg.photo || msg.video || msg.document || msg.audio),
+	no_photos: (msg) => !!msg.photo,
+	no_videos: (msg) => !!msg.video,
+	no_documents: (msg) => !!msg.document,
+	no_gifs: (msg) => !!msg.animation,
+	no_voice: (msg) => !!(msg.voice || msg.video_note),
+	no_forwarding: (msg) => !!(msg.forward_from || msg.forward_from_chat),
+	muted: () => true, // All messages blocked if muted
+};
+
 export class RestrictionService {
 	/**
 	 * Check if a message violates any restrictions
@@ -55,99 +93,30 @@ export class RestrictionService {
 	}
 
 	/**
-	 * Check specific restriction
+	 * Check specific restriction using handler map
 	 */
 	private static async checkRestriction(
 		_ctx: Context,
 		message: any,
 		restriction: UserRestriction | GlobalAction,
 	): Promise<boolean> {
-		switch (restriction.restriction) {
-			case "no_stickers":
-				return RestrictionService.checkStickers(
-					message,
-					restriction.restrictedAction,
-				);
-
-			case "no_urls":
-				return RestrictionService.checkUrls(
-					message,
-					restriction.restrictedAction,
-				);
-
-			case "regex_block":
-				return await RestrictionService.checkRegex(
-					message,
-					restriction.restrictedAction,
-				);
-
-			case "no_media":
-				return RestrictionService.checkMedia(message);
-
-			case "no_photos":
-				return RestrictionService.checkPhotos(message);
-
-			case "no_videos":
-				return RestrictionService.checkVideos(message);
-
-			case "no_documents":
-				return RestrictionService.checkDocuments(message);
-
-			case "no_gifs":
-				return RestrictionService.checkGifs(message);
-
-			case "no_voice":
-				return RestrictionService.checkVoice(message);
-
-			case "no_forwarding":
-				return RestrictionService.checkForwarding(message);
-
-			case "muted":
-				return true; // All messages blocked if muted
-
-			default:
-				return false;
+		// Handle regex_block separately (async with timeout protection)
+		if (restriction.restriction === "regex_block") {
+			return RestrictionService.checkRegex(message, restriction.restrictedAction);
 		}
-	}
 
-	private static checkStickers(
-		message: any,
-		restrictedPackId?: string,
-	): boolean {
-		if (!message.sticker) return false;
+		// Use handler map for all other restriction types
+		const checker = restrictionChecks[restriction.restriction];
+		if (checker) {
+			return checker(message, restriction.restrictedAction);
+		}
 
-		if (!restrictedPackId) return true; // Block all stickers
-
-		return message.sticker.set_name === restrictedPackId;
-	}
-
-	private static checkUrls(message: any, restrictedDomain?: string): boolean {
-		if (!message.text && !message.caption) return false;
-
-		const text = message.text || message.caption || "";
-		const urlRegex =
-			/https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/gi;
-		const urls = text.match(urlRegex);
-
-		if (!urls) return false;
-		if (!restrictedDomain) return true; // Block all URLs
-
-		return urls.some((url: string) => url.includes(restrictedDomain));
+		return false;
 	}
 
 	/**
 	 * Check if message text matches a regex pattern restriction.
-	 * Uses safe regex implementation with timeout protection to prevent ReDoS attacks.
-	 * Supports simple text, wildcard patterns, and full regex syntax.
-	 *
-	 * @param message - Telegram message object
-	 * @param pattern - Pattern to match (simple text, wildcard, or /regex/flags format)
-	 * @returns True if message violates the regex restriction
-	 *
-	 * @example
-	 * checkRegex(message, 'spam.*word') // Matches "spam word", "spam123word", etc.
-	 * checkRegex(message, '/buy.*now/gi') // Case-insensitive regex
-	 * checkRegex(message, 'test*pattern') // Wildcard pattern
+	 * Uses safe regex with timeout protection to prevent ReDoS attacks.
 	 */
 	private static async checkRegex(
 		message: any,
@@ -156,8 +125,6 @@ export class RestrictionService {
 		if (!pattern || (!message.text && !message.caption)) return false;
 
 		const text = message.text || message.caption || "";
-
-		// Use safe regex with timeout protection
 		const compiledPattern = createPatternObject(pattern);
 		if (!compiledPattern) {
 			logger.error("Failed to compile regex pattern", { pattern });
@@ -165,66 +132,11 @@ export class RestrictionService {
 		}
 
 		try {
-			// Use timeout-protected matching to prevent ReDoS attacks
 			return await testPatternSafely(compiledPattern.regex, text, 100);
 		} catch (error) {
 			logger.error("Regex matching error", { pattern, error });
 			return false;
 		}
-	}
-
-	private static checkMedia(message: any): boolean {
-		return !!(
-			message.photo ||
-			message.video ||
-			message.document ||
-			message.audio
-		);
-	}
-
-	/**
-	 * Check if message contains photo attachments.
-	 * More granular than checkMedia(), allows restricting photos specifically.
-	 *
-	 * @param message - Telegram message object
-	 * @returns True if message contains photos
-	 */
-	private static checkPhotos(message: any): boolean {
-		return !!message.photo;
-	}
-
-	/**
-	 * Check if message contains video attachments.
-	 * More granular than checkMedia(), allows restricting videos specifically.
-	 *
-	 * @param message - Telegram message object
-	 * @returns True if message contains videos
-	 */
-	private static checkVideos(message: any): boolean {
-		return !!message.video;
-	}
-
-	/**
-	 * Check if message contains document attachments.
-	 * More granular than checkMedia(), allows restricting documents specifically.
-	 *
-	 * @param message - Telegram message object
-	 * @returns True if message contains documents
-	 */
-	private static checkDocuments(message: any): boolean {
-		return !!message.document;
-	}
-
-	private static checkGifs(message: any): boolean {
-		return !!message.animation;
-	}
-
-	private static checkVoice(message: any): boolean {
-		return !!(message.voice || message.video_note);
-	}
-
-	private static checkForwarding(message: any): boolean {
-		return !!(message.forward_from || message.forward_from_chat);
 	}
 
 	/**
