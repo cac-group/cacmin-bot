@@ -16,7 +16,7 @@
  */
 
 import type { Context } from "telegraf";
-import { bold, code, fmt, join } from "telegraf/format";
+import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { UnifiedWalletService } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";

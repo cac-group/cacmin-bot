@@ -15,7 +15,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
-import { bold, code, fmt, type FmtString } from "telegraf/format";
+import { bold, code, type FmtString, fmt } from "telegraf/format";
 import type { InlineKeyboardMarkup } from "telegraf/types";
 import { get } from "../database";
 import { ensureUserExists } from "../services/userService";

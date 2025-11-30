@@ -289,7 +289,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				[SYSTEM_USER_IDS.UNCLAIMED],
 			);
 
-			let messageParts = [
+			const messageParts = [
 				bold("Unclaimed Deposits"),
 				"\n\n",
 				`Total: ${code(`${AmountPrecision.format(unclaimedBalance)} JUNO`)}`,
