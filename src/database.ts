@@ -447,6 +447,15 @@ export const initDb = (): void => {
     );
   `);
 
+	// System state key-value store for persisting runtime state (RNG chain, etc.)
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS system_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+  `);
+
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
