@@ -8,6 +8,7 @@
 
 import { Telegraf } from "telegraf";
 import { registerDepositCommands } from "./commands/deposit";
+import { registerDuelCommands } from "./commands/duel";
 import { registerFineConfigCommands } from "./commands/fineConfig";
 import {
 	initializeRollSystem,
@@ -32,6 +33,7 @@ import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
 import { registerViolationHandlers } from "./handlers/violations";
 import { messageFilterMiddleware } from "./middleware/messageFilter";
+import { DuelService } from "./services/duelService";
 import { JailService } from "./services/jailService";
 import { LedgerService } from "./services/ledgerService";
 import { PriceService } from "./services/priceService";
@@ -153,6 +155,7 @@ async function main() {
 		registerStickerCommands(bot); // Sticker sending and management
 		registerFineConfigCommands(bot); // Fine configuration and custom jail commands
 		registerGamblingCommands(bot); // Roll gambling game
+		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
 
 		// Error handling
@@ -179,6 +182,11 @@ async function main() {
 		// Periodic cleanup of expired transaction locks (every minute)
 		setInterval(async () => {
 			await TransactionLockService.cleanExpiredLocks();
+		}, 60 * 1000);
+
+		// Periodic cleanup of expired duels (every minute)
+		setInterval(async () => {
+			await DuelService.cleanExpiredDuels();
 		}, 60 * 1000);
 
 		// Periodic balance reconciliation check (every hour)
