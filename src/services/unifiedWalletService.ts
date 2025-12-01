@@ -441,11 +441,14 @@ export class UnifiedWalletService {
 			const amountPos =
 				strings.find((s) => s.str === amountInUjuno)?.position || -1;
 
-			// Memo is the first numeric string (5-12 digits) that appears AFTER the amount
+			// Memo is the first numeric string (1-12 digits) that appears AFTER the amount
+			// User IDs can be short (1-12 digits), but we filter out microJUNO amounts
 			const numericMemo = strings.find((s) => {
-				if (!/^\d{5,12}$/.test(s.str)) return false;
+				if (!/^\d{1,12}$/.test(s.str)) return false;
 				if (s.str === amountInUjuno) return false; // Skip the amount itself
 				if (amountPos !== -1 && s.position < amountPos) return false; // Must come after amount
+				// Filter out likely microJUNO amounts (digits ending in many zeros)
+				if (/^[1-9]\d*0{5,}$/.test(s.str)) return false; // e.g., 1000000, 35050000
 				return true;
 			});
 
@@ -478,9 +481,8 @@ export class UnifiedWalletService {
 				// Exclude crypto key types
 				if (s.str.includes("PubKey") || s.str.includes("crypto")) return false;
 
-				// Exclude large numbers
-				if (s.str.match(/^\d+$/) && parseInt(s.str, 10) > 10000000)
-					return false;
+				// Exclude pure numeric strings (handled by numericMemo check above)
+				if (/^\d+$/.test(s.str)) return false;
 
 				// Exclude binary garbage
 				const alphanumericRatio =
