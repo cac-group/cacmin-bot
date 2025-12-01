@@ -398,9 +398,24 @@ Your balance: ${code(AmountPrecision.format(balance))} JUNO`,
 		);
 
 		if (!lockAcquired) {
-			return ctx.reply(
-				"You have an active transaction. Please wait and try again.",
-			);
+			// Get lock details to provide better feedback
+			const existingLock = await TransactionLockService.getActiveLock(userId);
+			const lockAge = existingLock
+				? Math.floor(Date.now() / 1000) - existingLock.lockedAt
+				: 0;
+			const lockType = existingLock?.lockType || "unknown";
+
+			// Try to DM the user instead of spamming the chat
+			try {
+				await ctx.telegram.sendMessage(
+					userId,
+					`You have an active ${lockType} transaction (${lockAge}s old). Please wait for it to complete before rolling again.`,
+				);
+			} catch {
+				// If DM fails, reply in chat but keep it brief
+				return ctx.reply("You have an active transaction. Please wait.");
+			}
+			return;
 		}
 
 		try {
@@ -537,8 +552,33 @@ Verify: ${code(verificationHash)}`,
 		} catch (error) {
 			// Always release lock on error
 			await TransactionLockService.releaseLock(userId);
-			logger.error("Roll command error", { userId, betAmount, error });
-			return ctx.reply("An error occurred. Your balance is unchanged.");
+			const errMsg = error instanceof Error ? error.message : String(error);
+			const errStack = error instanceof Error ? error.stack : undefined;
+			logger.error("Roll command error", {
+				userId,
+				betAmount,
+				error: errMsg,
+				stack: errStack,
+			});
+
+			// Determine user-friendly error message
+			let userMessage = "An error occurred. Your balance is unchanged.";
+			if (errMsg.includes("Roll system not initialized")) {
+				userMessage =
+					"Roll system is restarting. Please try again in a moment.";
+			} else if (
+				errMsg.includes("SQLITE_BUSY") ||
+				errMsg.includes("database is locked")
+			) {
+				userMessage = "Database is busy. Please try again in a few seconds.";
+			}
+
+			// Try to DM the error to avoid chat spam
+			try {
+				await ctx.telegram.sendMessage(userId, userMessage);
+			} catch {
+				return ctx.reply(userMessage);
+			}
 		}
 	});
 
