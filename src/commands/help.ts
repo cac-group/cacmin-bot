@@ -128,7 +128,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 
 	// Handle help category callbacks - specific categories only, exclude 'menu'
 	bot.action(
-		/^help_(wallet|shared|user|giveaways|payments|elevated|admin|owner)$/,
+		/^help_(wallet|shared|user|giveaways|payments|games|elevated|admin|owner)$/,
 		async (ctx) => {
 			const category = ctx.match[1];
 			const userId = ctx.from?.id;
@@ -175,7 +175,10 @@ function buildHelpMenu(role: string): InlineKeyboardMarkup {
 			{ text: "User", callback_data: "help_user" },
 			{ text: "Giveaways", callback_data: "help_giveaways" },
 		],
-		[{ text: "Payments", callback_data: "help_payments" }],
+		[
+			{ text: "Payments", callback_data: "help_payments" },
+			{ text: "Games", callback_data: "help_games" },
+		],
 	];
 
 	// Add elevated, admin, owner buttons based on role
@@ -307,6 +310,34 @@ const helpContent: Record<string, FmtString> = {
 		"  Verify an on-chain bail payment made for another user.",
 	]),
 
+	games: fmt([
+		bold("Games"),
+		"\n\n",
+		"/roll <amount>\n",
+		"  Roll a 9-digit number. If the last 2+ digits match (dubs), you win 9x profit!\n\n",
+		"  ",
+		bold("Rules:"),
+		"\n",
+		"  - Win condition: Last 2+ digits match\n",
+		"  - Win chance: 10% (1 in 10)\n",
+		"  - Win payout: 9x profit (get back 10x your bet)\n",
+		"  - Bet limits: 0.1 - 100 JUNO\n",
+		"  - Fair game: Expected value = 0\n\n",
+		"  Example: ",
+		code("/roll 5"),
+		" to bet 5 JUNO\n\n",
+		"/rollstats\n",
+		"  View your personal gambling statistics including total rolls, wagered, won, and net profit.\n\n",
+		"/rollodds\n",
+		"  View detailed game rules, win probabilities, and how the random number generation works.\n\n",
+		bold("Match Types:"),
+		"\n",
+		"  - Dubs (2 match): 10% chance\n",
+		"  - Trips (3 match): 1% chance\n",
+		"  - Quads (4 match): 0.1% chance\n",
+		"  - Higher matches: increasingly rare",
+	]),
+
 	elevated: fmt([
 		bold("Elevated Commands"),
 		"\n\n",
@@ -426,6 +457,7 @@ const categoryRoleRequirements: Record<string, string[]> = {
 	user: ["pleb", "elevated", "admin", "owner"],
 	giveaways: ["pleb", "elevated", "admin", "owner"],
 	payments: ["pleb", "elevated", "admin", "owner"],
+	games: ["pleb", "elevated", "admin", "owner"],
 	elevated: ["elevated", "admin", "owner"],
 	admin: ["admin", "owner"],
 	owner: ["owner"],
