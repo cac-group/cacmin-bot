@@ -126,9 +126,9 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 		}
 	});
 
-	// Handle help category callbacks - specific categories only, exclude 'menu'
+	// Handle help category callbacks - specific categories only, exclude 'menu' and 'games'
 	bot.action(
-		/^help_(wallet|shared|user|giveaways|payments|games|elevated|admin|owner)$/,
+		/^help_(wallet|shared|user|giveaways|payments|elevated|admin|owner)$/,
 		async (ctx) => {
 			const category = ctx.match[1];
 			const userId = ctx.from?.id;
@@ -146,7 +146,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 
 				const backKeyboard: InlineKeyboardMarkup = {
 					inline_keyboard: [
-						[{ text: "← Back to Menu", callback_data: "help_menu" }],
+						[{ text: "<- Back to Menu", callback_data: "help_menu" }],
 					],
 				};
 
@@ -160,6 +160,63 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 			}
 		},
 	);
+
+	// Handle games sub-menu
+	bot.action("help_games", async (ctx) => {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		try {
+			const gamesMenuKeyboard: InlineKeyboardMarkup = {
+				inline_keyboard: [
+					[
+						{ text: "Roll", callback_data: "help_games_roll" },
+						{ text: "Duel", callback_data: "help_games_duel" },
+					],
+					[{ text: "<- Back to Menu", callback_data: "help_menu" }],
+				],
+			};
+
+			await ctx.editMessageText(
+				fmt`${bold("Games")}\n\nSelect a game to view commands:`,
+				{ reply_markup: gamesMenuKeyboard },
+			);
+			await ctx.answerCbQuery();
+		} catch (error) {
+			logger.error("Error showing games menu", { userId, error });
+			await ctx.answerCbQuery("Error loading games menu");
+		}
+	});
+
+	// Handle games sub-categories
+	bot.action(/^help_games_(roll|duel)$/, async (ctx) => {
+		const game = ctx.match[1];
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		try {
+			const helpText = helpContent[`games_${game}`];
+			if (!helpText) {
+				await ctx.answerCbQuery("Game help not found");
+				return;
+			}
+
+			const backKeyboard: InlineKeyboardMarkup = {
+				inline_keyboard: [
+					[{ text: "<- Back to Games", callback_data: "help_games" }],
+					[{ text: "<- Back to Menu", callback_data: "help_menu" }],
+				],
+			};
+
+			await ctx.editMessageText(helpText, {
+				reply_markup: backKeyboard,
+			});
+			await ctx.answerCbQuery();
+		} catch (error) {
+			logger.error("Error in games help callback", { userId, game, error });
+			await ctx.answerCbQuery("Error loading game help");
+		}
+	});
 }
 
 /**
@@ -310,8 +367,8 @@ const helpContent: Record<string, FmtString> = {
 		"  Verify an on-chain bail payment made for another user.",
 	]),
 
-	games: fmt([
-		bold("Games"),
+	games_roll: fmt([
+		bold("Roll Game"),
 		"\n\n",
 		"/roll <amount>\n",
 		"  Roll a 9-digit number. If the last 2+ digits match (dubs), you win 9x profit!\n\n",
@@ -336,6 +393,34 @@ const helpContent: Record<string, FmtString> = {
 		"  - Trips (3 match): 1% chance\n",
 		"  - Quads (4 match): 0.1% chance\n",
 		"  - Higher matches: increasingly rare",
+	]),
+
+	games_duel: fmt([
+		bold("Duel Game"),
+		"\n\n",
+		"/duel <user> <amount>\n",
+		"  Challenge another user to a 1v1 wager. Both players put up the same amount and winner takes all.\n\n",
+		"  ",
+		bold("How it works:"),
+		"\n",
+		"  1. You challenge a user with ",
+		code("/duel @user 10"),
+		"\n",
+		"  2. Your bet is held in escrow\n",
+		"  3. Opponent sees Accept/Decline buttons\n",
+		"  4. If accepted, both roll - highest wins the pot\n",
+		"  5. If declined or expired (15 min), bet is refunded\n\n",
+		"/duelstats\n",
+		"  View your duel statistics including wins, losses, and profit.\n\n",
+		"/duelhistory [limit]\n",
+		"  View your recent duel history with results.\n\n",
+		bold("Rules:"),
+		"\n",
+		"  - Bet limits: 0.1 - 100 JUNO\n",
+		"  - Both players must have sufficient balance\n",
+		"  - Pending duels expire after 15 minutes\n",
+		"  - You cannot duel yourself or bots\n",
+		"  - Winner takes the full pot (2x bet amount)",
 	]),
 
 	elevated: fmt([
@@ -475,7 +560,6 @@ const categoryRoleRequirements: Record<string, string[]> = {
 	user: ["pleb", "elevated", "admin", "owner"],
 	giveaways: ["pleb", "elevated", "admin", "owner"],
 	payments: ["pleb", "elevated", "admin", "owner"],
-	games: ["pleb", "elevated", "admin", "owner"],
 	elevated: ["elevated", "admin", "owner"],
 	admin: ["admin", "owner"],
 	owner: ["owner"],
