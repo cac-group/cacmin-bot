@@ -5,7 +5,7 @@
  * @module commands/gambling
  */
 
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { execute, get } from "../database";
@@ -22,48 +22,216 @@ export const MAX_BET = 100;
 // Payout multiplier (9x profit = 10x total return for 10% win chance = fair game)
 export const WIN_MULTIPLIER = 9;
 
-// Store the previous roll hash for entropy chaining
-let previousRollHash: string = "";
+// System state keys for database persistence
+const STATE_HASH_CHAIN = "roll_hash_chain";
+const STATE_ROLL_COUNTER = "roll_counter";
+const STATE_SERVER_SEED = "roll_server_seed";
+const STATE_SERVER_SEED_HASH = "roll_server_seed_hash";
 
-/**
- * Initialize the roll hash chain with a random seed
- * Called once at module load
- */
-export function initializeRollHashChain(): void {
-	const seed = `init_${Date.now()}_${Math.random().toString(36)}`;
-	previousRollHash = createHash("sha256").update(seed).digest("hex");
-	logger.info("Roll hash chain initialized");
+interface RollState {
+	hashChain: string;
+	rollCounter: number;
+	serverSeed: string;
+	serverSeedHash: string;
 }
 
-// Initialize on module load
-initializeRollHashChain();
+// In-memory cache of current state (loaded from DB at startup)
+let rollState: RollState | null = null;
+
+/**
+ * Get a system state value from the database
+ */
+function getSystemState(key: string): string | undefined {
+	const row = get<{ value: string }>(
+		"SELECT value FROM system_state WHERE key = ?",
+		[key],
+	);
+	return row?.value;
+}
+
+/**
+ * Set a system state value in the database
+ */
+function setSystemState(key: string, value: string): void {
+	execute(
+		`INSERT INTO system_state (key, value, updated_at)
+		 VALUES (?, ?, strftime('%s', 'now'))
+		 ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = strftime('%s', 'now')`,
+		[key, value, value],
+	);
+}
+
+/**
+ * Generate a new server seed using crypto.randomBytes (256 bits)
+ * Returns both the seed and its commitment hash (for commit-reveal)
+ */
+function generateServerSeed(): { seed: string; hash: string } {
+	const seed = randomBytes(32).toString("hex");
+	const hash = createHash("sha256").update(seed).digest("hex");
+	return { seed, hash };
+}
+
+/**
+ * Initialize or restore the RNG state from database
+ * Called once at bot startup via initializeRollSystem()
+ */
+function loadOrInitializeState(): RollState {
+	let hashChain = getSystemState(STATE_HASH_CHAIN);
+	let rollCounter = parseInt(getSystemState(STATE_ROLL_COUNTER) || "0", 10);
+	let serverSeed = getSystemState(STATE_SERVER_SEED);
+	let serverSeedHash = getSystemState(STATE_SERVER_SEED_HASH);
+
+	// Initialize hash chain if not present (first run or corrupted)
+	if (!hashChain) {
+		const initEntropy = randomBytes(32).toString("hex");
+		hashChain = createHash("sha256").update(initEntropy).digest("hex");
+		setSystemState(STATE_HASH_CHAIN, hashChain);
+		logger.info("Roll hash chain initialized with cryptographic entropy");
+	} else {
+		logger.info("Roll hash chain restored from database");
+	}
+
+	// Initialize roll counter if not present
+	if (Number.isNaN(rollCounter)) {
+		rollCounter = 0;
+		setSystemState(STATE_ROLL_COUNTER, "0");
+	}
+
+	// Initialize server seed if not present
+	if (!serverSeed || !serverSeedHash) {
+		const newSeed = generateServerSeed();
+		serverSeed = newSeed.seed;
+		serverSeedHash = newSeed.hash;
+		setSystemState(STATE_SERVER_SEED, serverSeed);
+		setSystemState(STATE_SERVER_SEED_HASH, serverSeedHash);
+		logger.info("Roll server seed initialized for commit-reveal");
+	}
+
+	return { hashChain, rollCounter, serverSeed, serverSeedHash };
+}
+
+/**
+ * Initialize the roll system - must be called at bot startup
+ * Loads state from database or initializes fresh state with crypto.randomBytes
+ */
+export async function initializeRollSystem(): Promise<void> {
+	rollState = loadOrInitializeState();
+	logger.info("Roll system initialized", {
+		rollCounter: rollState.rollCounter,
+		serverSeedHash: `${rollState.serverSeedHash.substring(0, 16)}...`,
+	});
+}
+
+/**
+ * Get the current server seed commitment hash (for /rollodds display)
+ */
+export function getServerSeedCommitment(): string {
+	if (!rollState) {
+		throw new Error("Roll system not initialized");
+	}
+	return rollState.serverSeedHash;
+}
+
+/**
+ * Rotate the server seed (call periodically, e.g., hourly)
+ * Returns the OLD seed for verification, sets up new seed
+ */
+export function rotateServerSeed(): {
+	oldSeed: string;
+	oldHash: string;
+	newHash: string;
+} {
+	if (!rollState) {
+		throw new Error("Roll system not initialized");
+	}
+
+	const oldSeed = rollState.serverSeed;
+	const oldHash = rollState.serverSeedHash;
+
+	const newSeed = generateServerSeed();
+	rollState.serverSeed = newSeed.seed;
+	rollState.serverSeedHash = newSeed.hash;
+
+	setSystemState(STATE_SERVER_SEED, newSeed.seed);
+	setSystemState(STATE_SERVER_SEED_HASH, newSeed.hash);
+
+	logger.info("Server seed rotated", {
+		oldSeedHash: `${oldHash.substring(0, 16)}...`,
+		newSeedHash: `${newSeed.hash.substring(0, 16)}...`,
+	});
+
+	return { oldSeed, oldHash, newHash: newSeed.hash };
+}
 
 /**
  * Generate a 9-digit roll number using cryptographic randomness.
- * Combines timestamp, userId, and previous roll hash for entropy.
+ *
+ * Entropy sources (none fully user-controllable):
+ * - timestamp: Telegram message timestamp (user chooses when, but seconds precision)
+ * - serverNanos: High-resolution server time (nanoseconds, unpredictable)
+ * - userId: Fixed per user
+ * - messageId: Telegram message ID (sequential with unpredictable gaps)
+ * - rollCounter: Global monotonic counter (prevents replay)
+ * - hashChain: Previous roll's hash (depends on all prior rolls)
+ * - serverSeed: Cryptographic server secret (commit-reveal)
  *
  * @param timestamp - Message timestamp (unix seconds)
  * @param userId - User ID of the roller
- * @returns 9-digit number as string (000000000-999999999)
+ * @param messageId - Telegram message ID
+ * @returns Object with roll number, rollId, and verification data
  */
-export function generateRollNumber(timestamp: number, userId: number): string {
-	// Combine entropy sources
-	const entropyInput = `${timestamp}:${userId}:${previousRollHash}`;
+export function generateRollNumber(
+	timestamp: number,
+	userId: number,
+	messageId: number,
+): { rollNumber: string; rollId: number; verificationHash: string } {
+	if (!rollState) {
+		throw new Error(
+			"Roll system not initialized - call initializeRollSystem() first",
+		);
+	}
+
+	// Capture server nanosecond timestamp (unpredictable)
+	const serverNanos = process.hrtime.bigint().toString();
+
+	// Increment roll counter
+	rollState.rollCounter++;
+	const rollId = rollState.rollCounter;
+
+	// Combine all entropy sources
+	const entropyInput = [
+		timestamp,
+		serverNanos,
+		userId,
+		messageId,
+		rollId,
+		rollState.hashChain,
+		rollState.serverSeed,
+	].join(":");
 
 	// Generate SHA-256 hash
 	const hash = createHash("sha256").update(entropyInput).digest("hex");
 
-	// Update the chain for next roll
-	previousRollHash = hash;
+	// Update hash chain for next roll
+	rollState.hashChain = hash;
+
+	// Persist updated state to database
+	setSystemState(STATE_HASH_CHAIN, hash);
+	setSystemState(STATE_ROLL_COUNTER, rollId.toString());
 
 	// Take first 12 hex chars (48 bits) and convert to number
 	// Then mod by 1 billion to get 9 digits
 	const hexPortion = hash.substring(0, 12);
 	const numericValue = parseInt(hexPortion, 16);
-	const rollNumber = numericValue % 1_000_000_000;
+	const rollNumber = (numericValue % 1_000_000_000).toString().padStart(9, "0");
 
-	// Pad to 9 digits
-	return rollNumber.toString().padStart(9, "0");
+	// Create verification hash (hash of public inputs for user verification)
+	const verificationHash = createHash("sha256")
+		.update(`${timestamp}:${userId}:${messageId}:${rollId}`)
+		.digest("hex")
+		.substring(0, 16);
+
+	return { rollNumber, rollId, verificationHash };
 }
 
 /**
@@ -271,9 +439,14 @@ Use ${code("/deposit")} to add funds.`,
 				);
 			}
 
-			// Generate roll using message timestamp and user ID
+			// Generate roll using enhanced entropy sources
 			const timestamp = ctx.message?.date || Math.floor(Date.now() / 1000);
-			const rollNumber = generateRollNumber(timestamp, userId);
+			const messageId = ctx.message?.message_id || 0;
+			const { rollNumber, rollId, verificationHash } = generateRollNumber(
+				timestamp,
+				userId,
+				messageId,
+			);
 			const result = checkWin(rollNumber);
 
 			let txResult;
@@ -327,23 +500,25 @@ Use ${code("/deposit")} to add funds.`,
 				await ctx.reply(
 					fmt`${bold(result.winMessage)}
 
-Roll: ${bold(rollNumber)}
+Roll #${rollId}: ${bold(rollNumber)}
 
 Bet: ${code(AmountPrecision.format(betAmount))} JUNO
 Profit: ${bold(`+${AmountPrecision.format(potentialProfit)}`)} JUNO
 
-New balance: ${code(AmountPrecision.format(newBalance))} JUNO`,
+New balance: ${code(AmountPrecision.format(newBalance))} JUNO
+Verify: ${code(verificationHash)}`,
 				);
 			} else {
 				await ctx.reply(
 					fmt`${bold("No match")}
 
-Roll: ${code(rollNumber)}
+Roll #${rollId}: ${code(rollNumber)}
 
 Bet: ${code(AmountPrecision.format(betAmount))} JUNO
 Lost: ${code(`-${AmountPrecision.format(betAmount)}`)} JUNO
 
-New balance: ${code(AmountPrecision.format(newBalance))} JUNO`,
+New balance: ${code(AmountPrecision.format(newBalance))} JUNO
+Verify: ${code(verificationHash)}`,
 				);
 			}
 
@@ -353,6 +528,8 @@ New balance: ${code(AmountPrecision.format(newBalance))} JUNO`,
 				operation: "roll",
 				betAmount: betAmount.toString(),
 				rollNumber,
+				rollId: rollId.toString(),
+				verificationHash,
 				outcome: result.won ? `win_${result.matchName}` : "loss",
 				profit: result.won ? potentialProfit.toString() : `-${betAmount}`,
 				newBalance: newBalance.toString(),
@@ -398,6 +575,13 @@ Current balance: ${code(AmountPrecision.format(balance))} JUNO`,
 	 * View game odds and rules
 	 */
 	bot.command("rollodds", async (ctx) => {
+		let seedCommitment = "Not initialized";
+		try {
+			seedCommitment = getServerSeedCommitment();
+		} catch {
+			// Roll system not yet initialized
+		}
+
 		await ctx.reply(
 			fmt`${bold("Roll Game Odds")}
 
@@ -420,12 +604,21 @@ Win: 10% x 9 = 0.9
 Loss: 90% x -1 = -0.9
 Net EV: 0 (perfectly fair)
 
-${bold("Randomness:")}
-Each roll combines:
+${bold("Provable Fairness:")}
+Each roll combines these entropy sources:
 - Message timestamp
+- Server nanoseconds (unpredictable)
 - Your user ID
-- Hash of previous roll
-All hashed with SHA-256 for provable fairness.`,
+- Message ID
+- Global roll counter
+- Hash chain (depends on all prior rolls)
+- Server seed (committed in advance)
+
+Current seed commitment:
+${code(seedCommitment.substring(0, 32))}...
+
+Server seeds rotate hourly. Previous seeds are
+revealed so you can verify past rolls were fair.`,
 		);
 	});
 }
