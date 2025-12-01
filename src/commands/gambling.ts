@@ -521,7 +521,7 @@ Verify: ${code(verificationHash)}`,
 				);
 			} else {
 				await ctx.reply(
-					fmt`${bold("No match")}
+					fmt`${bold("watch tomorrow")}
 
 Roll #${rollId}: ${code(rollNumber)}
 

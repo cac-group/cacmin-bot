@@ -109,7 +109,6 @@ export async function sendUserError(
 		if (ctx.chat && ctx.chat.type !== "private") {
 			await ctx.reply(dmLink, {
 				parse_mode: "HTML",
-				// biome-ignore lint/style/useNamingConvention: Telegram API
 				link_preview_options: { is_disabled: true },
 			});
 		}
