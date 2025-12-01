@@ -39,6 +39,13 @@ interface RollState {
 // In-memory cache of current state (loaded from DB at startup)
 let rollState: RollState | null = null;
 
+// Track last roll messages per user for cleanup (chatId -> userId -> {userMsgId, botMsgId})
+interface RollMessagePair {
+	userMsgId: number;
+	botMsgId: number;
+}
+const lastRollMessages = new Map<number, Map<number, RollMessagePair>>();
+
 /**
  * Get a system state value from the database
  */
@@ -506,9 +513,29 @@ Use ${code("/deposit")} to add funds.`,
 				[TransactionType.GAMBLING, userId, userId, userId, userId],
 			);
 
-			// Format result message
+			// Delete previous roll messages (user command + bot response) for this user
+			const chatId = ctx.chat?.id;
+			const userMsgId = ctx.message?.message_id;
+			if (chatId) {
+				const chatMessages = lastRollMessages.get(chatId);
+				const prevPair = chatMessages?.get(userId);
+				if (prevPair) {
+					// Delete both messages in parallel, ignore errors (may be deleted/too old)
+					await Promise.all([
+						ctx.telegram
+							.deleteMessage(chatId, prevPair.userMsgId)
+							.catch(() => {}),
+						ctx.telegram
+							.deleteMessage(chatId, prevPair.botMsgId)
+							.catch(() => {}),
+					]);
+				}
+			}
+
+			// Format and send result message
+			let sentMessage;
 			if (result.won) {
-				await ctx.reply(
+				sentMessage = await ctx.reply(
 					fmt`${bold(result.winMessage)}
 
 Roll #${rollId}: ${bold(rollNumber)}
@@ -520,7 +547,7 @@ New balance: ${code(AmountPrecision.format(newBalance))} JUNO
 Verify: ${code(verificationHash)}`,
 				);
 			} else {
-				await ctx.reply(
+				sentMessage = await ctx.reply(
 					fmt`${bold("watch tomorrow")}
 
 Roll #${rollId}: ${code(rollNumber)}
@@ -531,6 +558,17 @@ Lost: ${code(`-${AmountPrecision.format(betAmount)}`)} JUNO
 New balance: ${code(AmountPrecision.format(newBalance))} JUNO
 Verify: ${code(verificationHash)}`,
 				);
+			}
+
+			// Track both messages for future cleanup
+			if (chatId && sentMessage && userMsgId) {
+				if (!lastRollMessages.has(chatId)) {
+					lastRollMessages.set(chatId, new Map());
+				}
+				lastRollMessages.get(chatId)?.set(userId, {
+					userMsgId,
+					botMsgId: sentMessage.message_id,
+				});
 			}
 
 			// Log the roll
