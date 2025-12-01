@@ -456,6 +456,35 @@ export const initDb = (): void => {
     );
   `);
 
+	// Duel challenges table - tracks pending/active/completed duels
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS duels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      challenger_id INTEGER NOT NULL,
+      opponent_id INTEGER NOT NULL,
+      wager_amount REAL NOT NULL,
+      loser_consequence TEXT NOT NULL DEFAULT 'none',
+      consequence_duration INTEGER,
+      consequence_action TEXT,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected', 'cancelled', 'expired', 'completed')),
+      winner_id INTEGER,
+      loser_id INTEGER,
+      roll_challenger TEXT,
+      roll_opponent TEXT,
+      roll_id_challenger INTEGER,
+      roll_id_opponent INTEGER,
+      chat_id INTEGER NOT NULL,
+      message_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      expires_at INTEGER NOT NULL,
+      resolved_at INTEGER,
+      FOREIGN KEY (challenger_id) REFERENCES users(id),
+      FOREIGN KEY (opponent_id) REFERENCES users(id),
+      FOREIGN KEY (winner_id) REFERENCES users(id),
+      FOREIGN KEY (loser_id) REFERENCES users(id)
+    );
+  `);
+
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -497,6 +526,12 @@ export const initDb = (): void => {
     CREATE INDEX IF NOT EXISTS idx_giveaways_chat ON giveaways(chat_id);
     CREATE INDEX IF NOT EXISTS idx_giveaway_claims_giveaway ON giveaway_claims(giveaway_id);
     CREATE INDEX IF NOT EXISTS idx_giveaway_claims_user ON giveaway_claims(user_id);
+
+    -- Duel indexes
+    CREATE INDEX IF NOT EXISTS idx_duels_challenger ON duels(challenger_id);
+    CREATE INDEX IF NOT EXISTS idx_duels_opponent ON duels(opponent_id);
+    CREATE INDEX IF NOT EXISTS idx_duels_status ON duels(status);
+    CREATE INDEX IF NOT EXISTS idx_duels_expires ON duels(expires_at);
   `);
 
 	logger.info("Database initialized successfully");
