@@ -396,29 +396,12 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 
 	/**
 	 * Command: /treasury
-	 * View comprehensive treasury and internal ledger status.
+	 * Displays bot wallet status and internal ledger summary.
 	 *
-	 * Permission: Admin or higher
+	 * Permission: Owner only
 	 * Syntax: /treasury
 	 *
-	 * Displays:
-	 * - On-chain treasury wallet address and balance
-	 * - Internal ledger statistics (user balances, fines, bail collected)
-	 * - Explanation of dual system (treasury vs ledger)
-	 *
-	 * @example
-	 * User: /treasury
-	 * Bot: Treasury & Ledger Status
-	 *
-	 *      On-Chain Treasury Wallet:
-	 *      Address: `juno1...`
-	 *      Balance: *1000.000000 JUNO*
-	 *      Purpose: Receives bail/fine payments via on-chain transfers
-	 *
-	 *      Internal Ledger System:
-	 *      Total User Balances: `500.000000 JUNO`
-	 *      Fines Collected: `50.000000 JUNO`
-	 *      Bail Collected: `100.000000 JUNO`
+	 * Shows on-chain balance, user balances total, and fines/bail collected.
 	 */
 	bot.command("treasury", ownerOnly, async (ctx) => {
 		try {
@@ -449,24 +432,24 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 			const totalUserBalances = internalBalances[0]?.total || 0;
 
 			await ctx.reply(
-				fmt`Treasury & Ledger Status
+				fmt`${bold("Bot Wallet Status")}
 
-${bold("On-Chain Treasury Wallet:")}
-Address: ${treasuryAddress || ""}
-Balance: ${treasuryBalance?.toFixed(6) || "0"} JUNO
-Purpose: Receives bail/fine payments via on-chain transfers
+${bold("On-Chain Balance:")} ${treasuryBalance?.toFixed(6) || "0"} JUNO
+${code(treasuryAddress || "")}
 
-${bold("Internal Ledger System:")}
-Total User Balances: ${totalUserBalances.toFixed(6)} JUNO
-Fines Collected: ${totalFines.toFixed(6)} JUNO - deducted from users
-Bail Collected: ${totalBail.toFixed(6)} JUNO - deducted from users
+${bold("Internal Ledger:")}
+User Balances: ${totalUserBalances.toFixed(6)} JUNO
+Fines Paid: ${totalFines.toFixed(6)} JUNO
+Bail Paid: ${totalBail.toFixed(6)} JUNO
 
-Note: Treasury and ledger are separate systems.
-- Treasury: On-chain wallet for direct payments
-- Ledger: Internal accounting for user balances
+${bold("How it works:")}
+Users deposit to the bot wallet address above. The bot
+tracks each user's balance internally via the ledger.
+Fines and bail are deducted from user balances and
+credited to the bot's internal treasury account.
 
-Use /giveaway to distribute funds
-Use /walletstats for detailed reconciliation`,
+${code("/walletstats")} - Full reconciliation details
+${code("/giveaway")} - Distribute funds to users`,
 			);
 		} catch (error) {
 			logger.error("Error fetching treasury info", error);
