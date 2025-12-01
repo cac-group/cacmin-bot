@@ -1,6 +1,11 @@
 /** Exact 6-decimal JUNO arithmetic - NO ROUNDING, uses micro-units (1M uJUNO = 1 JUNO) */
 
 export class AmountPrecision {
+	/** Sanitize a value that may have floating-point imprecision (e.g., from SQLite REAL) */
+	static sanitize(amount: number): number {
+		// Round to 6 decimals to eliminate floating-point representation errors
+		return Math.round(amount * 1_000_000) / 1_000_000;
+	}
 	/** Validate ≤6 decimals, return exact 6-decimal repr (throws if >6) */
 	static validateAmount(amount: number): number {
 		// Convert to string to check decimal places
@@ -83,9 +88,9 @@ export class AmountPrecision {
 
 	/** Add two amounts with exact precision (integer math in uJUNO) */
 	static add(amount1: number, amount2: number): number {
-		// Validate both amounts
-		const validated1 = AmountPrecision.validateAmount(amount1);
-		const validated2 = AmountPrecision.validateAmount(amount2);
+		// Sanitize and validate both amounts
+		const validated1 = AmountPrecision.validateAmount(AmountPrecision.sanitize(amount1));
+		const validated2 = AmountPrecision.validateAmount(AmountPrecision.sanitize(amount2));
 
 		// Convert to micro for exact integer math
 		const micro1 = AmountPrecision.toMicroJuno(validated1);
@@ -100,9 +105,9 @@ export class AmountPrecision {
 
 	/** Subtract amounts with exact precision (throws if negative result) */
 	static subtract(amount1: number, amount2: number): number {
-		// Validate both amounts
-		const validated1 = AmountPrecision.validateAmount(amount1);
-		const validated2 = AmountPrecision.validateAmount(amount2);
+		// Sanitize and validate both amounts
+		const validated1 = AmountPrecision.validateAmount(AmountPrecision.sanitize(amount1));
+		const validated2 = AmountPrecision.validateAmount(AmountPrecision.sanitize(amount2));
 
 		// Convert to micro for exact integer math
 		const micro1 = AmountPrecision.toMicroJuno(validated1);
@@ -122,11 +127,31 @@ export class AmountPrecision {
 		return AmountPrecision.fromMicroJuno(resultMicro);
 	}
 
+	/** Multiply amount by integer multiplier with exact precision */
+	static multiply(amount: number, multiplier: number): number {
+		// Sanitize and validate the amount (handles floating-point imprecision from DB)
+		const sanitized = AmountPrecision.sanitize(amount);
+		const validated = AmountPrecision.validateAmount(sanitized);
+
+		// Multiplier must be a positive integer
+		if (!Number.isInteger(multiplier) || multiplier < 0) {
+			throw new Error(`Multiplier must be a non-negative integer, got ${multiplier}`);
+		}
+
+		// Convert to micro for exact integer math
+		const micro = AmountPrecision.toMicroJuno(validated);
+		const resultMicro = micro * multiplier;
+
+		// Convert back to JUNO
+		return AmountPrecision.fromMicroJuno(resultMicro);
+	}
+
 	/** Check exact equality at micro precision */
 	static equals(amount1: number, amount2: number): boolean {
 		try {
-			const micro1 = AmountPrecision.toMicroJuno(amount1);
-			const micro2 = AmountPrecision.toMicroJuno(amount2);
+			// Sanitize to handle floating-point artifacts from DB
+			const micro1 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount1));
+			const micro2 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount2));
 			return micro1 === micro2;
 		} catch {
 			return false;
@@ -135,15 +160,17 @@ export class AmountPrecision {
 
 	/** Check if amount1 > amount2 at micro precision */
 	static isGreaterThan(amount1: number, amount2: number): boolean {
-		const micro1 = AmountPrecision.toMicroJuno(amount1);
-		const micro2 = AmountPrecision.toMicroJuno(amount2);
+		// Sanitize to handle floating-point artifacts from DB
+		const micro1 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount1));
+		const micro2 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount2));
 		return micro1 > micro2;
 	}
 
 	/** Check if amount1 >= amount2 at micro precision */
 	static isGreaterOrEqual(amount1: number, amount2: number): boolean {
-		const micro1 = AmountPrecision.toMicroJuno(amount1);
-		const micro2 = AmountPrecision.toMicroJuno(amount2);
+		// Sanitize to handle floating-point artifacts from DB
+		const micro1 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount1));
+		const micro2 = AmountPrecision.toMicroJuno(AmountPrecision.sanitize(amount2));
 		return micro1 >= micro2;
 	}
 

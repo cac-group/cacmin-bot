@@ -433,10 +433,8 @@ Use ${code("/deposit")} to add funds.`,
 				);
 			}
 
-			// Calculate potential payout (profit = bet * multiplier)
-			const potentialProfit = AmountPrecision.validateAmount(
-				betAmount * WIN_MULTIPLIER,
-			);
+			// Calculate potential payout (profit = bet * multiplier) using safe integer math
+			const potentialProfit = AmountPrecision.multiply(betAmount, WIN_MULTIPLIER);
 
 			// Check treasury can cover potential payout
 			const treasuryBalance = await LedgerService.getUserBalance(
