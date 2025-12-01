@@ -18,8 +18,13 @@
 import type { Context } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
-import { UnifiedWalletService } from "../services/unifiedWalletService";
+import { LedgerService } from "../services/ledgerService";
+import {
+	SYSTEM_USER_IDS,
+	UnifiedWalletService,
+} from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated } from "../utils/roles";
 
 /**
@@ -1102,5 +1107,410 @@ Status: ${afterState.matched ? "BALANCED" : "Still mismatched"}`,
 			operation: "adjust_balance",
 		});
 		await ctx.reply("Failed to adjust balance.");
+	}
+}
+
+/**
+ * Handles the /treasurybalance command.
+ * Displays the current game treasury balance available for payouts.
+ *
+ * Permission: Admin or higher
+ *
+ * @param ctx - Telegraf context
+ *
+ * @example
+ * Usage: /treasurybalance
+ */
+export async function handleTreasuryBalance(ctx: Context): Promise<void> {
+	try {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		const treasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		await ctx.reply(
+			fmt`${bold("Game Treasury Balance")}
+
+Available: ${code(AmountPrecision.format(treasuryBalance))} JUNO
+
+This balance is used for game payouts (e.g., /roll wins).
+When treasury is low, games become unavailable.`,
+		);
+
+		StructuredLogger.logUserAction("Treasury balance checked", {
+			userId,
+			operation: "check_treasury_balance",
+			treasuryBalance: AmountPrecision.format(treasuryBalance),
+		});
+	} catch (error) {
+		StructuredLogger.logError(error as Error, {
+			userId: ctx.from?.id,
+			operation: "check_treasury_balance",
+		});
+		await ctx.reply("Failed to fetch treasury balance.");
+	}
+}
+
+/**
+ * Handles the /fundtreasury command.
+ * Allows owners to fund the game treasury either by:
+ * 1. Transferring from their own balance
+ * 2. Getting deposit instructions for external funding
+ *
+ * Permission: Owner only
+ *
+ * @param ctx - Telegraf context
+ *
+ * @example
+ * Usage: /fundtreasury <amount> - Transfer from your balance to treasury
+ * Usage: /fundtreasury deposit - Get external deposit instructions for treasury
+ */
+export async function handleFundTreasury(ctx: Context): Promise<void> {
+	try {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		const text = (ctx.message as any)?.text || "";
+		const args = text.split(" ").slice(1);
+
+		const treasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		// No args - show help and current balance
+		if (args.length === 0) {
+			await ctx.reply(
+				fmt`${bold("Fund Game Treasury")}
+
+Current treasury: ${code(AmountPrecision.format(treasuryBalance))} JUNO
+
+${bold("Options:")}
+${code("/fundtreasury <amount>")} - Transfer from your balance
+${code("/fundtreasury deposit")} - Get external deposit address
+
+${bold("Examples:")}
+${code("/fundtreasury 100")} - Add 100 JUNO from your wallet
+${code("/fundtreasury deposit")} - Deposit from external wallet`,
+			);
+			return;
+		}
+
+		// Handle "deposit" subcommand - show deposit instructions for treasury
+		if (args[0].toLowerCase() === "deposit") {
+			const depositAddress = config.botTreasuryAddress;
+			const treasuryMemo = SYSTEM_USER_IDS.BOT_TREASURY.toString();
+
+			if (!depositAddress) {
+				await ctx.reply("Treasury address not configured.");
+				return;
+			}
+
+			await ctx.reply(
+				fmt`${bold("Treasury External Deposit")}
+
+To fund the treasury from an external wallet:
+
+1. Send JUNO to:
+${code(depositAddress)}
+
+2. Use this memo:
+${code(treasuryMemo)}
+
+The deposit will be credited to the game treasury once confirmed on-chain.`,
+			);
+
+			StructuredLogger.logUserAction(
+				"Treasury deposit instructions requested",
+				{
+					userId,
+					operation: "treasury_deposit_instructions",
+				},
+			);
+			return;
+		}
+
+		// Parse amount for internal transfer
+		let amount: number;
+		try {
+			amount = AmountPrecision.parseUserInput(args[0]);
+		} catch {
+			await ctx.reply(
+				"Invalid amount. Use a number with up to 6 decimal places.",
+			);
+			return;
+		}
+
+		if (amount <= 0) {
+			await ctx.reply("Amount must be positive.");
+			return;
+		}
+
+		// Check user's balance
+		const userBalance = await LedgerService.getUserBalance(userId);
+		if (!AmountPrecision.isGreaterOrEqual(userBalance, amount)) {
+			await ctx.reply(
+				fmt`${bold("Insufficient balance")}
+
+Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
+Requested: ${code(AmountPrecision.format(amount))} JUNO`,
+			);
+			return;
+		}
+
+		// Transfer from user to treasury
+		const result = await LedgerService.transferBetweenUsers(
+			userId,
+			SYSTEM_USER_IDS.BOT_TREASURY,
+			amount,
+			"Fund game treasury",
+		);
+
+		if (!result.success) {
+			await ctx.reply(`Failed to fund treasury: ${result.error}`);
+			return;
+		}
+
+		const newTreasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		await ctx.reply(
+			fmt`${bold("Treasury Funded")}
+
+Amount: ${code(AmountPrecision.format(amount))} JUNO
+Your new balance: ${code(AmountPrecision.format(result.fromBalance))} JUNO
+Treasury balance: ${code(AmountPrecision.format(newTreasuryBalance))} JUNO`,
+		);
+
+		StructuredLogger.logTransaction("Treasury funded by owner", {
+			userId,
+			operation: "fund_treasury",
+			amount: AmountPrecision.format(amount),
+			newTreasuryBalance: AmountPrecision.format(newTreasuryBalance),
+		});
+	} catch (error) {
+		StructuredLogger.logError(error as Error, {
+			userId: ctx.from?.id,
+			operation: "fund_treasury",
+		});
+		await ctx.reply("Failed to fund treasury.");
+	}
+}
+
+/**
+ * Handles the /contributetreasury command.
+ * Allows admins to contribute their own funds to the game treasury.
+ * Unlike /fundtreasury, this is available to admins (not just owners).
+ *
+ * Permission: Admin or higher
+ *
+ * @param ctx - Telegraf context
+ *
+ * @example
+ * Usage: /contributetreasury <amount>
+ */
+export async function handleContributeTreasury(ctx: Context): Promise<void> {
+	try {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		const text = (ctx.message as any)?.text || "";
+		const args = text.split(" ").slice(1);
+
+		const treasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		// No args - show help
+		if (args.length === 0) {
+			const userBalance = await LedgerService.getUserBalance(userId);
+			await ctx.reply(
+				fmt`${bold("Contribute to Treasury")}
+
+Current treasury: ${code(AmountPrecision.format(treasuryBalance))} JUNO
+Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
+
+Usage: ${code("/contributetreasury <amount>")}
+Example: ${code("/contributetreasury 50")}
+
+This transfers JUNO from your balance to the game treasury.`,
+			);
+			return;
+		}
+
+		// Parse amount
+		let amount: number;
+		try {
+			amount = AmountPrecision.parseUserInput(args[0]);
+		} catch {
+			await ctx.reply(
+				"Invalid amount. Use a number with up to 6 decimal places.",
+			);
+			return;
+		}
+
+		if (amount <= 0) {
+			await ctx.reply("Amount must be positive.");
+			return;
+		}
+
+		// Check user's balance
+		const userBalance = await LedgerService.getUserBalance(userId);
+		if (!AmountPrecision.isGreaterOrEqual(userBalance, amount)) {
+			await ctx.reply(
+				fmt`${bold("Insufficient balance")}
+
+Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
+Requested: ${code(AmountPrecision.format(amount))} JUNO`,
+			);
+			return;
+		}
+
+		// Transfer from user to treasury
+		const result = await LedgerService.transferBetweenUsers(
+			userId,
+			SYSTEM_USER_IDS.BOT_TREASURY,
+			amount,
+			"Admin treasury contribution",
+		);
+
+		if (!result.success) {
+			await ctx.reply(`Failed to contribute: ${result.error}`);
+			return;
+		}
+
+		const newTreasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		await ctx.reply(
+			fmt`${bold("Contribution Received")}
+
+Amount: ${code(AmountPrecision.format(amount))} JUNO
+Your new balance: ${code(AmountPrecision.format(result.fromBalance))} JUNO
+Treasury balance: ${code(AmountPrecision.format(newTreasuryBalance))} JUNO
+
+Thank you for supporting the games!`,
+		);
+
+		StructuredLogger.logTransaction("Treasury contribution from admin", {
+			userId,
+			operation: "contribute_treasury",
+			amount: AmountPrecision.format(amount),
+			newTreasuryBalance: AmountPrecision.format(newTreasuryBalance),
+		});
+	} catch (error) {
+		StructuredLogger.logError(error as Error, {
+			userId: ctx.from?.id,
+			operation: "contribute_treasury",
+		});
+		await ctx.reply("Failed to process contribution.");
+	}
+}
+
+/**
+ * Handles the /withdrawtreasury command.
+ * Allows owners to withdraw funds from the game treasury to their own balance.
+ *
+ * Permission: Owner only
+ *
+ * @param ctx - Telegraf context
+ *
+ * @example
+ * Usage: /withdrawtreasury <amount>
+ */
+export async function handleWithdrawTreasury(ctx: Context): Promise<void> {
+	try {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		const text = (ctx.message as any)?.text || "";
+		const args = text.split(" ").slice(1);
+
+		const treasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		// No args - show help
+		if (args.length === 0) {
+			await ctx.reply(
+				fmt`${bold("Withdraw from Treasury")}
+
+Current treasury: ${code(AmountPrecision.format(treasuryBalance))} JUNO
+
+Usage: ${code("/withdrawtreasury <amount>")}
+Example: ${code("/withdrawtreasury 50")}
+
+This transfers JUNO from the game treasury to your balance.`,
+			);
+			return;
+		}
+
+		// Parse amount
+		let amount: number;
+		try {
+			amount = AmountPrecision.parseUserInput(args[0]);
+		} catch {
+			await ctx.reply(
+				"Invalid amount. Use a number with up to 6 decimal places.",
+			);
+			return;
+		}
+
+		if (amount <= 0) {
+			await ctx.reply("Amount must be positive.");
+			return;
+		}
+
+		// Check treasury balance
+		if (!AmountPrecision.isGreaterOrEqual(treasuryBalance, amount)) {
+			await ctx.reply(
+				fmt`${bold("Insufficient treasury balance")}
+
+Treasury balance: ${code(AmountPrecision.format(treasuryBalance))} JUNO
+Requested: ${code(AmountPrecision.format(amount))} JUNO`,
+			);
+			return;
+		}
+
+		// Transfer from treasury to user
+		const result = await LedgerService.transferBetweenUsers(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+			userId,
+			amount,
+			"Owner treasury withdrawal",
+		);
+
+		if (!result.success) {
+			await ctx.reply(`Failed to withdraw: ${result.error}`);
+			return;
+		}
+
+		const newTreasuryBalance = await LedgerService.getUserBalance(
+			SYSTEM_USER_IDS.BOT_TREASURY,
+		);
+
+		await ctx.reply(
+			fmt`${bold("Treasury Withdrawal Complete")}
+
+Amount: ${code(AmountPrecision.format(amount))} JUNO
+Your new balance: ${code(AmountPrecision.format(result.toBalance))} JUNO
+Treasury balance: ${code(AmountPrecision.format(newTreasuryBalance))} JUNO`,
+		);
+
+		StructuredLogger.logTransaction("Treasury withdrawal by owner", {
+			userId,
+			operation: "withdraw_treasury",
+			amount: AmountPrecision.format(amount),
+			newTreasuryBalance: AmountPrecision.format(newTreasuryBalance),
+		});
+	} catch (error) {
+		StructuredLogger.logError(error as Error, {
+			userId: ctx.from?.id,
+			operation: "withdraw_treasury",
+		});
+		await ctx.reply("Failed to withdraw from treasury.");
 	}
 }

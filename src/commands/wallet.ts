@@ -12,13 +12,17 @@ import {
 	handleAdjustBalance,
 	handleBalance,
 	handleCheckDeposit,
+	handleContributeTreasury,
+	handleFundTreasury,
 	handleReconcile,
 	handleSend,
 	handleTransactions,
+	handleTreasuryBalance,
 	handleWalletStats,
 	handleWithdraw,
+	handleWithdrawTreasury,
 } from "../handlers/wallet";
-import { ownerOnly } from "../middleware/index";
+import { adminOrHigher, ownerOnly } from "../middleware/index";
 import { financialLockCheck } from "../middleware/lockCheck";
 
 /**
@@ -167,4 +171,41 @@ ${bold("Important:")}
 - External transfers incur network fees`,
 		);
 	});
+
+	/**
+	 * Command: /treasurybalance (alias: /gamebalance)
+	 * Check game treasury balance.
+	 *
+	 * Permission: Admin or higher
+	 * Syntax: /treasurybalance
+	 */
+	bot.command("treasurybalance", adminOrHigher, handleTreasuryBalance);
+	bot.command("gamebalance", adminOrHigher, handleTreasuryBalance);
+
+	/**
+	 * Command: /fundtreasury
+	 * Fund the game treasury (transfer from own balance or get deposit instructions).
+	 *
+	 * Permission: Owner only
+	 * Syntax: /fundtreasury <amount> | /fundtreasury deposit
+	 */
+	bot.command("fundtreasury", ownerOnly, handleFundTreasury);
+
+	/**
+	 * Command: /contributetreasury
+	 * Contribute to game treasury from your own balance.
+	 *
+	 * Permission: Admin or higher
+	 * Syntax: /contributetreasury <amount>
+	 */
+	bot.command("contributetreasury", adminOrHigher, handleContributeTreasury);
+
+	/**
+	 * Command: /withdrawtreasury
+	 * Withdraw from game treasury to your balance.
+	 *
+	 * Permission: Owner only
+	 * Syntax: /withdrawtreasury <amount>
+	 */
+	bot.command("withdrawtreasury", ownerOnly, handleWithdrawTreasury);
 }
