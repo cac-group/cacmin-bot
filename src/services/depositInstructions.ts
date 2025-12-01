@@ -6,6 +6,7 @@
  * @module services/depositInstructions
  */
 
+import { bold, code, fmt, type FmtString } from "telegraf/format";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
@@ -29,7 +30,7 @@ export class DepositInstructionService {
 	 */
 	static generateInstructions(userId: number): {
 		text: string;
-		markdown: string;
+		markdown: FmtString;
 		walletAddress: string;
 		memo: string;
 	} {
@@ -44,7 +45,7 @@ DEPOSIT INSTRUCTIONS
 Send JUNO to this address:
 ${walletAddress}
 
- CRITICAL - MEMO REQUIRED 
+ CRITICAL - MEMO REQUIRED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MEMO: ${memo}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -61,9 +62,9 @@ DOUBLE CHECK:
 Deposits without the correct memo will go to an unclaimed pool and require manual processing.
 `;
 
-		// Markdown formatted version for Telegram
-		const markdown = `Send JUNO to \`${walletAddress}\`
-**MEMO: \`${memo}\`** (required - no memo = no credit)
+		// Telegraf Format module version - address and memo in code for click-to-copy
+		const markdown = fmt`Send JUNO to ${code(walletAddress)}
+${bold("MEMO:")} ${code(memo)} (required - no memo = no credit)
 /balance to check deposit`;
 
 		return {

@@ -1,5 +1,6 @@
 import { DirectSecp256k1HdWallet } from "@cosmjs/proto-signing";
 import { GasPrice, SigningStargateClient } from "@cosmjs/stargate";
+import type { FmtString } from "telegraf/format";
 import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger } from "../utils/logger";
@@ -710,7 +711,7 @@ export class UnifiedWalletService {
 		address: string;
 		memo: string;
 		instructions: string;
-		markdown: string;
+		markdown: FmtString;
 	} {
 		const instructions = DepositInstructionService.generateInstructions(userId);
 
