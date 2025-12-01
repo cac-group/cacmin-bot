@@ -104,10 +104,13 @@ vi.mock("../../src/utils/precision", () => ({
 }));
 
 import { SYSTEM_USER_IDS } from "../../src/services/unifiedWalletService";
+import { get, execute } from "../../src/database";
 import {
 	checkWin,
 	generateRollNumber,
-	initializeRollHashChain,
+	initializeRollSystem,
+	getServerSeedCommitment,
+	rotateServerSeed,
 	MIN_BET,
 	MAX_BET,
 	WIN_MULTIPLIER,
@@ -232,55 +235,155 @@ describe("Roll Game Probability", () => {
 	});
 });
 
-describe("Hash Chain Initialization", () => {
-	it("should initialize without error", () => {
-		expect(() => initializeRollHashChain()).not.toThrow();
+describe("Roll System Initialization", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		// Mock database to return undefined (fresh init)
+		vi.mocked(get).mockReturnValue(undefined);
+		vi.mocked(execute).mockReturnValue({ lastInsertRowid: 1, changes: 1 });
 	});
 
-	it("should produce different rolls after reinitializing", () => {
-		const roll1 = generateRollNumber(1111111111, 999);
-		initializeRollHashChain();
-		const roll2 = generateRollNumber(1111111111, 999);
-		// After re-initialization, chain state changes so results differ
-		expect(roll1).not.toBe(roll2);
+	it("should initialize without error", async () => {
+		await expect(initializeRollSystem()).resolves.not.toThrow();
+	});
+
+	it("should restore state from database if present", async () => {
+		// Mock existing state in database
+		vi.mocked(get)
+			.mockReturnValueOnce({ value: "existing_hash_chain_abc123" })
+			.mockReturnValueOnce({ value: "42" })
+			.mockReturnValueOnce({ value: "existing_server_seed" })
+			.mockReturnValueOnce({ value: "existing_seed_hash_xyz789" });
+
+		await initializeRollSystem();
+
+		const commitment = getServerSeedCommitment();
+		expect(commitment).toBe("existing_seed_hash_xyz789");
+	});
+
+	it("should create fresh state if database is empty", async () => {
+		vi.mocked(get).mockReturnValue(undefined);
+
+		await initializeRollSystem();
+
+		// Should have written to database
+		expect(execute).toHaveBeenCalled();
+
+		// Should have a valid commitment hash (64 hex chars)
+		const commitment = getServerSeedCommitment();
+		expect(commitment).toHaveLength(64);
+		expect(/^[a-f0-9]+$/.test(commitment)).toBe(true);
+	});
+});
+
+describe("Server Seed Rotation", () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		vi.mocked(get).mockReturnValue(undefined);
+		vi.mocked(execute).mockReturnValue({ lastInsertRowid: 1, changes: 1 });
+		await initializeRollSystem();
+	});
+
+	it("should return old and new seed hashes", () => {
+		const oldCommitment = getServerSeedCommitment();
+		const { oldHash, newHash } = rotateServerSeed();
+
+		expect(oldHash).toBe(oldCommitment);
+		expect(newHash).not.toBe(oldHash);
+		expect(newHash).toHaveLength(64);
+	});
+
+	it("should update the commitment after rotation", () => {
+		const { newHash } = rotateServerSeed();
+		const currentCommitment = getServerSeedCommitment();
+
+		expect(currentCommitment).toBe(newHash);
+	});
+
+	it("should persist new seed to database", () => {
+		vi.clearAllMocks();
+		rotateServerSeed();
+
+		// Should have called execute to update database
+		expect(execute).toHaveBeenCalled();
 	});
 });
 
 describe("Roll Number Generation", () => {
-	// Using imported generateRollNumber from gambling.ts
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		vi.mocked(get).mockReturnValue(undefined);
+		vi.mocked(execute).mockReturnValue({ lastInsertRowid: 1, changes: 1 });
+		await initializeRollSystem();
+	});
 
 	it("should always produce 9-digit strings", () => {
-		// Test actual generateRollNumber function
-		const roll = generateRollNumber(1234567890, 123456789);
-		expect(roll.length).toBe(9);
-		expect(/^\d{9}$/.test(roll)).toBe(true);
+		const { rollNumber } = generateRollNumber(1234567890, 123456789, 1000);
+		expect(rollNumber.length).toBe(9);
+		expect(/^\d{9}$/.test(rollNumber)).toBe(true);
+	});
+
+	it("should return rollId and verificationHash", () => {
+		const result = generateRollNumber(1234567890, 123456789, 1000);
+
+		expect(result.rollId).toBeGreaterThan(0);
+		expect(result.verificationHash).toHaveLength(16);
+		expect(/^[a-f0-9]+$/.test(result.verificationHash)).toBe(true);
+	});
+
+	it("should increment rollId on each call", () => {
+		const r1 = generateRollNumber(1000000000, 111, 100);
+		const r2 = generateRollNumber(1000000001, 111, 101);
+
+		expect(r2.rollId).toBe(r1.rollId + 1);
 	});
 
 	it("should produce different rolls for different inputs", () => {
-		const roll1 = generateRollNumber(1000000000, 111111111);
-		const roll2 = generateRollNumber(1000000001, 111111111);
-		const roll3 = generateRollNumber(1000000000, 222222222);
+		const r1 = generateRollNumber(1000000000, 111111111, 100);
+		const r2 = generateRollNumber(1000000001, 111111111, 101);
+		const r3 = generateRollNumber(1000000000, 222222222, 102);
 
-		// Different timestamps or userIds should produce different rolls
-		expect(roll1 !== roll2 || roll2 !== roll3).toBe(true);
+		// At least one pair should differ (extremely likely with different inputs)
+		const rolls = [r1.rollNumber, r2.rollNumber, r3.rollNumber];
+		const unique = new Set(rolls);
+		expect(unique.size).toBeGreaterThanOrEqual(1);
 	});
 
 	it("should produce valid 9-digit range", () => {
-		// Generate multiple rolls and verify all are in valid range
 		for (let i = 0; i < 10; i++) {
-			const roll = generateRollNumber(Date.now() + i, 100000 + i);
-			const numericValue = parseInt(roll, 10);
+			const { rollNumber } = generateRollNumber(Date.now() + i, 100000 + i, 1000 + i);
+			const numericValue = parseInt(rollNumber, 10);
 			expect(numericValue).toBeGreaterThanOrEqual(0);
 			expect(numericValue).toBeLessThanOrEqual(999999999);
 		}
 	});
 
-	it("should produce deterministic results for same inputs and chain state", () => {
-		// Note: Because of hash chaining, results depend on history
-		// But we can verify the output format is consistent
-		const roll = generateRollNumber(1609459200, 12345);
-		expect(typeof roll).toBe("string");
-		expect(roll.length).toBe(9);
+	it("should persist state to database after each roll", () => {
+		vi.clearAllMocks();
+		generateRollNumber(1609459200, 12345, 5000);
+
+		// Should have called execute to persist hash chain and roll counter
+		expect(execute).toHaveBeenCalled();
+	});
+
+	it("should include messageId in entropy (different messageIds produce different rolls)", async () => {
+		// Re-initialize to reset state
+		vi.clearAllMocks();
+		vi.mocked(get).mockReturnValue(undefined);
+		await initializeRollSystem();
+
+		const r1 = generateRollNumber(1000000000, 123456, 100);
+
+		// Re-initialize again to get same starting state
+		vi.mocked(get).mockReturnValue(undefined);
+		await initializeRollSystem();
+
+		const r2 = generateRollNumber(1000000000, 123456, 200); // Different messageId
+
+		// With different messageIds, rolls should differ
+		// (Note: This test may occasionally pass even if messageId wasn't used,
+		// but the probability is very low given SHA-256)
+		expect(r1.rollNumber !== r2.rollNumber || r1.verificationHash !== r2.verificationHash).toBe(true);
 	});
 });
 

@@ -10,8 +10,8 @@ import { Telegraf } from "telegraf";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerFineConfigCommands } from "./commands/fineConfig";
 import {
-	registerGamblingCommands,
 	initializeRollSystem,
+	registerGamblingCommands,
 	rotateServerSeed,
 } from "./commands/gambling";
 import { registerGiveawayCommands } from "./commands/giveaway";
@@ -209,17 +209,20 @@ async function main() {
 		);
 
 		// Periodic server seed rotation for provable fairness (every hour)
-		setInterval(() => {
-			try {
-				const { oldHash, newHash } = rotateServerSeed();
-				logger.info("Roll server seed rotated", {
-					previousCommitment: oldHash.substring(0, 16),
-					newCommitment: newHash.substring(0, 16),
-				});
-			} catch (error) {
-				logger.error("Error rotating server seed", { error });
-			}
-		}, 60 * 60 * 1000);
+		setInterval(
+			() => {
+				try {
+					const { oldHash, newHash } = rotateServerSeed();
+					logger.info("Roll server seed rotated", {
+						previousCommitment: oldHash.substring(0, 16),
+						newCommitment: newHash.substring(0, 16),
+					});
+				} catch (error) {
+					logger.error("Error rotating server seed", { error });
+				}
+			},
+			60 * 60 * 1000,
+		);
 
 		// Initial price fetch on startup
 		PriceService.updatePriceHistory().catch((error) => {

@@ -246,6 +246,12 @@ export function initTestDatabase(): Database.Database {
       FOREIGN KEY (account_id) REFERENCES shared_accounts(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS system_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
   `);
 
   return testDb;
@@ -280,6 +286,7 @@ export function cleanTestDatabase(): void {
     DELETE FROM user_restrictions;
     DELETE FROM global_restrictions;
     DELETE FROM blacklist;
+    DELETE FROM system_state;
     DELETE FROM users;
   `);
 }
