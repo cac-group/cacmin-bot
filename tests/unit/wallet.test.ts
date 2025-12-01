@@ -59,10 +59,17 @@ vi.mock('../../src/services/unifiedWalletService', () => ({
     distributeGiveaway: vi.fn(),
     verifyTransaction: vi.fn(),
   },
+  SYSTEM_USER_IDS: {
+    BOT_TREASURY: -1,
+    SYSTEM_RESERVE: -2,
+    UNCLAIMED: -3,
+  },
 }));
 vi.mock('../../src/services/ledgerService', () => ({
   LedgerService: {
     reconcileAndAlert: vi.fn(),
+    getUserBalance: vi.fn(),
+    transferBetweenUsers: vi.fn(),
   },
 }));
 vi.mock('../../src/services/transactionLock');
@@ -1022,6 +1029,207 @@ describe('Wallet Commands', () => {
 
       // Should handle dynamic import errors
       expect(ctx.reply).toHaveBeenCalled();
+    });
+  });
+
+  describe('/treasurybalance', () => {
+    it('should show treasury balance', async () => {
+      const ctx = createAdminContext({ userId: 222222222 });
+
+      (LedgerService.getUserBalance as Mock).mockResolvedValue(500.0);
+
+      await walletHandlers.handleTreasuryBalance(ctx as Context);
+
+      expect(LedgerService.getUserBalance).toHaveBeenCalledWith(-1);
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Game Treasury Balance');
+      expect(replyText).toContain('500.000000 JUNO');
+    });
+
+    it('should handle errors gracefully', async () => {
+      const ctx = createAdminContext({ userId: 222222222 });
+
+      (LedgerService.getUserBalance as Mock).mockRejectedValue(new Error('DB error'));
+
+      await walletHandlers.handleTreasuryBalance(ctx as Context);
+
+      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Failed to fetch treasury balance'));
+    });
+  });
+
+  describe('/fundtreasury (owner only)', () => {
+    it('should show help when no args', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/fundtreasury',
+      });
+
+      (LedgerService.getUserBalance as Mock).mockResolvedValue(100.0);
+
+      await walletHandlers.handleFundTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Fund Game Treasury');
+      expect(replyText).toContain('Options:');
+    });
+
+    it('should show deposit instructions for "deposit" arg', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/fundtreasury deposit',
+      });
+
+      (LedgerService.getUserBalance as Mock).mockResolvedValue(100.0);
+
+      await walletHandlers.handleFundTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Treasury External Deposit');
+      expect(replyText).toContain('-1');
+    });
+
+    it('should transfer from user to treasury', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/fundtreasury 50',
+      });
+
+      (LedgerService.getUserBalance as Mock)
+        .mockResolvedValueOnce(100.0) // treasury balance
+        .mockResolvedValueOnce(200.0) // user balance
+        .mockResolvedValueOnce(150.0); // new treasury balance
+      (LedgerService.transferBetweenUsers as Mock).mockResolvedValue({
+        success: true,
+        fromBalance: 150.0,
+      });
+
+      await walletHandlers.handleFundTreasury(ctx as Context);
+
+      expect(LedgerService.transferBetweenUsers).toHaveBeenCalledWith(
+        111111111,
+        -1,
+        50,
+        'Fund game treasury'
+      );
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Treasury Funded');
+    });
+
+    it('should reject insufficient balance', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/fundtreasury 500',
+      });
+
+      (LedgerService.getUserBalance as Mock)
+        .mockResolvedValueOnce(100.0) // treasury balance
+        .mockResolvedValueOnce(50.0); // user balance (insufficient)
+
+      await walletHandlers.handleFundTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Insufficient balance');
+    });
+  });
+
+  describe('/contributetreasury (admin only)', () => {
+    it('should show help when no args', async () => {
+      const ctx = createAdminContext({
+        userId: 222222222,
+        messageText: '/contributetreasury',
+      });
+
+      (LedgerService.getUserBalance as Mock)
+        .mockResolvedValueOnce(100.0) // treasury balance
+        .mockResolvedValueOnce(200.0); // user balance
+
+      await walletHandlers.handleContributeTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Contribute to Treasury');
+    });
+
+    it('should transfer from admin to treasury', async () => {
+      const ctx = createAdminContext({
+        userId: 222222222,
+        messageText: '/contributetreasury 25',
+      });
+
+      (LedgerService.getUserBalance as Mock)
+        .mockResolvedValueOnce(100.0) // treasury balance
+        .mockResolvedValueOnce(200.0) // user balance
+        .mockResolvedValueOnce(125.0); // new treasury balance
+      (LedgerService.transferBetweenUsers as Mock).mockResolvedValue({
+        success: true,
+        fromBalance: 175.0,
+      });
+
+      await walletHandlers.handleContributeTreasury(ctx as Context);
+
+      expect(LedgerService.transferBetweenUsers).toHaveBeenCalledWith(
+        222222222,
+        -1,
+        25,
+        'Admin treasury contribution'
+      );
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Contribution Received');
+    });
+  });
+
+  describe('/withdrawtreasury (owner only)', () => {
+    it('should show help when no args', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/withdrawtreasury',
+      });
+
+      (LedgerService.getUserBalance as Mock).mockResolvedValue(500.0);
+
+      await walletHandlers.handleWithdrawTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Withdraw from Treasury');
+    });
+
+    it('should transfer from treasury to owner', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/withdrawtreasury 100',
+      });
+
+      (LedgerService.getUserBalance as Mock)
+        .mockResolvedValueOnce(500.0) // treasury balance
+        .mockResolvedValueOnce(400.0); // new treasury balance
+      (LedgerService.transferBetweenUsers as Mock).mockResolvedValue({
+        success: true,
+        toBalance: 100.0,
+      });
+
+      await walletHandlers.handleWithdrawTreasury(ctx as Context);
+
+      expect(LedgerService.transferBetweenUsers).toHaveBeenCalledWith(
+        -1,
+        111111111,
+        100,
+        'Owner treasury withdrawal'
+      );
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Treasury Withdrawal Complete');
+    });
+
+    it('should reject insufficient treasury balance', async () => {
+      const ctx = createOwnerContext({
+        userId: 111111111,
+        messageText: '/withdrawtreasury 1000',
+      });
+
+      (LedgerService.getUserBalance as Mock).mockResolvedValue(500.0);
+
+      await walletHandlers.handleWithdrawTreasury(ctx as Context);
+
+      const replyText = getReplyText(ctx);
+      expect(replyText).toContain('Insufficient treasury balance');
     });
   });
 });
