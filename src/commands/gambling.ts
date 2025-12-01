@@ -77,6 +77,7 @@ export function checkWin(roll: string): {
 	won: boolean;
 	matchCount: number;
 	matchName: string;
+	winMessage: string;
 } {
 	const lastDigit = roll[roll.length - 1];
 	let matchCount = 1;
@@ -101,10 +102,22 @@ export function checkWin(roll: string): {
 		9: "NINES",
 	};
 
+	const winMessages: Record<number, string> = {
+		2: "Sick dubs!!",
+		3: "Trip city bruh",
+		4: "QUADS!!!",
+		5: "QUINTS?! Insane!",
+		6: "SEXTS!!! Legendary!",
+		7: "SEPTS!!! Impossible!",
+		8: "OCTS!!! Godlike!",
+		9: "NINES!!! You broke reality!",
+	};
+
 	return {
 		won: matchCount >= 2,
 		matchCount,
 		matchName: matchNames[matchCount] || `${matchCount}x`,
+		winMessage: winMessages[matchCount] || "Winner!",
 	};
 }
 
@@ -310,16 +323,11 @@ Use ${code("/deposit")} to add funds.`,
 			);
 
 			// Format result message
-			const rollDisplay = rollNumber.replace(
-				/(\d{3})(\d{3})(\d{3})/,
-				"$1 $2 $3",
-			);
-
 			if (result.won) {
 				await ctx.reply(
-					fmt`${bold("WINNER!")} ${result.matchName}!
+					fmt`${bold(result.winMessage)}
 
-Roll: ${bold(rollDisplay)}
+Roll: ${bold(rollNumber)}
 
 Bet: ${code(AmountPrecision.format(betAmount))} JUNO
 Profit: ${bold(`+${AmountPrecision.format(potentialProfit)}`)} JUNO
@@ -330,7 +338,7 @@ New balance: ${code(AmountPrecision.format(newBalance))} JUNO`,
 				await ctx.reply(
 					fmt`${bold("No match")}
 
-Roll: ${code(rollDisplay)}
+Roll: ${code(rollNumber)}
 
 Bet: ${code(AmountPrecision.format(betAmount))} JUNO
 Lost: ${code(`-${AmountPrecision.format(betAmount)}`)} JUNO
