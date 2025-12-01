@@ -447,13 +447,20 @@ Use ${code("/deposit")} to add funds.`,
 			);
 			if (!AmountPrecision.isGreaterOrEqual(treasuryBalance, potentialProfit)) {
 				await TransactionLockService.releaseLock(userId);
+				// Calculate a suggested bet (treasury / multiplier, rounded down to nice number)
+				const maxBet = AmountPrecision.sanitize(
+					treasuryBalance / WIN_MULTIPLIER,
+				);
+				// Suggest a "nice" amount less than max (e.g., 80% rounded to 1 decimal)
+				const suggestedBet = Math.floor(maxBet * 0.8 * 10) / 10;
 				logger.warn("Treasury insufficient for gambling payout", {
 					treasuryBalance,
 					requiredPayout: potentialProfit,
 					userId,
+					suggestedBet,
 				});
 				return ctx.reply(
-					"Game temporarily unavailable. Treasury balance too low.",
+					fmt`Treasury balance too low for that bet. Try ${code(`/roll ${suggestedBet}`)}`,
 				);
 			}
 

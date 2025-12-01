@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 
 // Transaction types
 export enum TransactionType {
@@ -194,9 +195,9 @@ export class LedgerService {
 			// Ensure user has a balance entry
 			await LedgerService.ensureUserBalance(userId);
 
-			// Get current balance
+			// Get current balance and add using precise arithmetic
 			const currentBalance = await LedgerService.getUserBalance(userId);
-			const newBalance = currentBalance + amount;
+			const newBalance = AmountPrecision.add(currentBalance, amount);
 
 			// Update balance
 			await LedgerService.updateBalance(userId, newBalance);
@@ -257,7 +258,7 @@ export class LedgerService {
 				};
 			}
 
-			const newBalance = currentBalance - amount;
+			const newBalance = AmountPrecision.subtract(currentBalance, amount);
 
 			// Record as pending if no txHash yet
 			const status = txHash
@@ -331,9 +332,9 @@ export class LedgerService {
 
 			const toBalance = await LedgerService.getUserBalance(toUserId);
 
-			// Update balances
-			const newFromBalance = fromBalance - amount;
-			const newToBalance = toBalance + amount;
+			// Update balances using precise arithmetic
+			const newFromBalance = AmountPrecision.subtract(fromBalance, amount);
+			const newToBalance = AmountPrecision.add(toBalance, amount);
 
 			await LedgerService.updateBalance(fromUserId, newFromBalance);
 			await LedgerService.updateBalance(toUserId, newToBalance);
@@ -398,7 +399,7 @@ export class LedgerService {
 				};
 			}
 
-			const newBalance = currentBalance - amount;
+			const newBalance = AmountPrecision.subtract(currentBalance, amount);
 
 			// Update balance
 			await LedgerService.updateBalance(userId, newBalance);
@@ -454,7 +455,7 @@ export class LedgerService {
 				};
 			}
 
-			const newBalance = payerBalance - amount;
+			const newBalance = AmountPrecision.subtract(payerBalance, amount);
 
 			// Update payer balance
 			await LedgerService.updateBalance(paidByUserId, newBalance);
@@ -504,7 +505,7 @@ export class LedgerService {
 		try {
 			await LedgerService.ensureUserBalance(userId);
 			const currentBalance = await LedgerService.getUserBalance(userId);
-			const newBalance = currentBalance + amount;
+			const newBalance = AmountPrecision.add(currentBalance, amount);
 
 			// Update balance
 			await LedgerService.updateBalance(userId, newBalance);
@@ -710,7 +711,11 @@ export class LedgerService {
 		try {
 			await LedgerService.ensureUserBalance(userId);
 			const currentBalance = await LedgerService.getUserBalance(userId);
-			const newBalance = currentBalance + amount;
+			// Use add for both positive and negative amounts (add handles negative via sanitize)
+			const newBalance =
+				amount >= 0
+					? AmountPrecision.add(currentBalance, amount)
+					: AmountPrecision.subtract(currentBalance, Math.abs(amount));
 
 			// Update balance (can go negative for SYSTEM_RESERVE to represent deficit)
 			await LedgerService.updateBalance(userId, newBalance);
