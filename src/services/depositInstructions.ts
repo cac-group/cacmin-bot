@@ -6,7 +6,7 @@
  * @module services/depositInstructions
  */
 
-import { bold, code, fmt, type FmtString } from "telegraf/format";
+import { bold, code, type FmtString, fmt } from "telegraf/format";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
