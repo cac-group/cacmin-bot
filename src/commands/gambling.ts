@@ -16,11 +16,11 @@ import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
 // Minimum and maximum bets
-const MIN_BET = 0.1;
-const MAX_BET = 100;
+export const MIN_BET = 0.1;
+export const MAX_BET = 100;
 
 // Payout multiplier (9x profit = 10x total return for 10% win chance = fair game)
-const WIN_MULTIPLIER = 9;
+export const WIN_MULTIPLIER = 9;
 
 // Store the previous roll hash for entropy chaining
 let previousRollHash: string = "";
@@ -29,7 +29,7 @@ let previousRollHash: string = "";
  * Initialize the roll hash chain with a random seed
  * Called once at module load
  */
-function initializeRollHashChain(): void {
+export function initializeRollHashChain(): void {
 	const seed = `init_${Date.now()}_${Math.random().toString(36)}`;
 	previousRollHash = createHash("sha256").update(seed).digest("hex");
 	logger.info("Roll hash chain initialized");
@@ -46,7 +46,7 @@ initializeRollHashChain();
  * @param userId - User ID of the roller
  * @returns 9-digit number as string (000000000-999999999)
  */
-function generateRollNumber(timestamp: number, userId: number): string {
+export function generateRollNumber(timestamp: number, userId: number): string {
 	// Combine entropy sources
 	const entropyInput = `${timestamp}:${userId}:${previousRollHash}`;
 
@@ -73,7 +73,7 @@ function generateRollNumber(timestamp: number, userId: number): string {
  * @param roll - 9-digit roll string
  * @returns Object with win status and match count
  */
-function checkWin(roll: string): {
+export function checkWin(roll: string): {
 	won: boolean;
 	matchCount: number;
 	matchName: string;
@@ -111,14 +111,14 @@ function checkWin(roll: string): {
 /**
  * Get user's gambling statistics
  */
-interface UserRollStats {
+export interface UserRollStats {
 	totalRolls: number;
 	totalWagered: number;
 	totalWon: number;
 	netProfit: number;
 }
 
-function getUserRollStats(userId: number): UserRollStats {
+export function getUserRollStats(userId: number): UserRollStats {
 	// Losses (user paid treasury)
 	const wagered = get<{ total: number; count: number }>(
 		`SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM transactions

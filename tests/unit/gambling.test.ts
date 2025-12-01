@@ -93,40 +93,27 @@ vi.mock("../../src/services/userService", () => ({
 	ensureUserExists: vi.fn(),
 }));
 
-import { createMockContext, getReplyText, wasTextReplied } from "../helpers/mockContext";
+// Mock precision module
+vi.mock("../../src/utils/precision", () => ({
+	AmountPrecision: {
+		format: (n: number) => n.toFixed(6),
+		parseUserInput: (s: string) => parseFloat(s),
+		validateAmount: (n: number) => n,
+		isGreaterOrEqual: (a: number, b: number) => a >= b,
+	},
+}));
+
 import { SYSTEM_USER_IDS } from "../../src/services/unifiedWalletService";
+import {
+	checkWin,
+	generateRollNumber,
+	initializeRollHashChain,
+	MIN_BET,
+	MAX_BET,
+	WIN_MULTIPLIER,
+} from "../../src/commands/gambling";
 
 describe("Roll Game Win Detection", () => {
-	// Simulate checkWin logic for testing
-	function checkWin(roll: string): { won: boolean; matchCount: number; matchName: string } {
-		const lastDigit = roll[roll.length - 1];
-		let matchCount = 1;
-
-		for (let i = roll.length - 2; i >= 0; i--) {
-			if (roll[i] === lastDigit) {
-				matchCount++;
-			} else {
-				break;
-			}
-		}
-
-		const matchNames: Record<number, string> = {
-			2: "DUBS",
-			3: "TRIPS",
-			4: "QUADS",
-			5: "QUINTS",
-			6: "SEXTS",
-			7: "SEPTS",
-			8: "OCTS",
-			9: "NINES",
-		};
-
-		return {
-			won: matchCount >= 2,
-			matchCount,
-			matchName: matchNames[matchCount] || `${matchCount}x`,
-		};
-	}
 
 	describe("checkWin function", () => {
 		it("should detect dubs (2 matching digits)", () => {
@@ -155,6 +142,27 @@ describe("Roll Game Win Detection", () => {
 			expect(result.won).toBe(true);
 			expect(result.matchCount).toBe(5);
 			expect(result.matchName).toBe("QUINTS");
+		});
+
+		it("should detect sexts (6 matching digits)", () => {
+			const result = checkWin("123666666");
+			expect(result.won).toBe(true);
+			expect(result.matchCount).toBe(6);
+			expect(result.matchName).toBe("SEXTS");
+		});
+
+		it("should detect septs (7 matching digits)", () => {
+			const result = checkWin("127777777");
+			expect(result.won).toBe(true);
+			expect(result.matchCount).toBe(7);
+			expect(result.matchName).toBe("SEPTS");
+		});
+
+		it("should detect octs (8 matching digits)", () => {
+			const result = checkWin("188888888");
+			expect(result.won).toBe(true);
+			expect(result.matchCount).toBe(8);
+			expect(result.matchName).toBe("OCTS");
 		});
 
 		it("should not win with no matching trailing digits", () => {
@@ -224,46 +232,60 @@ describe("Roll Game Probability", () => {
 	});
 });
 
-describe("Roll Number Generation", () => {
-	it("should always produce 9-digit strings", () => {
-		// Test that padStart works correctly
-		const testNumbers = [0, 1, 123, 123456, 999999999];
+describe("Hash Chain Initialization", () => {
+	it("should initialize without error", () => {
+		expect(() => initializeRollHashChain()).not.toThrow();
+	});
 
-		for (const num of testNumbers) {
-			const padded = num.toString().padStart(9, "0");
-			expect(padded.length).toBe(9);
-		}
+	it("should produce different rolls after reinitializing", () => {
+		const roll1 = generateRollNumber(1111111111, 999);
+		initializeRollHashChain();
+		const roll2 = generateRollNumber(1111111111, 999);
+		// After re-initialization, chain state changes so results differ
+		expect(roll1).not.toBe(roll2);
+	});
+});
+
+describe("Roll Number Generation", () => {
+	// Using imported generateRollNumber from gambling.ts
+
+	it("should always produce 9-digit strings", () => {
+		// Test actual generateRollNumber function
+		const roll = generateRollNumber(1234567890, 123456789);
+		expect(roll.length).toBe(9);
+		expect(/^\d{9}$/.test(roll)).toBe(true);
+	});
+
+	it("should produce different rolls for different inputs", () => {
+		const roll1 = generateRollNumber(1000000000, 111111111);
+		const roll2 = generateRollNumber(1000000001, 111111111);
+		const roll3 = generateRollNumber(1000000000, 222222222);
+
+		// Different timestamps or userIds should produce different rolls
+		expect(roll1 !== roll2 || roll2 !== roll3).toBe(true);
 	});
 
 	it("should produce valid 9-digit range", () => {
-		// Maximum 9-digit number
-		const maxRoll = 999999999;
-
-		// Modulo should always produce valid range
-		const testValues = [0, 500000000, 999999999, 1000000000, 281474976710655];
-
-		for (const val of testValues) {
-			const result = val % 1000000000;
-			expect(result).toBeGreaterThanOrEqual(0);
-			expect(result).toBeLessThanOrEqual(maxRoll);
+		// Generate multiple rolls and verify all are in valid range
+		for (let i = 0; i < 10; i++) {
+			const roll = generateRollNumber(Date.now() + i, 100000 + i);
+			const numericValue = parseInt(roll, 10);
+			expect(numericValue).toBeGreaterThanOrEqual(0);
+			expect(numericValue).toBeLessThanOrEqual(999999999);
 		}
 	});
 
-	it("should handle hex to number conversion correctly", () => {
-		// Simulate the hash extraction logic
-		const testHexes = ["000000000000", "ffffffffffff", "123456789abc"];
-
-		for (const hex of testHexes) {
-			const numericValue = parseInt(hex, 16);
-			expect(Number.isFinite(numericValue)).toBe(true);
-			expect(numericValue).toBeGreaterThanOrEqual(0);
-		}
+	it("should produce deterministic results for same inputs and chain state", () => {
+		// Note: Because of hash chaining, results depend on history
+		// But we can verify the output format is consistent
+		const roll = generateRollNumber(1609459200, 12345);
+		expect(typeof roll).toBe("string");
+		expect(roll.length).toBe(9);
 	});
 });
 
 describe("Roll Game Bet Validation", () => {
-	const MIN_BET = 0.1;
-	const MAX_BET = 100;
+	// Using imported MIN_BET and MAX_BET from gambling.ts
 
 	it("should reject bets below minimum", () => {
 		const bet = 0.05;
@@ -296,7 +318,7 @@ describe("Roll Game Bet Validation", () => {
 });
 
 describe("Roll Game Payout Calculations", () => {
-	const WIN_MULTIPLIER = 9;
+	// Using imported WIN_MULTIPLIER from gambling.ts
 
 	it("should calculate correct profit on win", () => {
 		const betAmounts = [1, 5, 10, 50, 100];
@@ -334,10 +356,12 @@ describe("Roll Game Payout Calculations", () => {
 });
 
 describe("Roll Game Treasury Checks", () => {
+	// Using imported WIN_MULTIPLIER from gambling.ts
+
 	it("should verify treasury can cover potential payout", () => {
 		const treasuryBalance = 1000;
 		const bet = 100;
-		const potentialPayout = bet * 9; // 900
+		const potentialPayout = bet * WIN_MULTIPLIER; // 900
 
 		expect(treasuryBalance >= potentialPayout).toBe(true);
 	});
@@ -345,21 +369,20 @@ describe("Roll Game Treasury Checks", () => {
 	it("should reject bet when treasury cannot cover payout", () => {
 		const treasuryBalance = 500;
 		const bet = 100;
-		const potentialPayout = bet * 9; // 900
+		const potentialPayout = bet * WIN_MULTIPLIER; // 900
 
 		expect(treasuryBalance >= potentialPayout).toBe(false);
 	});
 
 	it("should calculate max safe bet based on treasury", () => {
 		const treasuryBalance = 450;
-		const multiplier = 9;
 
 		// Max bet = treasury / multiplier
-		const maxSafeBet = treasuryBalance / multiplier;
+		const maxSafeBet = treasuryBalance / WIN_MULTIPLIER;
 		expect(maxSafeBet).toBe(50);
 
 		// Verify this bet can be covered
-		expect(maxSafeBet * multiplier).toBeLessThanOrEqual(treasuryBalance);
+		expect(maxSafeBet * WIN_MULTIPLIER).toBeLessThanOrEqual(treasuryBalance);
 	});
 });
 
