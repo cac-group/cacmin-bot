@@ -11,6 +11,7 @@ export enum TransactionType {
 	BAIL = "bail",
 	GIVEAWAY = "giveaway",
 	REFUND = "refund",
+	GAMBLING = "gambling",
 }
 
 // Transaction status

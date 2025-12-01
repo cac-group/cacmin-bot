@@ -9,6 +9,7 @@
 import { Telegraf } from "telegraf";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerFineConfigCommands } from "./commands/fineConfig";
+import { registerGamblingCommands } from "./commands/gambling";
 import { registerGiveawayCommands } from "./commands/giveaway";
 import { registerHelpCommand } from "./commands/help";
 import { registerJailCommands } from "./commands/jail";
@@ -144,6 +145,7 @@ async function main() {
 		registerSharedAccountCommands(bot); // Shared account management
 		registerStickerCommands(bot); // Sticker sending and management
 		registerFineConfigCommands(bot); // Fine configuration and custom jail commands
+		registerGamblingCommands(bot); // Roll gambling game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
 
 		// Error handling
