@@ -12,6 +12,7 @@ import { execute, get } from "../database";
 import { LedgerService, TransactionType } from "../services/ledgerService";
 import { TransactionLockService } from "../services/transactionLock";
 import { SYSTEM_USER_IDS } from "../services/unifiedWalletService";
+import { sendUserError } from "../utils/adminNotify";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
@@ -405,16 +406,10 @@ Your balance: ${code(AmountPrecision.format(balance))} JUNO`,
 				: 0;
 			const lockType = existingLock?.lockType || "unknown";
 
-			// Try to DM the user instead of spamming the chat
-			try {
-				await ctx.telegram.sendMessage(
-					userId,
-					`You have an active ${lockType} transaction (${lockAge}s old). Please wait for it to complete before rolling again.`,
-				);
-			} catch {
-				// If DM fails, reply in chat but keep it brief
-				return ctx.reply("You have an active transaction. Please wait.");
-			}
+			await sendUserError(
+				ctx,
+				`You have an active ${lockType} transaction (${lockAge}s old). Please wait for it to complete before rolling again.`,
+			);
 			return;
 		}
 
@@ -574,12 +569,7 @@ Verify: ${code(verificationHash)}`,
 				userMessage = "Database is busy. Please try again in a few seconds.";
 			}
 
-			// Try to DM the error to avoid chat spam
-			try {
-				await ctx.telegram.sendMessage(userId, userMessage);
-			} catch {
-				return ctx.reply(userMessage);
-			}
+			await sendUserError(ctx, userMessage);
 		}
 	});
 
