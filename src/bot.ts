@@ -9,7 +9,11 @@
 import { Telegraf } from "telegraf";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerFineConfigCommands } from "./commands/fineConfig";
-import { registerGamblingCommands } from "./commands/gambling";
+import {
+	registerGamblingCommands,
+	initializeRollSystem,
+	rotateServerSeed,
+} from "./commands/gambling";
 import { registerGiveawayCommands } from "./commands/giveaway";
 import { registerHelpCommand } from "./commands/help";
 import { registerJailCommands } from "./commands/jail";
@@ -116,6 +120,9 @@ async function main() {
 		await TransactionLockService.cleanExpiredLocks();
 		logger.info("Cleaned up stale transaction locks");
 
+		// Initialize roll system (loads RNG state from database)
+		await initializeRollSystem();
+
 		// Create bot instance
 		const bot = new Telegraf(config.botToken);
 
@@ -200,6 +207,19 @@ async function main() {
 			},
 			15 * 60 * 1000,
 		);
+
+		// Periodic server seed rotation for provable fairness (every hour)
+		setInterval(() => {
+			try {
+				const { oldHash, newHash } = rotateServerSeed();
+				logger.info("Roll server seed rotated", {
+					previousCommitment: oldHash.substring(0, 16),
+					newCommitment: newHash.substring(0, 16),
+				});
+			} catch (error) {
+				logger.error("Error rotating server seed", { error });
+			}
+		}, 60 * 60 * 1000);
 
 		// Initial price fetch on startup
 		PriceService.updatePriceHistory().catch((error) => {
