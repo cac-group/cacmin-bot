@@ -16,6 +16,11 @@ import {
 } from "../services/unifiedWalletService";
 import { giveawayClaimKeyboard, mainMenuKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
+import {
+	cleanupMenuByMessage,
+	getMenuSessionByMessage,
+	validateMenuInteraction,
+} from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
 
 interface Giveaway {
@@ -129,19 +134,35 @@ export function registerCallbackHandlers(bot: Telegraf<Context>): void {
 		if (!userId) return;
 
 		try {
-			// Answer the callback to remove loading state
-			await ctx.answerCbQuery();
+			const chatId = ctx.chat?.id;
+			const messageId = ctx.callbackQuery?.message?.message_id;
 
 			// Handle special cases first
 			if (data === "cancel") {
+				// Check if this message has a menu session
+				if (chatId && messageId) {
+					const menuSession = getMenuSessionByMessage(chatId, messageId);
+					if (menuSession && menuSession.userId !== userId) {
+						await ctx.answerCbQuery(
+							"Only the person who started this can cancel it.",
+						);
+						return;
+					}
+					cleanupMenuByMessage(chatId, messageId);
+				}
 				clearSession(userId);
+				await ctx.answerCbQuery();
 				await ctx.editMessageText("Action cancelled.");
 				return;
 			}
 
 			if (data === "noop") {
+				await ctx.answerCbQuery();
 				return;
 			}
+
+			// Answer the callback to remove loading state
+			await ctx.answerCbQuery();
 
 			// Route using dispatch table
 			for (const { prefix, handler } of callbackHandlers) {
@@ -534,6 +555,13 @@ async function handleGiveawayFundCallback(
 	data: string,
 	_userId: number,
 ): Promise<void> {
+	// Validate menu ownership and expiry
+	const validationError = await validateMenuInteraction(ctx, "giveaway_setup");
+	if (validationError) {
+		await ctx.answerCbQuery(validationError);
+		return;
+	}
+
 	// Parse: giveaway_fund_100_self or giveaway_fund_100_treasury
 	const parts = data.replace("giveaway_fund_", "").split("_");
 	if (parts.length !== 2) {
@@ -605,6 +633,21 @@ async function handleGiveawayCreateCallback(
 	data: string,
 	userId: number,
 ): Promise<void> {
+	// Validate menu ownership and expiry
+	const validationError = await validateMenuInteraction(ctx, "giveaway_setup");
+	if (validationError) {
+		await ctx.answerCbQuery(validationError);
+		return;
+	}
+
+	const chatId = ctx.chat?.id;
+	const messageId = ctx.callbackQuery?.message?.message_id;
+
+	// Clean up the menu session since we're proceeding
+	if (chatId && messageId) {
+		cleanupMenuByMessage(chatId, messageId);
+	}
+
 	// Parse: giveaway_create_100_10_self -> amount=100, slots=10, source=self
 	const parts = data.replace("giveaway_create_", "").split("_");
 	if (parts.length !== 3) {
@@ -625,7 +668,6 @@ async function handleGiveawayCreateCallback(
 		totalAmount / totalSlots,
 	);
 
-	const chatId = ctx.chat?.id;
 	if (!chatId) {
 		await ctx.editMessageText("Cannot create giveaway: no chat context.");
 		return;

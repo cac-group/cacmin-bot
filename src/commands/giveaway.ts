@@ -17,6 +17,7 @@ import {
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { createMenuSession, getActiveMenuSession } from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
 import { hasRole } from "../utils/roles";
 
@@ -164,20 +165,40 @@ Admins/owners can also fund from treasury.`,
 			return ctx.reply(msg);
 		}
 
+		// Check if there's already an active giveaway setup menu in this chat
+		const chatId = ctx.chat?.id;
+		if (chatId) {
+			const existingMenu = getActiveMenuSession(chatId, "giveaway_setup");
+			if (existingMenu) {
+				return ctx.reply(
+					"Another giveaway is being set up. Please wait for it to complete or expire (30s).",
+				);
+			}
+		}
+
 		// Build slot selection keyboard
 		const slotOptions = [10, 25, 50, 100];
 		const slotInfo = slotOptions
 			.map((s) => `- ${s} slots = ${(totalAmount / s).toFixed(6)} JUNO each`)
 			.join("\n");
 
+		// Helper to create menu session after sending menu
+		const createGiveawayMenuSession = (messageId: number) => {
+			if (chatId) {
+				createMenuSession(userId, chatId, messageId, "giveaway_setup");
+			}
+		};
+
 		// For owners/admins who can afford from both sources, show funding choice
 		if (isOwnerOrAdmin && canAffordFromBalance && canAffordFromTreasury) {
-			await ctx.reply(
+			const menuMsg = await ctx.reply(
 				fmt`${bold(`Create Giveaway: ${totalAmount} JUNO`)}
 
 Select funding source:
 Your balance: ${userBalance.toFixed(6)} JUNO
-Treasury: ${treasuryBalance.toFixed(6)} JUNO`,
+Treasury: ${treasuryBalance.toFixed(6)} JUNO
+
+(This menu expires in 30 seconds)`,
 				{
 					reply_markup: {
 						inline_keyboard: [
@@ -198,19 +219,22 @@ Treasury: ${treasuryBalance.toFixed(6)} JUNO`,
 					},
 				},
 			);
+			createGiveawayMenuSession(menuMsg.message_id);
 		} else if (
 			isOwnerOrAdmin &&
 			canAffordFromTreasury &&
 			!canAffordFromBalance
 		) {
 			// Admin can only use treasury
-			await ctx.reply(
+			const menuMsg = await ctx.reply(
 				fmt`${bold(`Create Giveaway: ${totalAmount} JUNO`)}
 
 Funding from Treasury (${treasuryBalance.toFixed(6)} JUNO)
 
 Select number of slots:
-${slotInfo}`,
+${slotInfo}
+
+(This menu expires in 30 seconds)`,
 				{
 					reply_markup: {
 						inline_keyboard: [
@@ -239,15 +263,18 @@ ${slotInfo}`,
 					},
 				},
 			);
+			createGiveawayMenuSession(menuMsg.message_id);
 		} else {
 			// Regular user or admin using own balance
-			await ctx.reply(
+			const menuMsg = await ctx.reply(
 				fmt`${bold(`Create Giveaway: ${totalAmount} JUNO`)}
 
 Funding from your balance (${userBalance.toFixed(6)} JUNO)
 
 Select number of slots:
-${slotInfo}`,
+${slotInfo}
+
+(This menu expires in 30 seconds)`,
 				{
 					reply_markup: {
 						inline_keyboard: [
@@ -276,6 +303,7 @@ ${slotInfo}`,
 					},
 				},
 			);
+			createGiveawayMenuSession(menuMsg.message_id);
 		}
 	});
 

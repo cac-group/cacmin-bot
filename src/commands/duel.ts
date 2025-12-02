@@ -17,6 +17,12 @@ import {
 import { LedgerService } from "../services/ledgerService";
 import { ensureUserExists } from "../services/userService";
 import { StructuredLogger } from "../utils/logger";
+import {
+	cleanupMenuByMessage,
+	createMenuSession,
+	getActiveMenuSession,
+	validateMenuInteraction,
+} from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 import { generateRollNumber } from "./gambling";
@@ -219,18 +225,36 @@ Wager: ${code(AmountPrecision.format(wagerAmount))} JUNO`,
 			);
 		}
 
+		// Check if there's already an active duel menu in this chat
+		const chatId = ctx.chat?.id;
+		if (chatId) {
+			const existingMenu = getActiveMenuSession(chatId, "duel_setup");
+			if (existingMenu) {
+				return ctx.reply(
+					"Another duel is being set up. Please wait for it to complete or expire (30s).",
+				);
+			}
+		}
+
 		// Show consequence selection menu
-		await ctx.reply(
+		const menuMsg = await ctx.reply(
 			fmt`${bold("Select Loser Consequence")}
 
 Challenging ${bold(formatUserIdDisplay(opponentId))}
 Wager: ${bold(AmountPrecision.format(wagerAmount))} JUNO
 
-What penalty should the loser face?`,
+What penalty should the loser face?
+
+(This menu expires in 30 seconds)`,
 			{
 				reply_markup: consequenceKeyboard(wagerAmount, opponentId),
 			},
 		);
+
+		// Create menu session to track ownership
+		if (chatId) {
+			createMenuSession(userId, chatId, menuMsg.message_id, "duel_setup");
+		}
 	});
 
 	/**
@@ -336,6 +360,13 @@ function registerDuelCallbacks(bot: Telegraf<Context>): void {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
+		// Validate menu ownership and expiry
+		const validationError = await validateMenuInteraction(ctx, "duel_setup");
+		if (validationError) {
+			await ctx.answerCbQuery(validationError);
+			return;
+		}
+
 		const match = ctx.match;
 		const consequence = match[1] as DuelConsequence;
 		const wagerAmount = parseFloat(match[2]);
@@ -347,9 +378,15 @@ function registerDuelCallbacks(bot: Telegraf<Context>): void {
 		}
 
 		const chatId = ctx.chat?.id;
+		const messageId = ctx.callbackQuery?.message?.message_id;
 		if (!chatId) {
 			await ctx.answerCbQuery("Cannot create duel outside of a chat.");
 			return;
+		}
+
+		// Clean up the menu session since we're proceeding
+		if (messageId) {
+			cleanupMenuByMessage(chatId, messageId);
 		}
 
 		// Ensure both users exist
