@@ -20,7 +20,12 @@ import {
 import type { User } from "../types";
 import { logger, StructuredLogger } from "../utils/logger";
 import { escapeNumber } from "../utils/markdown";
-import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
+import {
+	formatUserIdDisplay,
+	getRemainingArgs,
+	resolveTargetUser,
+	resolveUserId,
+} from "../utils/userResolver";
 
 /**
  * Formats a duration in seconds into a human-readable time string.
@@ -474,17 +479,16 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const payerId = ctx.from?.id;
 		if (!payerId) return;
 
-		const userIdentifier = ctx.message?.text.split(" ")[1];
-		if (!userIdentifier) {
-			return ctx.reply("Usage: /paybailfor <@username|userId>");
-		}
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		const targetUserId = resolveUserId(userIdentifier);
-		if (!targetUserId) {
+		if (!target) {
 			return ctx.reply(
-				fmt`User not found. Please use a valid @username or userId.`,
+				"Usage: /paybailfor <@username|userId> or reply to a user's message",
 			);
 		}
+
+		const targetUserId = target.userId;
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {
@@ -656,19 +660,25 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const payerId = ctx.from?.id;
 		if (!payerId) return;
 
-		const args = ctx.message?.text.split(" ").slice(1);
-		if (!args || args.length < 2) {
-			return ctx.reply("Usage: /verifybailfor <userId> <txHash>");
-		}
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		const [userIdentifier, txHash] = args;
-		const targetUserId = resolveUserId(userIdentifier);
-
-		if (!targetUserId) {
+		if (!target) {
 			return ctx.reply(
-				fmt`User not found. Please use a valid @username or userId.`,
+				"Usage: /verifybailfor <@username|userId> <txHash> or reply to a user's message with /verifybailfor <txHash>",
 			);
 		}
+
+		const remainingArgs = getRemainingArgs(args, target);
+		const txHash = remainingArgs[0];
+
+		if (!txHash) {
+			return ctx.reply(
+				"Usage: /verifybailfor <@username|userId> <txHash> or reply with /verifybailfor <txHash>",
+			);
+		}
+
+		const targetUserId = target.userId;
 
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {

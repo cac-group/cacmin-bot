@@ -14,7 +14,12 @@ import { JailService } from "../services/jailService";
 import { getCommandArgs, getUserIdentifier } from "../utils/commandHelper";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
-import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
+import {
+	formatUserIdDisplay,
+	getRemainingArgs,
+	resolveTargetUser,
+	resolveUserId,
+} from "../utils/userResolver";
 
 /**
  * Registers all moderation commands with the bot.
@@ -232,23 +237,19 @@ They can pay bail using /paybail or check their status with /mystatus`,
 		const adminId = ctx.from?.id;
 		if (!adminId) return;
 
-		const userIdentifier =
+		const args =
 			ctx.message && "text" in ctx.message
-				? ctx.message.text.split(" ")[1] || ""
-				: "";
-		if (!userIdentifier) {
+				? ctx.message.text.split(" ").slice(1)
+				: [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
 			return ctx.reply(
-				"Usage: /unjail <@username|userId> or /unsilence <@username|userId>",
+				"Usage: /unjail <@username|userId> or reply to a user's message with /unjail",
 			);
 		}
 
-		// Resolve username or userId to numeric ID
-		const userId = resolveUserId(userIdentifier);
-		if (!userId) {
-			return ctx.reply(
-				"⚠️ User not found. Please use a valid @username or userId.",
-			);
-		}
+		const userId = target.userId;
 
 		// Update database
 		execute(
@@ -329,17 +330,23 @@ The bot may lack admin permissions or the user may have left.`,
 		const adminId = ctx.from?.id;
 		if (!adminId) return;
 
-		const args = ctx.message?.text.split(" ").slice(1);
-		if (!args || args.length < 2) {
-			return ctx.reply("Usage: /warn <userId> <reason>");
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
+			return ctx.reply(
+				"Usage: /warn <@username|userId> <reason> or reply to a user's message with /warn <reason>",
+			);
 		}
 
-		const userId = parseInt(args[0], 10);
-		const reason = args.slice(1).join(" ");
+		const remainingArgs = getRemainingArgs(args, target);
+		const reason = remainingArgs.join(" ");
 
-		if (Number.isNaN(userId)) {
-			return ctx.reply("⚠️ Invalid user ID");
+		if (!reason) {
+			return ctx.reply("Please provide a reason for the warning.");
 		}
+
+		const userId = target.userId;
 
 		// Check if target user is immune to moderation
 		if (isImmuneToModeration(userId)) {
@@ -394,10 +401,16 @@ Please follow the group rules.`,
 		const ownerId = ctx.from?.id;
 		if (!ownerId) return;
 
-		const userId = parseInt(ctx.message?.text.split(" ")[1] || "", 10);
-		if (Number.isNaN(userId)) {
-			return ctx.reply("Usage: /clearviolations <userId>");
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
+			return ctx.reply(
+				"Usage: /clearviolations <@username|userId> or reply to a user's message",
+			);
 		}
+
+		const userId = target.userId;
 
 		execute("DELETE FROM violations WHERE user_id = ?", [userId]);
 		execute("UPDATE users SET warning_count = 0, updated_at = ? WHERE id = ?", [
@@ -405,7 +418,7 @@ Please follow the group rules.`,
 			userId,
 		]);
 
-		await ctx.reply(fmt`✅ All violations cleared for user ${userId}.`);
+		await ctx.reply(fmt`All violations cleared for @${target.username}.`);
 		logger.info("Violations cleared", { ownerId, userId });
 	});
 

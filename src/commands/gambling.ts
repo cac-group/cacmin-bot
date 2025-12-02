@@ -426,7 +426,7 @@ Your balance: ${code(AmountPrecision.format(balance))} JUNO`,
 			if (!AmountPrecision.isGreaterOrEqual(userBalance, betAmount)) {
 				await TransactionLockService.releaseLock(userId);
 				return ctx.reply(
-					fmt`Insufficient balance.
+					fmt`Oh no, looks like you're broke!
 
 Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
 Bet amount: ${code(AmountPrecision.format(betAmount))} JUNO

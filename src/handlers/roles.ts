@@ -21,7 +21,8 @@ import {
 	ownerOnly,
 } from "../middleware/index";
 import type { User } from "../types";
-import { logger, StructuredLogger } from "../utils/logger";
+import { StructuredLogger } from "../utils/logger";
+import { resolveTargetUser } from "../utils/userResolver";
 
 /**
  * Registers all role management command handlers with the bot.
@@ -84,84 +85,51 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * Command handler for /grantowner.
 	 * Grants owner privileges to another user by username or user ID.
 	 * Only existing owner can grant ownership to others.
+	 * Can target user by replying to their message or providing username/ID.
 	 *
 	 * Permission: Owner only (enforced by ownerOnly middleware)
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /grantowner <username> or /grantowner <userId>
+	 * Usage: /grantowner <username> or /grantowner <userId> or reply to a message with /grantowner
 	 * Example: /grantowner @alice
 	 * Example: /grantowner 123456789
 	 */
 	bot.command("grantowner", ownerOnly, async (ctx) => {
 		const ownerId = ctx.from?.id;
-		const args = ctx.message?.text.split(" ").slice(1);
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!args || args.length === 0) {
-			return ctx.reply("Usage: /grantowner <username> or /grantowner <userId>");
+		if (!target) {
+			return ctx.reply(
+				"Usage: /grantowner <username|userId> or reply to a user's message with /grantowner",
+			);
 		}
 
-		const identifier = args[0];
-
 		try {
-			let targetUserId: number;
-			let targetUsername: string | undefined;
-
-			// Check if it's a numeric user ID or username
-			if (/^\d+$/.test(identifier)) {
-				targetUserId = parseInt(identifier, 10);
-				// Try to find existing user
-				const existingUser = query<User>(
-					"SELECT username FROM users WHERE id = ?",
-					[targetUserId],
-				)[0];
-				targetUsername = existingUser?.username;
-			} else {
-				// Remove @ if present
-				targetUsername = identifier.startsWith("@")
-					? identifier.substring(1)
-					: identifier;
-				// Try to find existing user
-				const existingUser = query<User>(
-					"SELECT id FROM users WHERE username = ?",
-					[targetUsername],
-				)[0];
-
-				if (!existingUser) {
-					return ctx.reply(
-						` User @${targetUsername} not found in database yet.\n\n` +
-							`To grant by username, they must have interacted with the bot first.\n` +
-							`Use /grantowner <userId> if you know their Telegram user ID.`,
-					);
-				}
-				targetUserId = existingUser.id;
-			}
-
-			// Insert or update user with owner role
 			execute(
 				"INSERT INTO users (id, username, role) VALUES (?, ?, ?) " +
 					"ON CONFLICT(id) DO UPDATE SET role = ?, username = COALESCE(?, username)",
-				[targetUserId, targetUsername, "owner", "owner", targetUsername],
+				[target.userId, target.username, "owner", "owner", target.username],
 			);
 
 			StructuredLogger.logSecurityEvent("Owner privileges granted", {
 				grantedBy: ownerId,
-				targetUsername,
-				targetUserId,
+				targetUsername: target.username,
+				targetUserId: target.userId,
 				operation: "grant_owner",
 			});
 
 			await ctx.reply(
-				` Owner privileges granted!\n\n` +
-					`User ID: ${targetUserId}\n` +
-					`Username: ${targetUsername ? `@${targetUsername}` : "unknown"}\n\n` +
-					`The role will be applied when they next interact with the bot.`,
+				`Owner privileges granted!\n\n` +
+					`User ID: ${target.userId}\n` +
+					`Username: @${target.username}`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				ownerId,
-				identifier,
+				targetUserId: target.userId,
 				operation: "grant_owner",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -172,13 +140,14 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * Command handler for /elevate.
 	 * Elevates a user to the elevated role.
 	 * Both admins and owners can elevate users.
+	 * Can target user by replying to their message or providing username/ID.
 	 *
 	 * Permission: Admin or owner role required (enforced by adminOrHigher middleware)
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /elevate <username> or /elevate <userId>
+	 * Usage: /elevate <username> or /elevate <userId> or reply to a message with /elevate
 	 * Example: /elevate @bob
 	 * Example: /elevate 987654321
 	 */
@@ -186,67 +155,43 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
-		const args = ctx.message?.text.split(" ").slice(1);
-		if (!args || args.length === 0) {
-			logger.warn("Elevate command used with missing identifier", { userId });
-			return ctx.reply("Usage: /elevate <username> or /elevate <userId>");
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
+			return ctx.reply(
+				"Usage: /elevate <username|userId> or reply to a user's message with /elevate",
+			);
 		}
 
-		const identifier = args[0];
-
 		try {
-			let targetUserId: number;
-			let targetUsername: string | undefined;
-
-			// Check if it's a numeric user ID or username
-			if (/^\d+$/.test(identifier)) {
-				targetUserId = parseInt(identifier, 10);
-				const existingUser = query<User>(
-					"SELECT username FROM users WHERE id = ?",
-					[targetUserId],
-				)[0];
-				targetUsername = existingUser?.username;
-			} else {
-				targetUsername = identifier.startsWith("@")
-					? identifier.substring(1)
-					: identifier;
-				const existingUser = query<User>(
-					"SELECT id FROM users WHERE username = ?",
-					[targetUsername],
-				)[0];
-
-				if (!existingUser) {
-					return ctx.reply(
-						` User @${targetUsername} not found in database yet.\n\n` +
-							`To grant by username, they must have interacted with the bot first.\n` +
-							`Use /elevate <userId> if you know their Telegram user ID.`,
-					);
-				}
-				targetUserId = existingUser.id;
-			}
-
-			// Insert or update user with elevated role
 			execute(
 				"INSERT INTO users (id, username, role) VALUES (?, ?, ?) " +
 					"ON CONFLICT(id) DO UPDATE SET role = ?, username = COALESCE(?, username)",
-				[targetUserId, targetUsername, "elevated", "elevated", targetUsername],
+				[
+					target.userId,
+					target.username,
+					"elevated",
+					"elevated",
+					target.username,
+				],
 			);
 
 			StructuredLogger.logSecurityEvent("User elevated", {
 				adminId: userId,
-				targetUsername,
-				targetUserId,
+				targetUsername: target.username,
+				targetUserId: target.userId,
 				operation: "elevate_user",
 			});
 			await ctx.reply(
-				` Elevated privileges granted!\n\n` +
-					`User ID: ${targetUserId}\n` +
-					`Username: ${targetUsername ? `@${targetUsername}` : "unknown"}`,
+				`Elevated privileges granted!\n\n` +
+					`User ID: ${target.userId}\n` +
+					`Username: @${target.username}`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				userId,
-				identifier,
+				targetUserId: target.userId,
 				operation: "elevate_user",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -257,80 +202,50 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * Command handler for /makeadmin.
 	 * Promotes a user to admin role.
 	 * Only owners can create admins.
+	 * Can target user by replying to their message or providing username/ID.
 	 *
 	 * Permission: Owner only (enforced by ownerOnly middleware)
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /makeadmin <username> or /makeadmin <userId>
+	 * Usage: /makeadmin <username> or /makeadmin <userId> or reply to a message with /makeadmin
 	 * Example: /makeadmin @charlie
 	 * Example: /makeadmin 555444333
 	 */
 	bot.command("makeadmin", ownerOnly, async (ctx) => {
 		const ownerId = ctx.from?.id;
-		const args = ctx.message?.text.split(" ").slice(1);
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!args || args.length === 0) {
-			logger.warn("Makeadmin command invoked without identifier", { ownerId });
-			return ctx.reply("Usage: /makeadmin <username> or /makeadmin <userId>");
+		if (!target) {
+			return ctx.reply(
+				"Usage: /makeadmin <username|userId> or reply to a user's message with /makeadmin",
+			);
 		}
 
-		const identifier = args[0];
-
 		try {
-			let targetUserId: number;
-			let targetUsername: string | undefined;
-
-			// Check if it's a numeric user ID or username
-			if (/^\d+$/.test(identifier)) {
-				targetUserId = parseInt(identifier, 10);
-				const existingUser = query<User>(
-					"SELECT username FROM users WHERE id = ?",
-					[targetUserId],
-				)[0];
-				targetUsername = existingUser?.username;
-			} else {
-				targetUsername = identifier.startsWith("@")
-					? identifier.substring(1)
-					: identifier;
-				const existingUser = query<User>(
-					"SELECT id FROM users WHERE username = ?",
-					[targetUsername],
-				)[0];
-
-				if (!existingUser) {
-					return ctx.reply(
-						` User @${targetUsername} not found in database yet.\n\n` +
-							`To grant by username, they must have interacted with the bot first.\n` +
-							`Use /makeadmin <userId> if you know their Telegram user ID.`,
-					);
-				}
-				targetUserId = existingUser.id;
-			}
-
-			// Insert or update user with admin role
 			execute(
 				"INSERT INTO users (id, username, role) VALUES (?, ?, ?) " +
 					"ON CONFLICT(id) DO UPDATE SET role = ?, username = COALESCE(?, username)",
-				[targetUserId, targetUsername, "admin", "admin", targetUsername],
+				[target.userId, target.username, "admin", "admin", target.username],
 			);
 
 			StructuredLogger.logSecurityEvent("User promoted to admin", {
 				ownerId,
-				targetUsername,
-				targetUserId,
+				targetUsername: target.username,
+				targetUserId: target.userId,
 				operation: "make_admin",
 			});
 			await ctx.reply(
-				` Admin privileges granted!\n\n` +
-					`User ID: ${targetUserId}\n` +
-					`Username: ${targetUsername ? `@${targetUsername}` : "unknown"}`,
+				`Admin privileges granted!\n\n` +
+					`User ID: ${target.userId}\n` +
+					`Username: @${target.username}`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				ownerId,
-				identifier,
+				targetUserId: target.userId,
 				operation: "make_admin",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -341,13 +256,14 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * Command handler for /revoke.
 	 * Revokes elevated or admin privileges from a user, demoting them to pleb.
 	 * Admins can only revoke elevated users. Owners can revoke any role except other owners.
+	 * Can target user by replying to their message or providing username/ID.
 	 *
 	 * Permission: Admin or owner role required (enforced by adminOrHigher middleware)
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /revoke <username> or /revoke <userId>
+	 * Usage: /revoke <username> or /revoke <userId> or reply to a message with /revoke
 	 * Example: /revoke @bob
 	 * Example: /revoke 987654321
 	 */
@@ -360,38 +276,22 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 			userId,
 		])[0];
 
-		const args = ctx.message?.text.split(" ").slice(1);
-		if (!args || args.length === 0) {
-			logger.warn("Revoke command invoked without identifier", { userId });
-			return ctx.reply("Usage: /revoke <username> or /revoke <userId>");
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
+			return ctx.reply(
+				"Usage: /revoke <username|userId> or reply to a user's message with /revoke",
+			);
 		}
 
-		const identifier = args[0];
-
 		try {
-			let targetUser: User | undefined;
-
-			// Check if it's a numeric user ID or username
-			if (/^\d+$/.test(identifier)) {
-				targetUser = query<User>("SELECT * FROM users WHERE id = ?", [
-					parseInt(identifier, 10),
-				])[0];
-			} else {
-				// Remove @ if present
-				const username = identifier.startsWith("@")
-					? identifier.substring(1)
-					: identifier;
-				targetUser = query<User>("SELECT * FROM users WHERE username = ?", [
-					username,
-				])[0];
-			}
+			const targetUser = query<User>("SELECT * FROM users WHERE id = ?", [
+				target.userId,
+			])[0];
 
 			if (!targetUser) {
-				logger.warn("Revoke command failed: User not found", {
-					userId,
-					identifier,
-				});
-				return ctx.reply("User not found.");
+				return ctx.reply("User not found in database.");
 			}
 
 			// Admins can only revoke elevated users, not other admins or owners
@@ -415,12 +315,12 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 				operation: "revoke_privileges",
 			});
 			await ctx.reply(
-				`${targetUser.username || targetUser.id}'s privileges have been revoked.`,
+				`@${targetUser.username || targetUser.id}'s privileges have been revoked.`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				userId,
-				identifier,
+				targetUserId: target.userId,
 				operation: "revoke_privileges",
 			});
 			await ctx.reply("An error occurred while processing the request.");

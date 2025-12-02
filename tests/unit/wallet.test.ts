@@ -275,7 +275,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleWithdraw(ctx as Context);
 
       const replyText = getReplyText(ctx);
-      expect(replyText).toContain('Insufficient balance');
+      expect(replyText).toContain('broke');
       expect(replyText).toContain('200 JUNO');
     });
 
@@ -400,7 +400,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleSend(ctx as Context);
 
       const replyText = getReplyText(ctx);
-      expect(replyText).toContain('Insufficient balance');
+      expect(replyText).toContain("too poor");
     });
 
     it('should send to external wallet (juno1 address)', async () => {
@@ -1128,7 +1128,7 @@ describe('Wallet Commands', () => {
       await walletHandlers.handleFundTreasury(ctx as Context);
 
       const replyText = getReplyText(ctx);
-      expect(replyText).toContain('Insufficient balance');
+      expect(replyText).toContain('broke');
     });
   });
 

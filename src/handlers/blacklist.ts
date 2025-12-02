@@ -12,6 +12,7 @@ import { adminOrHigher } from "../middleware";
 import type { User } from "../types";
 import { StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
+import { resolveTargetUser } from "../utils/userResolver";
 
 /**
  * Registers all whitelist and blacklist command handlers with the bot.
@@ -81,31 +82,27 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 */
 	bot.command("addwhitelist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!userId || Number.isNaN(Number(userId))) {
-			StructuredLogger.logSecurityEvent("Invalid whitelist add attempt", {
-				userId: adminId,
-				operation: "add_whitelist",
-				targetUser: userId || "undefined",
-			});
-			return ctx.reply("Usage: /addwhitelist <userId>");
+		if (!target) {
+			return ctx.reply(
+				"Usage: /addwhitelist <@username|userId> or reply to a user's message",
+			);
 		}
 
 		try {
-			execute("UPDATE users SET whitelist = 1 WHERE id = ?", [
-				parseInt(userId, 10),
-			]);
+			execute("UPDATE users SET whitelist = 1 WHERE id = ?", [target.userId]);
 			StructuredLogger.logSecurityEvent("User added to whitelist", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_whitelist",
 			});
-			await ctx.reply(`User ${userId} has been whitelisted.`);
+			await ctx.reply(`@${target.username} has been whitelisted.`);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_whitelist",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -126,26 +123,29 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 */
 	bot.command("removewhitelist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!userId) {
-			return ctx.reply("Usage: /removewhitelist <userId>");
+		if (!target) {
+			return ctx.reply(
+				"Usage: /removewhitelist <@username|userId> or reply to a user's message",
+			);
 		}
 
 		try {
-			execute("UPDATE users SET whitelist = 0 WHERE id = ?", [
-				parseInt(userId, 10),
-			]);
+			execute("UPDATE users SET whitelist = 0 WHERE id = ?", [target.userId]);
 			StructuredLogger.logSecurityEvent("User removed from whitelist", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_whitelist",
 			});
-			await ctx.reply(`User ${userId} has been removed from the whitelist.`);
+			await ctx.reply(
+				`@${target.username} has been removed from the whitelist.`,
+			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_whitelist",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -199,38 +199,34 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 */
 	bot.command("addblacklist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!userId || Number.isNaN(Number(userId))) {
-			StructuredLogger.logSecurityEvent("Invalid blacklist add attempt", {
-				userId: adminId,
-				operation: "add_blacklist",
-				targetUser: userId || "undefined",
-			});
-			return ctx.reply("Usage: /addblacklist <userId>");
+		if (!target) {
+			return ctx.reply(
+				"Usage: /addblacklist <@username|userId> or reply to a user's message",
+			);
 		}
 
-		const targetUserId = parseInt(userId, 10);
-
 		// Check if target user is immune to moderation
-		if (isImmuneToModeration(targetUserId)) {
+		if (isImmuneToModeration(target.userId)) {
 			return ctx.reply(
-				` Cannot blacklist user ${targetUserId} - admins and owners are immune to moderation actions.`,
+				`Cannot blacklist @${target.username} - admins and owners are immune to moderation actions.`,
 			);
 		}
 
 		try {
-			execute("UPDATE users SET blacklist = 1 WHERE id = ?", [targetUserId]);
+			execute("UPDATE users SET blacklist = 1 WHERE id = ?", [target.userId]);
 			StructuredLogger.logSecurityEvent("User added to blacklist", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_blacklist",
 			});
-			await ctx.reply(`User ${userId} has been blacklisted.`);
+			await ctx.reply(`@${target.username} has been blacklisted.`);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_blacklist",
 			});
 			await ctx.reply("An error occurred while processing the request.");
@@ -251,25 +247,29 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 */
 	bot.command("removeblacklist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
-		if (!userId) {
-			return ctx.reply("Usage: /removeblacklist <userId>");
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const target = resolveTargetUser(ctx, args);
+
+		if (!target) {
+			return ctx.reply(
+				"Usage: /removeblacklist <@username|userId> or reply to a user's message",
+			);
 		}
 
 		try {
-			execute("UPDATE users SET blacklist = 0 WHERE id = ?", [
-				parseInt(userId, 10),
-			]);
+			execute("UPDATE users SET blacklist = 0 WHERE id = ?", [target.userId]);
 			StructuredLogger.logSecurityEvent("User removed from blacklist", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_blacklist",
 			});
-			await ctx.reply(`User ${userId} has been removed from the blacklist.`);
+			await ctx.reply(
+				`@${target.username} has been removed from the blacklist.`,
+			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_blacklist",
 			});
 			await ctx.reply("An error occurred while processing the request.");

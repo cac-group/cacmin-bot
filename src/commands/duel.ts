@@ -202,12 +202,12 @@ Use ${code("/duelcancel")} to cancel it first, or wait for it to expire.`,
 		const challengerBalance = await LedgerService.getUserBalance(userId);
 		if (!AmountPrecision.isGreaterOrEqual(challengerBalance, wagerAmount)) {
 			return ctx.reply(
-				fmt`Insufficient balance.
+				fmt`Sorry, you're too poor for that.
+
+Please remain at your location, the authorities are on their way.
 
 Your balance: ${code(AmountPrecision.format(challengerBalance))} JUNO
-Wager: ${code(AmountPrecision.format(wagerAmount))} JUNO
-
-Use ${code("/deposit")} to add funds.`,
+Wager: ${code(AmountPrecision.format(wagerAmount))} JUNO`,
 			);
 		}
 

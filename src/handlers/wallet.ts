@@ -201,7 +201,7 @@ Example: ${code("/withdraw 10 juno1xxxxx...")}`,
 		const balance = await UnifiedWalletService.getBalance(userId);
 		if (balance < amount) {
 			await ctx.reply(
-				fmt`${bold("Insufficient balance")}
+				fmt`${bold("Oh no, looks like you're broke!")}
 
 Requested: ${code(`${amount} JUNO`)}
 Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
@@ -321,7 +321,9 @@ ${code("/send 2.5 juno1xxxxx...")}`,
 		const balance = await UnifiedWalletService.getBalance(userId);
 		if (balance < amount) {
 			await ctx.reply(
-				fmt`${bold("Insufficient balance")}
+				fmt`${bold("Sorry, you're too poor for that.")}
+
+Please remain at your location, the authorities are on their way.
 
 Requested: ${code(`${amount} JUNO`)}
 Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
@@ -1251,7 +1253,7 @@ The deposit will be credited to the game treasury once confirmed on-chain.`,
 		const userBalance = await LedgerService.getUserBalance(userId);
 		if (!AmountPrecision.isGreaterOrEqual(userBalance, amount)) {
 			await ctx.reply(
-				fmt`${bold("Insufficient balance")}
+				fmt`${bold("Oh no, looks like you're broke!")}
 
 Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
 Requested: ${code(AmountPrecision.format(amount))} JUNO`,
@@ -1360,7 +1362,7 @@ This transfers JUNO from your balance to the game treasury.`,
 		const userBalance = await LedgerService.getUserBalance(userId);
 		if (!AmountPrecision.isGreaterOrEqual(userBalance, amount)) {
 			await ctx.reply(
-				fmt`${bold("Insufficient balance")}
+				fmt`${bold("Oh no, looks like you're broke!")}
 
 Your balance: ${code(AmountPrecision.format(userBalance))} JUNO
 Requested: ${code(AmountPrecision.format(amount))} JUNO`,
