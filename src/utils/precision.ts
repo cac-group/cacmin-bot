@@ -57,15 +57,19 @@ export class AmountPrecision {
 
 	/** Convert JUNO → uJUNO (1 JUNO = 1M uJUNO) */
 	static toMicroJuno(amount: number): number {
-		// Validate first
-		AmountPrecision.validateAmount(amount);
+		// Sanitize first to handle floating-point artifacts from DB/calculations
+		const sanitized = AmountPrecision.sanitize(amount);
 
-		// Multiply by 1 million and ensure it's an integer
-		const micro = Math.floor(amount * 1_000_000);
+		// Validate the sanitized amount
+		AmountPrecision.validateAmount(sanitized);
 
-		// Verify no precision loss
+		// Use Math.round for robustness against floating-point representation errors
+		// (e.g., 4.05195 * 1_000_000 = 4051949.9999999995 should become 4051950)
+		const micro = Math.round(sanitized * 1_000_000);
+
+		// Verify no precision loss (compare against sanitized value, not original)
 		const backToJuno = micro / 1_000_000;
-		if (Math.abs(backToJuno - amount) > 0.000001) {
+		if (Math.abs(backToJuno - sanitized) > 0.0000005) {
 			throw new Error(
 				`Precision loss detected converting ${amount} to micro units`,
 			);
