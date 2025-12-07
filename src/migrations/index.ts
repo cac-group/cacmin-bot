@@ -8,8 +8,8 @@
 import Database from "better-sqlite3";
 import { logger } from "../utils/logger";
 import {
-	runMigration as run001,
 	isMigrationApplied as check001,
+	runMigration as run001,
 } from "./001_integer_balances";
 
 interface Migration {

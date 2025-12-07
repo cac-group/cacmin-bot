@@ -458,7 +458,9 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 				"SELECT SUM(amount) as total FROM transactions WHERE transaction_type = ? AND status = ?",
 				["fine", "completed"],
 			);
-			const totalFines = AmountPrecision.fromDbMicro(finesResult[0]?.total || 0);
+			const totalFines = AmountPrecision.fromDbMicro(
+				finesResult[0]?.total || 0,
+			);
 
 			const bailResult = query<CollectedTotal>(
 				"SELECT SUM(amount) as total FROM transactions WHERE transaction_type = ? AND status = ?",
@@ -470,7 +472,9 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 			const internalBalances = query<{ total: number | null }>(
 				"SELECT SUM(balance) as total FROM user_balances",
 			);
-			const totalUserBalances = AmountPrecision.fromDbMicro(internalBalances[0]?.total || 0);
+			const totalUserBalances = AmountPrecision.fromDbMicro(
+				internalBalances[0]?.total || 0,
+			);
 
 			const msg = await ctx.reply(
 				fmt`${bold("Bot Wallet Status")}

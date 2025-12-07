@@ -705,7 +705,14 @@ async function handleGiveawayCreateCallback(
 		const result = execute(
 			`INSERT INTO giveaways (created_by, funded_by, total_amount, amount_per_slot, total_slots, claimed_slots, chat_id, status)
 			 VALUES (?, ?, ?, ?, ?, 0, ?, 'active')`,
-			[userId, fundedBy, totalAmountMicro, amountPerSlotMicro, totalSlots, chatId],
+			[
+				userId,
+				fundedBy,
+				totalAmountMicro,
+				amountPerSlotMicro,
+				totalSlots,
+				chatId,
+			],
 		);
 		const giveawayId = result.lastInsertRowid as number;
 
@@ -853,7 +860,9 @@ async function handleGiveawayClaimCallback(
 		}
 
 		// Record claim (store amount in micro-units)
-		const claimAmountMicro = AmountPrecision.toDbMicro(giveaway.amount_per_slot);
+		const claimAmountMicro = AmountPrecision.toDbMicro(
+			giveaway.amount_per_slot,
+		);
 		execute(
 			"INSERT INTO giveaway_claims (giveaway_id, user_id, amount) VALUES (?, ?, ?)",
 			[giveawayId, userId, claimAmountMicro],

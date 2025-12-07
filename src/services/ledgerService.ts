@@ -177,7 +177,10 @@ export class LedgerService {
 	 * Amounts should be in micro-units (integer)
 	 */
 	private static async recordTransactionMicro(
-		transaction: Transaction & { amount: MicroAmount; balanceAfter?: MicroAmount },
+		transaction: Transaction & {
+			amount: MicroAmount;
+			balanceAfter?: MicroAmount;
+		},
 	): Promise<number> {
 		const result = execute(
 			`INSERT INTO transactions (
@@ -370,7 +373,10 @@ export class LedgerService {
 			const toMicro = await LedgerService.getUserBalanceMicro(toUserId);
 
 			// Calculate new balances in micro-units (integer math)
-			const newFromMicro = AmountPrecision.subtractMicro(fromMicro, amountMicro);
+			const newFromMicro = AmountPrecision.subtractMicro(
+				fromMicro,
+				amountMicro,
+			);
 			const newToMicro = AmountPrecision.addMicro(toMicro, amountMicro);
 
 			await LedgerService.updateBalanceMicro(fromUserId, newFromMicro);
@@ -492,7 +498,8 @@ export class LedgerService {
 		try {
 			// Convert to micro-units
 			const amountMicro = AmountPrecision.toDbMicro(amount);
-			const currentMicro = await LedgerService.getUserBalanceMicro(paidByUserId);
+			const currentMicro =
+				await LedgerService.getUserBalanceMicro(paidByUserId);
 
 			if (currentMicro < amountMicro) {
 				return {
@@ -615,9 +622,10 @@ export class LedgerService {
 		return rows.map((row) => ({
 			...row,
 			amount: AmountPrecision.fromDbMicro(row.amount),
-			balance_after: row.balance_after !== null
-				? AmountPrecision.fromDbMicro(row.balance_after)
-				: null,
+			balance_after:
+				row.balance_after !== null
+					? AmountPrecision.fromDbMicro(row.balance_after)
+					: null,
 		}));
 	}
 

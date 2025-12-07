@@ -312,9 +312,8 @@ export class SharedAccountService {
 		}
 
 		// Grant permission (convert spendLimit to micro-units for DB storage)
-		const spendLimitMicro = spendLimit !== undefined
-			? AmountPrecision.toDbMicro(spendLimit)
-			: null;
+		const spendLimitMicro =
+			spendLimit !== undefined ? AmountPrecision.toDbMicro(spendLimit) : null;
 		execute(
 			`INSERT OR REPLACE INTO shared_account_permissions
        (shared_account_id, user_id, permission_level, spend_limit, granted_by)
@@ -445,9 +444,8 @@ export class SharedAccountService {
 		}
 
 		// Update permission (convert spendLimit to micro-units for DB storage)
-		const spendLimitMicro = spendLimit !== undefined
-			? AmountPrecision.toDbMicro(spendLimit)
-			: null;
+		const spendLimitMicro =
+			spendLimit !== undefined ? AmountPrecision.toDbMicro(spendLimit) : null;
 		execute(
 			`UPDATE shared_account_permissions
        SET permission_level = ?, spend_limit = ?
@@ -495,9 +493,10 @@ export class SharedAccountService {
 		if (!permission) return null;
 
 		// spend_limit stored in micro-units, convert to JUNO
-		const spendLimit = permission.spend_limit !== null
-			? AmountPrecision.fromDbMicro(permission.spend_limit)
-			: null;
+		const spendLimit =
+			permission.spend_limit !== null
+				? AmountPrecision.fromDbMicro(permission.spend_limit)
+				: null;
 
 		return {
 			id: permission.id,
@@ -598,9 +597,10 @@ export class SharedAccountService {
 			sharedAccountId: p.shared_account_id,
 			userId: p.user_id,
 			permissionLevel: p.permission_level,
-			spendLimit: p.spend_limit !== null
-				? AmountPrecision.fromDbMicro(p.spend_limit)
-				: null,
+			spendLimit:
+				p.spend_limit !== null
+					? AmountPrecision.fromDbMicro(p.spend_limit)
+					: null,
 			grantedBy: p.granted_by,
 			grantedAt: p.granted_at,
 			revoked: p.revoked,
@@ -630,9 +630,10 @@ export class SharedAccountService {
 			sharedAccountId: p.shared_account_id,
 			userId: p.user_id,
 			permissionLevel: p.permission_level,
-			spendLimit: p.spend_limit !== null
-				? AmountPrecision.fromDbMicro(p.spend_limit)
-				: null,
+			spendLimit:
+				p.spend_limit !== null
+					? AmountPrecision.fromDbMicro(p.spend_limit)
+					: null,
 			grantedBy: p.granted_by,
 			grantedAt: p.granted_at,
 			revoked: p.revoked,

@@ -86,10 +86,9 @@ export function runMigration(db: Database.Database): MigrationResult {
 
 			for (const row of userBalances) {
 				const microBalance = Math.round(row.balance * MICRO_MULTIPLIER);
-				db.prepare("UPDATE user_balances SET balance = ? WHERE user_id = ?").run(
-					microBalance,
-					row.user_id,
-				);
+				db.prepare(
+					"UPDATE user_balances SET balance = ? WHERE user_id = ?",
+				).run(microBalance, row.user_id);
 				result.rowsConverted++;
 			}
 			result.tablesUpdated.push("user_balances");
@@ -102,7 +101,11 @@ export function runMigration(db: Database.Database): MigrationResult {
 		try {
 			const transactions = db
 				.prepare("SELECT id, amount, balance_after FROM transactions")
-				.all() as { id: number; amount: number; balance_after: number | null }[];
+				.all() as {
+				id: number;
+				amount: number;
+				balance_after: number | null;
+			}[];
 
 			for (const row of transactions) {
 				const microAmount = Math.round(row.amount * MICRO_MULTIPLIER);
@@ -294,9 +297,10 @@ export function runMigration(db: Database.Database): MigrationResult {
 
 		// 11. duels.wager_amount
 		try {
-			const duels = db
-				.prepare("SELECT id, wager_amount FROM duels")
-				.all() as { id: number; wager_amount: number }[];
+			const duels = db.prepare("SELECT id, wager_amount FROM duels").all() as {
+				id: number;
+				wager_amount: number;
+			}[];
 
 			for (const row of duels) {
 				const microWager = Math.round(row.wager_amount * MICRO_MULTIPLIER);
