@@ -8,6 +8,7 @@
 
 import Database from "better-sqlite3";
 import { config } from "./config";
+import { runMigrations } from "./migrations";
 import { logger } from "./utils/logger";
 
 /**
@@ -533,6 +534,11 @@ export const initDb = (): void => {
     CREATE INDEX IF NOT EXISTS idx_duels_status ON duels(status);
     CREATE INDEX IF NOT EXISTS idx_duels_expires ON duels(expires_at);
   `);
+
+	logger.info("Database schema initialized");
+
+	// Run any pending migrations
+	runMigrations(db);
 
 	logger.info("Database initialized successfully");
 };

@@ -31,7 +31,10 @@ fi
 
 echo -e "${GREEN}=== CAC Admin Bot Auto-Update ===${NC}\n"
 
-# Check for required commands
+# Check for required commands and prefer system versions
+# (avoids issues with broken /usr/local/bin versions)
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 for cmd in curl jq tar; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "${RED}Error: $cmd is not installed${NC}"

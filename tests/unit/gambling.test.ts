@@ -93,13 +93,15 @@ vi.mock("../../src/services/userService", () => ({
 	ensureUserExists: vi.fn(),
 }));
 
-// Mock precision module
+// Mock precision module with new micro-unit conversion methods
 vi.mock("../../src/utils/precision", () => ({
 	AmountPrecision: {
 		format: (n: number) => n.toFixed(6),
 		parseUserInput: (s: string) => parseFloat(s),
 		validateAmount: (n: number) => n,
 		isGreaterOrEqual: (a: number, b: number) => a >= b,
+		fromDbMicro: (micro: number) => micro / 1_000_000,
+		toDbMicro: (juno: number) => Math.round(juno * 1_000_000),
 	},
 }));
 

@@ -1,6 +1,67 @@
-/** Exact 6-decimal JUNO arithmetic - NO ROUNDING, uses micro-units (1M uJUNO = 1 JUNO) */
+/**
+ * Exact 6-decimal JUNO arithmetic using micro-units (1M uJUNO = 1 JUNO)
+ *
+ * After migration 001, the database stores all amounts as INTEGER micro-units.
+ * This class provides conversion utilities for:
+ * - Reading from DB (integer) -> display (JUNO float)
+ * - User input (JUNO float) -> DB storage (integer)
+ * - Arithmetic operations in integer space
+ */
 
 export class AmountPrecision {
+	/** Multiplier for JUNO <-> uJUNO conversion */
+	static readonly MICRO_MULTIPLIER = 1_000_000;
+
+	/**
+	 * Convert micro-units from database to JUNO for display
+	 * Use this when reading balance/amount fields from the database
+	 */
+	static fromDbMicro(microAmount: number): number {
+		// DB stores integers, but SQLite may return as float
+		const intMicro = Math.round(microAmount);
+		return intMicro / AmountPrecision.MICRO_MULTIPLIER;
+	}
+
+	/**
+	 * Convert JUNO amount to micro-units for database storage
+	 * Use this when writing balance/amount fields to the database
+	 */
+	static toDbMicro(junoAmount: number): number {
+		const sanitized = AmountPrecision.sanitize(junoAmount);
+		return Math.round(sanitized * AmountPrecision.MICRO_MULTIPLIER);
+	}
+
+	/**
+	 * Add two micro-unit amounts (for DB operations)
+	 * Returns micro-units
+	 */
+	static addMicro(micro1: number, micro2: number): number {
+		return Math.round(micro1) + Math.round(micro2);
+	}
+
+	/**
+	 * Subtract micro-unit amounts (for DB operations)
+	 * Returns micro-units. Throws if result would be negative.
+	 */
+	static subtractMicro(micro1: number, micro2: number): number {
+		const m1 = Math.round(micro1);
+		const m2 = Math.round(micro2);
+		if (m1 < m2) {
+			throw new Error(
+				`Cannot subtract ${m2} from ${m1} - would result in negative`,
+			);
+		}
+		return m1 - m2;
+	}
+
+	/**
+	 * Format micro-units as JUNO display string (6 decimals)
+	 */
+	static formatMicro(microAmount: number): string {
+		const juno = AmountPrecision.fromDbMicro(microAmount);
+		return juno.toFixed(6);
+	}
+
 	/** Sanitize a value that may have floating-point imprecision (e.g., from SQLite REAL) */
 	static sanitize(amount: number): number {
 		// Round to 6 decimals to eliminate floating-point representation errors

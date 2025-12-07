@@ -96,13 +96,14 @@ interface DuelRow {
 
 /**
  * Convert DB row to Duel interface
+ * Note: wager_amount is stored as micro-units (integer) in DB, convert to JUNO
  */
 function rowToDuel(row: DuelRow): Duel {
 	return {
 		id: row.id,
 		challengerId: row.challenger_id,
 		opponentId: row.opponent_id,
-		wagerAmount: row.wager_amount,
+		wagerAmount: AmountPrecision.fromDbMicro(row.wager_amount),
 		loserConsequence: row.loser_consequence as DuelConsequence,
 		consequenceDuration: row.consequence_duration,
 		consequenceAction: row.consequence_action,
@@ -236,6 +237,9 @@ export class DuelService {
 			consequenceDuration || DEFAULT_CONSEQUENCE_DURATIONS[consequence];
 		const expiresAt = Math.floor(Date.now() / 1000) + DUEL_TIMEOUT_SECONDS;
 
+		// Convert wager to micro-units for DB storage
+		const wagerMicro = AmountPrecision.toDbMicro(wagerAmount);
+
 		const result = execute(
 			`INSERT INTO duels (
 				challenger_id, opponent_id, wager_amount, loser_consequence,
@@ -244,7 +248,7 @@ export class DuelService {
 			[
 				challengerId,
 				opponentId,
-				wagerAmount,
+				wagerMicro,
 				consequence,
 				duration,
 				chatId,
@@ -697,6 +701,7 @@ export class DuelService {
 			[userId, userId, userId, userId],
 		);
 
+		// DB stores wager_amount in micro-units, SUM returns micro-units
 		const wagered = get<{ total: number }>(
 			`SELECT COALESCE(SUM(wager_amount), 0) as total FROM duels
 			WHERE status = 'completed'
@@ -716,13 +721,18 @@ export class DuelService {
 			[userId],
 		);
 
+		// Convert micro-units to JUNO for return
+		const totalWageredMicro = wagered?.total || 0;
+		const totalWonMicro = won?.total || 0;
+		const totalLostMicro = lost?.total || 0;
+
 		return {
 			totalDuels: stats?.total || 0,
 			wins: stats?.wins || 0,
 			losses: stats?.losses || 0,
-			totalWagered: wagered?.total || 0,
-			totalWon: won?.total || 0,
-			netProfit: (won?.total || 0) - (lost?.total || 0),
+			totalWagered: AmountPrecision.fromDbMicro(totalWageredMicro),
+			totalWon: AmountPrecision.fromDbMicro(totalWonMicro),
+			netProfit: AmountPrecision.fromDbMicro(totalWonMicro - totalLostMicro),
 		};
 	}
 

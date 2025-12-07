@@ -26,8 +26,8 @@ interface Giveaway {
 	id: number;
 	created_by: number;
 	funded_by: number;
-	total_amount: number;
-	amount_per_slot: number;
+	total_amount: number; // Stored as micro-units in DB
+	amount_per_slot: number; // Stored as micro-units in DB
 	total_slots: number;
 	claimed_slots: number;
 	chat_id: number;
@@ -35,6 +35,15 @@ interface Giveaway {
 	status: "active" | "completed" | "cancelled";
 	created_at: number;
 	completed_at: number | null;
+}
+
+/** Convert giveaway DB row (micro-units) to JUNO amounts */
+function giveawayFromDb(row: Giveaway): Giveaway {
+	return {
+		...row,
+		total_amount: AmountPrecision.fromDbMicro(row.total_amount),
+		amount_per_slot: AmountPrecision.fromDbMicro(row.amount_per_slot),
+	};
 }
 
 /**
@@ -324,7 +333,8 @@ ${slotInfo}
 
 		if (!args || args.length < 1) {
 			// Show active giveaways (owner sees all, users see their own)
-			const activeGiveaways = isOwner
+			// Note: amounts stored as micro-units, convert for display
+			const activeGiveawayRows = isOwner
 				? query<Giveaway>(
 						"SELECT * FROM giveaways WHERE status = 'active' ORDER BY created_at DESC LIMIT 10",
 					)
@@ -332,6 +342,7 @@ ${slotInfo}
 						"SELECT * FROM giveaways WHERE status = 'active' AND created_by = ? ORDER BY created_at DESC LIMIT 10",
 						[userId],
 					);
+			const activeGiveaways = activeGiveawayRows.map(giveawayFromDb);
 
 			if (activeGiveaways.length === 0) {
 				return ctx.reply("No active giveaways.");
@@ -340,7 +351,7 @@ ${slotInfo}
 			const list = activeGiveaways
 				.map(
 					(g) =>
-						`ID ${g.id}: ${g.total_amount} JUNO (${g.claimed_slots}/${g.total_slots} claimed)`,
+						`ID ${g.id}: ${g.total_amount.toFixed(6)} JUNO (${g.claimed_slots}/${g.total_slots} claimed)`,
 				)
 				.join("\n");
 
@@ -358,14 +369,15 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 			return ctx.reply("Invalid giveaway ID.");
 		}
 
-		const giveaway = get<Giveaway>(
+		const giveawayRow = get<Giveaway>(
 			"SELECT * FROM giveaways WHERE id = ? AND status = 'active'",
 			[giveawayId],
 		);
 
-		if (!giveaway) {
+		if (!giveawayRow) {
 			return ctx.reply("Giveaway not found or already completed/cancelled.");
 		}
+		const giveaway = giveawayFromDb(giveawayRow);
 
 		// Check permission: must be owner or the creator
 		if (!isOwner && giveaway.created_by !== userId) {
@@ -438,7 +450,7 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 			const treasuryBalance = await UnifiedWalletService.getBotBalance();
 			const treasuryAddress = config.botTreasuryAddress;
 
-			// Internal ledger statistics
+			// Internal ledger statistics (DB stores micro-units, convert to JUNO)
 			const { query } = await import("../database");
 			type CollectedTotal = { total: number | null };
 
@@ -446,19 +458,19 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 				"SELECT SUM(amount) as total FROM transactions WHERE transaction_type = ? AND status = ?",
 				["fine", "completed"],
 			);
-			const totalFines = finesResult[0]?.total || 0;
+			const totalFines = AmountPrecision.fromDbMicro(finesResult[0]?.total || 0);
 
 			const bailResult = query<CollectedTotal>(
 				"SELECT SUM(amount) as total FROM transactions WHERE transaction_type = ? AND status = ?",
 				["bail", "completed"],
 			);
-			const totalBail = bailResult[0]?.total || 0;
+			const totalBail = AmountPrecision.fromDbMicro(bailResult[0]?.total || 0);
 
-			// Get internal ledger total (all user balances)
+			// Get internal ledger total (all user balances, stored as micro-units)
 			const internalBalances = query<{ total: number | null }>(
 				"SELECT SUM(balance) as total FROM user_balances",
 			);
-			const totalUserBalances = internalBalances[0]?.total || 0;
+			const totalUserBalances = AmountPrecision.fromDbMicro(internalBalances[0]?.total || 0);
 
 			const msg = await ctx.reply(
 				fmt`${bold("Bot Wallet Status")}
