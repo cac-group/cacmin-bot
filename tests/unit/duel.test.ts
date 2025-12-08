@@ -94,13 +94,15 @@ vi.mock("../../src/services/userService", () => ({
 	addUserRestriction: vi.fn(),
 }));
 
-// Mock precision module
+// Mock precision module with new micro-unit conversion methods
 vi.mock("../../src/utils/precision", () => ({
 	AmountPrecision: {
 		format: (n: number) => n.toFixed(6),
 		parseUserInput: (s: string) => parseFloat(s),
 		validateAmount: (n: number) => n,
 		isGreaterOrEqual: (a: number, b: number) => a >= b,
+		fromDbMicro: (micro: number) => micro / 1_000_000,
+		toDbMicro: (juno: number) => Math.round(juno * 1_000_000),
 	},
 }));
 
@@ -232,7 +234,7 @@ describe("Duel Creation", () => {
 				id: 1,
 				challenger_id: 123,
 				opponent_id: 456,
-				wager_amount: 10,
+				wager_amount: 10_000_000, // 10 JUNO in micro-units
 				loser_consequence: "none",
 				status: "pending",
 				chat_id: -100,
@@ -256,7 +258,7 @@ describe("Duel Creation", () => {
 				id: 1,
 				challenger_id: 123,
 				opponent_id: 456,
-				wager_amount: 10,
+				wager_amount: 10_000_000, // 10 JUNO in micro-units
 				loser_consequence: "jail",
 				consequence_duration: 60,
 				status: "pending",
@@ -391,7 +393,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			status: "pending",
 		});
 
@@ -409,7 +411,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			status: "pending",
 		});
 		mockGetUserBalance.mockResolvedValue(5);
@@ -428,7 +430,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			status: "pending",
 		});
 		// First call for opponent check, second for challenger re-check
@@ -450,7 +452,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			status: "pending",
 		});
 		mockGetUserBalance.mockResolvedValue(100);
@@ -470,7 +472,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			status: "pending",
 		});
 		mockGetUserBalance.mockResolvedValue(100);
@@ -492,7 +494,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			loser_consequence: "none",
 			status: "pending",
 			chat_id: -100,
@@ -534,7 +536,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			loser_consequence: "none",
 			status: "pending",
 			chat_id: -100,
@@ -570,7 +572,7 @@ describe("Duel Execution", () => {
 			id: 1,
 			challenger_id: 123,
 			opponent_id: 456,
-			wager_amount: 10,
+			wager_amount: 10_000_000, // 10 JUNO in micro-units
 			loser_consequence: "none",
 			status: "pending",
 			chat_id: -100,
@@ -620,18 +622,19 @@ describe("Duel Statistics", () => {
 	});
 
 	it("should calculate user duel stats", () => {
+		// Note: DB returns micro-units (1 JUNO = 1,000,000 micro)
 		vi.mocked(get)
 			.mockReturnValueOnce({ total: 10, wins: 6, losses: 4 })
-			.mockReturnValueOnce({ total: 100 }) // wagered
-			.mockReturnValueOnce({ total: 80 }) // won
-			.mockReturnValueOnce({ total: 40 }); // lost
+			.mockReturnValueOnce({ total: 100_000_000 }) // 100 JUNO wagered in micro
+			.mockReturnValueOnce({ total: 80_000_000 }) // 80 JUNO won in micro
+			.mockReturnValueOnce({ total: 40_000_000 }); // 40 JUNO lost in micro
 
 		const stats = DuelService.getUserDuelStats(123);
 
 		expect(stats.totalDuels).toBe(10);
 		expect(stats.wins).toBe(6);
 		expect(stats.losses).toBe(4);
-		expect(stats.totalWagered).toBe(100);
+		expect(stats.totalWagered).toBe(100); // Returned as JUNO
 		expect(stats.totalWon).toBe(80);
 		expect(stats.netProfit).toBe(40); // 80 won - 40 lost
 	});
@@ -656,12 +659,13 @@ describe("Duel Recent History", () => {
 	});
 
 	it("should return recent completed duels", () => {
+		// Note: DB returns wager_amount in micro-units (1 JUNO = 1,000,000 micro)
 		vi.mocked(query).mockReturnValue([
 			{
 				id: 3,
 				challenger_id: 123,
 				opponent_id: 456,
-				wager_amount: 10,
+				wager_amount: 10_000_000, // 10 JUNO in micro-units
 				loser_consequence: "none",
 				status: "completed",
 				winner_id: 123,
@@ -675,7 +679,7 @@ describe("Duel Recent History", () => {
 				id: 2,
 				challenger_id: 789,
 				opponent_id: 123,
-				wager_amount: 5,
+				wager_amount: 5_000_000, // 5 JUNO in micro-units
 				loser_consequence: "jail",
 				status: "completed",
 				winner_id: 789,
@@ -691,7 +695,9 @@ describe("Duel Recent History", () => {
 
 		expect(duels).toHaveLength(2);
 		expect(duels[0].id).toBe(3);
+		expect(duels[0].wagerAmount).toBe(10); // Returned as JUNO
 		expect(duels[1].id).toBe(2);
+		expect(duels[1].wagerAmount).toBe(5); // Returned as JUNO
 	});
 
 	it("should return empty array for user with no duels", () => {

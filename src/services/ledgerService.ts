@@ -24,10 +24,14 @@ export enum TransactionStatus {
 
 interface UserBalance {
 	userId: number;
-	balance: number;
+	balance: number; // Stored as micro-units (integer) in DB
 	lastUpdated: number;
 	createdAt: number;
 }
+
+// Type alias for clarity in code
+type MicroAmount = number; // Integer micro-units (ujuno)
+type JunoAmount = number; // Float JUNO amount for display/API
 
 interface Transaction {
 	id?: number;
@@ -102,14 +106,28 @@ export class LedgerService {
 
 	/**
 	 * Get user's current balance from internal ledger
+	 * Returns JUNO amount (converts from micro-units stored in DB)
 	 */
-	static async getUserBalance(userId: number): Promise<number> {
+	static async getUserBalance(userId: number): Promise<JunoAmount> {
 		const balance = get<UserBalance>(
 			"SELECT * FROM user_balances WHERE user_id = ?",
 			[userId],
 		);
 
-		return balance?.balance || 0;
+		// DB stores micro-units, convert to JUNO for API
+		const microBalance = balance?.balance || 0;
+		return AmountPrecision.fromDbMicro(microBalance);
+	}
+
+	/**
+	 * Get user's current balance in micro-units (for internal operations)
+	 */
+	static async getUserBalanceMicro(userId: number): Promise<MicroAmount> {
+		const balance = get<UserBalance>(
+			"SELECT * FROM user_balances WHERE user_id = ?",
+			[userId],
+		);
+		return Math.round(balance?.balance || 0);
 	}
 
 	/**
@@ -141,23 +159,28 @@ export class LedgerService {
 
 	/**
 	 * Update user balance (internal use only, use transaction methods for actual operations)
+	 * @param newBalanceMicro - New balance in micro-units (integer)
 	 */
-	private static async updateBalance(
+	private static async updateBalanceMicro(
 		userId: number,
-		newBalance: number,
+		newBalanceMicro: MicroAmount,
 	): Promise<void> {
 		const now = Math.floor(Date.now() / 1000);
 		execute(
 			"UPDATE user_balances SET balance = ?, last_updated = ? WHERE user_id = ?",
-			[newBalance, now, userId],
+			[Math.round(newBalanceMicro), now, userId],
 		);
 	}
 
 	/**
 	 * Record a transaction in the ledger
+	 * Amounts should be in micro-units (integer)
 	 */
-	private static async recordTransaction(
-		transaction: Transaction,
+	private static async recordTransactionMicro(
+		transaction: Transaction & {
+			amount: MicroAmount;
+			balanceAfter?: MicroAmount;
+		},
 	): Promise<number> {
 		const result = execute(
 			`INSERT INTO transactions (
@@ -168,8 +191,10 @@ export class LedgerService {
 				transaction.transactionType,
 				transaction.fromUserId || null,
 				transaction.toUserId || null,
-				transaction.amount,
-				transaction.balanceAfter || null,
+				Math.round(transaction.amount),
+				transaction.balanceAfter !== undefined
+					? Math.round(transaction.balanceAfter)
+					: null,
 				transaction.description || null,
 				transaction.txHash || null,
 				transaction.externalAddress || null,
@@ -183,40 +208,46 @@ export class LedgerService {
 
 	/**
 	 * Process a deposit from an external wallet
+	 * @param amount - Amount in JUNO (will be converted to micro-units for storage)
 	 */
 	static async processDeposit(
 		userId: number,
-		amount: number,
+		amount: JunoAmount,
 		txHash: string,
 		fromAddress: string,
 		description?: string,
-	): Promise<{ success: boolean; newBalance: number; error?: string }> {
+	): Promise<{ success: boolean; newBalance: JunoAmount; error?: string }> {
 		try {
 			// Ensure user has a balance entry
 			await LedgerService.ensureUserBalance(userId);
 
-			// Get current balance and add using precise arithmetic
-			const currentBalance = await LedgerService.getUserBalance(userId);
-			const newBalance = AmountPrecision.add(currentBalance, amount);
+			// Convert to micro-units for integer arithmetic
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const currentMicro = await LedgerService.getUserBalanceMicro(userId);
+			const newMicro = AmountPrecision.addMicro(currentMicro, amountMicro);
 
-			// Update balance
-			await LedgerService.updateBalance(userId, newBalance);
+			// Update balance (in micro-units)
+			await LedgerService.updateBalanceMicro(userId, newMicro);
 
-			// Record transaction
-			await LedgerService.recordTransaction({
+			// Record transaction (in micro-units)
+			await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.DEPOSIT,
 				toUserId: userId,
-				amount,
-				balanceAfter: newBalance,
+				amount: amountMicro,
+				balanceAfter: newMicro,
 				description: description || `Deposit from ${fromAddress}`,
 				txHash,
 				externalAddress: fromAddress,
 				status: TransactionStatus.COMPLETED,
 			});
 
+			// Convert back to JUNO for return
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
+
 			logger.info("Deposit processed", {
 				userId,
 				amount,
+				amountMicro,
 				newBalance,
 				txHash,
 			});
@@ -234,55 +265,61 @@ export class LedgerService {
 
 	/**
 	 * Process a withdrawal to an external wallet
+	 * @param amount - Amount in JUNO
 	 */
 	static async processWithdrawal(
 		userId: number,
-		amount: number,
+		amount: JunoAmount,
 		toAddress: string,
 		txHash?: string,
 		description?: string,
 	): Promise<{
 		success: boolean;
-		newBalance: number;
+		newBalance: JunoAmount;
 		transactionId?: number;
 		error?: string;
 	}> {
 		try {
-			// Check balance
-			const currentBalance = await LedgerService.getUserBalance(userId);
-			if (currentBalance < amount) {
+			// Convert to micro-units
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const currentMicro = await LedgerService.getUserBalanceMicro(userId);
+
+			if (currentMicro < amountMicro) {
 				return {
 					success: false,
-					newBalance: currentBalance,
+					newBalance: AmountPrecision.fromDbMicro(currentMicro),
 					error: "Insufficient balance",
 				};
 			}
 
-			const newBalance = AmountPrecision.subtract(currentBalance, amount);
+			const newMicro = AmountPrecision.subtractMicro(currentMicro, amountMicro);
 
 			// Record as pending if no txHash yet
 			const status = txHash
 				? TransactionStatus.COMPLETED
 				: TransactionStatus.PENDING;
 
-			// Update balance
-			await LedgerService.updateBalance(userId, newBalance);
+			// Update balance (micro-units)
+			await LedgerService.updateBalanceMicro(userId, newMicro);
 
-			// Record transaction
-			const transactionId = await LedgerService.recordTransaction({
+			// Record transaction (micro-units)
+			const transactionId = await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.WITHDRAWAL,
 				fromUserId: userId,
-				amount,
-				balanceAfter: newBalance,
+				amount: amountMicro,
+				balanceAfter: newMicro,
 				description: description || `Withdrawal to ${toAddress}`,
 				txHash,
 				externalAddress: toAddress,
 				status,
 			});
 
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
+
 			logger.info("Withdrawal processed", {
 				userId,
 				amount,
+				amountMicro,
 				newBalance,
 				toAddress,
 				txHash,
@@ -302,16 +339,17 @@ export class LedgerService {
 
 	/**
 	 * Transfer tokens between users (internal ledger only)
+	 * @param amount - Amount in JUNO
 	 */
 	static async transferBetweenUsers(
 		fromUserId: number,
 		toUserId: number,
-		amount: number,
+		amount: JunoAmount,
 		description?: string,
 	): Promise<{
 		success: boolean;
-		fromBalance: number;
-		toBalance: number;
+		fromBalance: JunoAmount;
+		toBalance: JunoAmount;
 		error?: string;
 	}> {
 		try {
@@ -319,41 +357,51 @@ export class LedgerService {
 			await LedgerService.ensureUserBalance(fromUserId);
 			await LedgerService.ensureUserBalance(toUserId);
 
-			// Check sender balance
-			const fromBalance = await LedgerService.getUserBalance(fromUserId);
-			if (fromBalance < amount) {
+			// Convert to micro-units
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const fromMicro = await LedgerService.getUserBalanceMicro(fromUserId);
+
+			if (fromMicro < amountMicro) {
 				return {
 					success: false,
-					fromBalance,
+					fromBalance: AmountPrecision.fromDbMicro(fromMicro),
 					toBalance: await LedgerService.getUserBalance(toUserId),
 					error: "Insufficient balance",
 				};
 			}
 
-			const toBalance = await LedgerService.getUserBalance(toUserId);
+			const toMicro = await LedgerService.getUserBalanceMicro(toUserId);
 
-			// Update balances using precise arithmetic
-			const newFromBalance = AmountPrecision.subtract(fromBalance, amount);
-			const newToBalance = AmountPrecision.add(toBalance, amount);
+			// Calculate new balances in micro-units (integer math)
+			const newFromMicro = AmountPrecision.subtractMicro(
+				fromMicro,
+				amountMicro,
+			);
+			const newToMicro = AmountPrecision.addMicro(toMicro, amountMicro);
 
-			await LedgerService.updateBalance(fromUserId, newFromBalance);
-			await LedgerService.updateBalance(toUserId, newToBalance);
+			await LedgerService.updateBalanceMicro(fromUserId, newFromMicro);
+			await LedgerService.updateBalanceMicro(toUserId, newToMicro);
 
-			// Record transaction
-			await LedgerService.recordTransaction({
+			// Record transaction (micro-units)
+			await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.TRANSFER,
 				fromUserId,
 				toUserId,
-				amount,
-				balanceAfter: newFromBalance,
+				amount: amountMicro,
+				balanceAfter: newFromMicro,
 				description: description || `Transfer to user ${toUserId}`,
 				status: TransactionStatus.COMPLETED,
 			});
+
+			// Convert back to JUNO for return
+			const newFromBalance = AmountPrecision.fromDbMicro(newFromMicro);
+			const newToBalance = AmountPrecision.fromDbMicro(newToMicro);
 
 			logger.info("Internal transfer completed", {
 				fromUserId,
 				toUserId,
 				amount,
+				amountMicro,
 				newFromBalance,
 				newToBalance,
 			});
@@ -381,41 +429,43 @@ export class LedgerService {
 
 	/**
 	 * Process a fine payment
+	 * @param amount - Amount in JUNO
 	 */
 	static async processFine(
 		userId: number,
-		amount: number,
+		amount: JunoAmount,
 		violationId?: number,
 		description?: string,
-	): Promise<{ success: boolean; newBalance: number; error?: string }> {
+	): Promise<{ success: boolean; newBalance: JunoAmount; error?: string }> {
 		try {
-			// Check balance
-			const currentBalance = await LedgerService.getUserBalance(userId);
-			if (currentBalance < amount) {
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const currentMicro = await LedgerService.getUserBalanceMicro(userId);
+
+			if (currentMicro < amountMicro) {
 				return {
 					success: false,
-					newBalance: currentBalance,
+					newBalance: AmountPrecision.fromDbMicro(currentMicro),
 					error: "Insufficient balance for fine payment",
 				};
 			}
 
-			const newBalance = AmountPrecision.subtract(currentBalance, amount);
+			const newMicro = AmountPrecision.subtractMicro(currentMicro, amountMicro);
 
-			// Update balance
-			await LedgerService.updateBalance(userId, newBalance);
+			await LedgerService.updateBalanceMicro(userId, newMicro);
 
-			// Record transaction
-			await LedgerService.recordTransaction({
+			await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.FINE,
 				fromUserId: userId,
-				amount,
-				balanceAfter: newBalance,
+				amount: amountMicro,
+				balanceAfter: newMicro,
 				description:
 					description ||
 					`Fine payment${violationId ? ` for violation #${violationId}` : ""}`,
 				status: TransactionStatus.COMPLETED,
 				metadata: violationId ? JSON.stringify({ violationId }) : undefined,
 			});
+
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
 			logger.info("Fine processed", {
 				userId,
@@ -437,44 +487,51 @@ export class LedgerService {
 
 	/**
 	 * Process a bail payment
+	 * @param amount - Amount in JUNO
 	 */
 	static async processBail(
 		paidByUserId: number,
 		bailedUserId: number,
-		amount: number,
+		amount: JunoAmount,
 		description?: string,
-	): Promise<{ success: boolean; newBalance: number; error?: string }> {
+	): Promise<{ success: boolean; newBalance: JunoAmount; error?: string }> {
 		try {
-			// Check payer balance
-			const payerBalance = await LedgerService.getUserBalance(paidByUserId);
-			if (payerBalance < amount) {
+			// Convert to micro-units
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const currentMicro =
+				await LedgerService.getUserBalanceMicro(paidByUserId);
+
+			if (currentMicro < amountMicro) {
 				return {
 					success: false,
-					newBalance: payerBalance,
+					newBalance: AmountPrecision.fromDbMicro(currentMicro),
 					error: "Insufficient balance for bail payment",
 				};
 			}
 
-			const newBalance = AmountPrecision.subtract(payerBalance, amount);
+			const newMicro = AmountPrecision.subtractMicro(currentMicro, amountMicro);
 
-			// Update payer balance
-			await LedgerService.updateBalance(paidByUserId, newBalance);
+			// Update payer balance (micro-units)
+			await LedgerService.updateBalanceMicro(paidByUserId, newMicro);
 
-			// Record transaction
-			await LedgerService.recordTransaction({
+			// Record transaction (micro-units)
+			await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.BAIL,
 				fromUserId: paidByUserId,
 				toUserId: bailedUserId, // Track who was bailed
-				amount,
-				balanceAfter: newBalance,
+				amount: amountMicro,
+				balanceAfter: newMicro,
 				description: description || `Bail payment for user ${bailedUserId}`,
 				status: TransactionStatus.COMPLETED,
 			});
+
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
 			logger.info("Bail processed", {
 				paidByUserId,
 				bailedUserId,
 				amount,
+				amountMicro,
 				newBalance,
 			});
 
@@ -496,33 +553,40 @@ export class LedgerService {
 
 	/**
 	 * Process a giveaway/airdrop
+	 * @param amount - Amount in JUNO
 	 */
 	static async processGiveaway(
 		userId: number,
-		amount: number,
+		amount: JunoAmount,
 		description?: string,
-	): Promise<{ success: boolean; newBalance: number }> {
+	): Promise<{ success: boolean; newBalance: JunoAmount }> {
 		try {
 			await LedgerService.ensureUserBalance(userId);
-			const currentBalance = await LedgerService.getUserBalance(userId);
-			const newBalance = AmountPrecision.add(currentBalance, amount);
 
-			// Update balance
-			await LedgerService.updateBalance(userId, newBalance);
+			// Convert to micro-units
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			const currentMicro = await LedgerService.getUserBalanceMicro(userId);
+			const newMicro = AmountPrecision.addMicro(currentMicro, amountMicro);
 
-			// Record transaction
-			await LedgerService.recordTransaction({
+			// Update balance (micro-units)
+			await LedgerService.updateBalanceMicro(userId, newMicro);
+
+			// Record transaction (micro-units)
+			await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.GIVEAWAY,
 				toUserId: userId,
-				amount,
-				balanceAfter: newBalance,
+				amount: amountMicro,
+				balanceAfter: newMicro,
 				description: description || "Giveaway/Airdrop",
 				status: TransactionStatus.COMPLETED,
 			});
 
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
+
 			logger.info("Giveaway processed", {
 				userId,
 				amount,
+				amountMicro,
 				newBalance,
 			});
 
@@ -538,19 +602,31 @@ export class LedgerService {
 
 	/**
 	 * Get transaction history for a user
+	 * Returns amounts in JUNO (converts from micro-units in DB)
+	 * Note: Returns raw DB column names (snake_case) for compatibility
 	 */
 	static async getUserTransactions(
 		userId: number,
 		limit: number = 10,
 		offset: number = 0,
 	): Promise<Transaction[]> {
-		return query<Transaction>(
+		const rows = query<any>(
 			`SELECT * FROM transactions
        WHERE from_user_id = ? OR to_user_id = ?
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
 			[userId, userId, limit, offset],
 		);
+
+		// Convert micro-units to JUNO, keep snake_case column names
+		return rows.map((row) => ({
+			...row,
+			amount: AmountPrecision.fromDbMicro(row.amount),
+			balance_after:
+				row.balance_after !== null
+					? AmountPrecision.fromDbMicro(row.balance_after)
+					: null,
+		}));
 	}
 
 	/**
@@ -595,12 +671,14 @@ export class LedgerService {
 
 	/**
 	 * Get total balance across all users (for reconciliation)
+	 * Returns JUNO amount (converts from micro-units in DB)
 	 */
-	static async getTotalUserBalance(): Promise<number> {
+	static async getTotalUserBalance(): Promise<JunoAmount> {
 		const result = get<{ total: number }>(
 			"SELECT SUM(balance) as total FROM user_balances",
 		);
-		return result?.total || 0;
+		const totalMicro = result?.total || 0;
+		return AmountPrecision.fromDbMicro(totalMicro);
 	}
 
 	/** Get on-chain balance of system wallets */
@@ -700,46 +778,57 @@ export class LedgerService {
 	 * Typically applied to SYSTEM_RESERVE account.
 	 *
 	 * @param userId - Target user ID (usually SYSTEM_RESERVE = -2)
-	 * @param amount - Positive to credit, negative to debit
+	 * @param amount - Positive to credit, negative to debit (in JUNO)
 	 * @param description - Reason for adjustment
 	 */
 	static async processAdjustment(
 		userId: number,
-		amount: number,
+		amount: JunoAmount,
 		description: string,
-	): Promise<{ success: boolean; newBalance: number }> {
+	): Promise<{ success: boolean; newBalance: JunoAmount }> {
 		try {
 			await LedgerService.ensureUserBalance(userId);
-			const currentBalance = await LedgerService.getUserBalance(userId);
-			// Use add for both positive and negative amounts (add handles negative via sanitize)
-			const newBalance =
-				amount >= 0
-					? AmountPrecision.add(currentBalance, amount)
-					: AmountPrecision.subtract(currentBalance, Math.abs(amount));
 
-			// Update balance (can go negative for SYSTEM_RESERVE to represent deficit)
-			await LedgerService.updateBalance(userId, newBalance);
+			// Convert to micro-units (use absolute value, handle sign separately)
+			const absAmountMicro = AmountPrecision.toDbMicro(Math.abs(amount));
+			const currentMicro = await LedgerService.getUserBalanceMicro(userId);
 
-			// Record transaction with special adjustment type
-			await LedgerService.recordTransaction({
+			// Calculate new balance based on sign
+			let newMicro: MicroAmount;
+			if (amount >= 0) {
+				newMicro = AmountPrecision.addMicro(currentMicro, absAmountMicro);
+			} else {
+				// For negative adjustments (debits), allow negative balances for system accounts
+				newMicro = currentMicro - absAmountMicro;
+			}
+
+			// Update balance (micro-units, can go negative for SYSTEM_RESERVE)
+			await LedgerService.updateBalanceMicro(userId, newMicro);
+
+			// Record transaction (micro-units)
+			await LedgerService.recordTransactionMicro({
 				transactionType:
 					amount >= 0 ? TransactionType.GIVEAWAY : TransactionType.FINE,
 				fromUserId: amount < 0 ? userId : undefined,
 				toUserId: amount >= 0 ? userId : undefined,
-				amount: Math.abs(amount),
-				balanceAfter: newBalance,
+				amount: absAmountMicro,
+				balanceAfter: newMicro,
 				description,
 				status: TransactionStatus.COMPLETED,
 				metadata: JSON.stringify({
 					type: "reconciliation_adjustment",
 					direction: amount >= 0 ? "credit" : "debit",
-					previousBalance: currentBalance,
+					previousBalanceMicro: currentMicro,
 				}),
 			});
+
+			const currentBalance = AmountPrecision.fromDbMicro(currentMicro);
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
 			logger.info("Balance adjustment processed", {
 				userId,
 				amount,
+				absAmountMicro,
 				previousBalance: currentBalance,
 				newBalance,
 				description,

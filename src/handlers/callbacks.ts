@@ -27,13 +27,22 @@ interface Giveaway {
 	id: number;
 	created_by: number;
 	funded_by: number;
-	total_amount: number;
-	amount_per_slot: number;
+	total_amount: number; // Stored as micro-units in DB
+	amount_per_slot: number; // Stored as micro-units in DB
 	total_slots: number;
 	claimed_slots: number;
 	chat_id: number;
 	message_id: number | null;
 	status: "active" | "completed" | "cancelled";
+}
+
+/** Convert giveaway DB row (micro-units) to JUNO amounts */
+function giveawayFromDb(row: Giveaway): Giveaway {
+	return {
+		...row,
+		total_amount: AmountPrecision.fromDbMicro(row.total_amount),
+		amount_per_slot: AmountPrecision.fromDbMicro(row.amount_per_slot),
+	};
 }
 
 // Store for tracking multi-step interactions
@@ -690,10 +699,20 @@ async function handleGiveawayCreateCallback(
 		}
 
 		// STEP 2: Create giveaway record FIRST to get the ID
+		// Store amounts in micro-units (integer) for exact precision
+		const totalAmountMicro = AmountPrecision.toDbMicro(totalAmount);
+		const amountPerSlotMicro = AmountPrecision.toDbMicro(amountPerSlot);
 		const result = execute(
 			`INSERT INTO giveaways (created_by, funded_by, total_amount, amount_per_slot, total_slots, claimed_slots, chat_id, status)
 			 VALUES (?, ?, ?, ?, ?, 0, ?, 'active')`,
-			[userId, fundedBy, totalAmount, amountPerSlot, totalSlots, chatId],
+			[
+				userId,
+				fundedBy,
+				totalAmountMicro,
+				amountPerSlotMicro,
+				totalSlots,
+				chatId,
+			],
 		);
 		const giveawayId = result.lastInsertRowid as number;
 
@@ -791,16 +810,17 @@ async function handleGiveawayClaimCallback(
 		return;
 	}
 
-	// Fetch giveaway
-	const giveaway = get<Giveaway>(
+	// Fetch giveaway (amounts stored as micro-units, convert to JUNO)
+	const giveawayRow = get<Giveaway>(
 		"SELECT * FROM giveaways WHERE id = ? AND status = 'active'",
 		[giveawayId],
 	);
 
-	if (!giveaway) {
+	if (!giveawayRow) {
 		await ctx.answerCbQuery("This giveaway has ended.");
 		return;
 	}
+	const giveaway = giveawayFromDb(giveawayRow);
 
 	// Check if user already claimed
 	const existingClaim = get<{ id: number }>(
@@ -839,10 +859,13 @@ async function handleGiveawayClaimCallback(
 			return;
 		}
 
-		// Record claim
+		// Record claim (store amount in micro-units)
+		const claimAmountMicro = AmountPrecision.toDbMicro(
+			giveaway.amount_per_slot,
+		);
 		execute(
 			"INSERT INTO giveaway_claims (giveaway_id, user_id, amount) VALUES (?, ?, ?)",
-			[giveawayId, userId, giveaway.amount_per_slot],
+			[giveawayId, userId, claimAmountMicro],
 		);
 
 		// Update claimed count

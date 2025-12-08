@@ -14,6 +14,7 @@
 
 import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 
 /**
  * Permission level type
@@ -310,12 +311,14 @@ export class SharedAccountService {
 			);
 		}
 
-		// Grant permission
+		// Grant permission (convert spendLimit to micro-units for DB storage)
+		const spendLimitMicro =
+			spendLimit !== undefined ? AmountPrecision.toDbMicro(spendLimit) : null;
 		execute(
 			`INSERT OR REPLACE INTO shared_account_permissions
        (shared_account_id, user_id, permission_level, spend_limit, granted_by)
        VALUES (?, ?, ?, ?, ?)`,
-			[accountId, userId, level, spendLimit || null, grantedBy],
+			[accountId, userId, level, spendLimitMicro, grantedBy],
 		);
 
 		StructuredLogger.logUserAction("Permission granted", {
@@ -440,12 +443,14 @@ export class SharedAccountService {
 			);
 		}
 
-		// Update permission
+		// Update permission (convert spendLimit to micro-units for DB storage)
+		const spendLimitMicro =
+			spendLimit !== undefined ? AmountPrecision.toDbMicro(spendLimit) : null;
 		execute(
 			`UPDATE shared_account_permissions
        SET permission_level = ?, spend_limit = ?
        WHERE shared_account_id = ? AND user_id = ? AND revoked = 0`,
-			[level, spendLimit || null, accountId, userId],
+			[level, spendLimitMicro, accountId, userId],
 		);
 
 		StructuredLogger.logUserAction("Permission updated", {
@@ -487,12 +492,18 @@ export class SharedAccountService {
 
 		if (!permission) return null;
 
+		// spend_limit stored in micro-units, convert to JUNO
+		const spendLimit =
+			permission.spend_limit !== null
+				? AmountPrecision.fromDbMicro(permission.spend_limit)
+				: null;
+
 		return {
 			id: permission.id,
 			sharedAccountId: permission.shared_account_id,
 			userId: permission.user_id,
 			permissionLevel: permission.permission_level,
-			spendLimit: permission.spend_limit,
+			spendLimit,
 			grantedBy: permission.granted_by,
 			grantedAt: permission.granted_at,
 			revoked: permission.revoked,
@@ -586,7 +597,10 @@ export class SharedAccountService {
 			sharedAccountId: p.shared_account_id,
 			userId: p.user_id,
 			permissionLevel: p.permission_level,
-			spendLimit: p.spend_limit,
+			spendLimit:
+				p.spend_limit !== null
+					? AmountPrecision.fromDbMicro(p.spend_limit)
+					: null,
 			grantedBy: p.granted_by,
 			grantedAt: p.granted_at,
 			revoked: p.revoked,
@@ -616,7 +630,10 @@ export class SharedAccountService {
 			sharedAccountId: p.shared_account_id,
 			userId: p.user_id,
 			permissionLevel: p.permission_level,
-			spendLimit: p.spend_limit,
+			spendLimit:
+				p.spend_limit !== null
+					? AmountPrecision.fromDbMicro(p.spend_limit)
+					: null,
 			grantedBy: p.granted_by,
 			grantedAt: p.granted_at,
 			revoked: p.revoked,

@@ -6,6 +6,7 @@ import { vi, Mock } from 'vitest';
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { existsSync, unlinkSync, mkdirSync } from 'fs';
+import { AmountPrecision } from '../../src/utils/precision';
 
 let testDb: Database.Database | null = null;
 let testDbPath: string | null = null;
@@ -332,36 +333,40 @@ export function createTestUsers(): void {
 
 /**
  * Add balance for test user
+ * @param amount - Amount in JUNO (will be converted to micro-units for DB storage)
  */
 export function addTestBalance(userId: number, amount: number): void {
   const db = getTestDatabase();
 
-  // Get current balance
+  // Convert to micro-units for DB storage
+  const amountMicro = AmountPrecision.toDbMicro(amount);
+
+  // Get current balance (stored as micro-units)
   const result = db.prepare(`
     SELECT balance FROM user_balances WHERE user_id = ?
   `).get(userId) as { balance: number } | undefined;
 
-  const currentBalance = result?.balance || 0;
-  const newBalance = currentBalance + amount;
+  const currentBalanceMicro = result?.balance || 0;
+  const newBalanceMicro = currentBalanceMicro + amountMicro;
 
-  // Upsert balance
+  // Upsert balance (micro-units)
   db.prepare(`
     INSERT INTO user_balances (user_id, balance)
     VALUES (?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       balance = ?,
       last_updated = strftime('%s', 'now')
-  `).run(userId, newBalance, newBalance);
+  `).run(userId, newBalanceMicro, newBalanceMicro);
 
-  // Add transaction entry
+  // Add transaction entry (micro-units)
   db.prepare(`
     INSERT INTO transactions (transaction_type, to_user_id, amount, balance_after, description, status)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run('giveaway', userId, amount, newBalance, 'Test balance addition', 'completed');
+  `).run('giveaway', userId, amountMicro, newBalanceMicro, 'Test balance addition', 'completed');
 }
 
 /**
- * Get user balance
+ * Get user balance (returns JUNO, converts from micro-units in DB)
  */
 export function getTestBalance(userId: number): number {
   const db = getTestDatabase();
@@ -369,7 +374,8 @@ export function getTestBalance(userId: number): number {
     SELECT balance FROM user_balances WHERE user_id = ?
   `).get(userId) as { balance: number } | undefined;
 
-  return result?.balance || 0;
+  // Convert from micro-units to JUNO
+  return AmountPrecision.fromDbMicro(result?.balance || 0);
 }
 
 /**
