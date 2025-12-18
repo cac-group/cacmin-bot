@@ -283,7 +283,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		parts.push(`Auto-Releases: ${totalAutoReleases}\n`);
 		parts.push(`Manual Releases: ${totalManualReleases}\n\n`);
 		parts.push(
-			`${italic("Use /jailstats <username> to view a specific user's jail history")}`,
+			"Use /jailstats <username> to view a specific user's jail history",
 		);
 
 		const msg = await ctx.reply(fmt(parts));
