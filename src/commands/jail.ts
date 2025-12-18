@@ -121,8 +121,9 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const userIdentifier = args?.[0];
 
 		if (userIdentifier) {
-			// Show stats for specific user
-			const targetUserId = resolveUserId(userIdentifier);
+			try {
+				// Show stats for specific user
+				const targetUserId = resolveUserId(userIdentifier);
 			if (!targetUserId) {
 				const msg = await ctx.reply(
 					fmt`User not found. Please use a valid @username or userId.`,
@@ -213,6 +214,18 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			const msg = await ctx.reply(fmt(parts));
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
+			} catch (error) {
+				logger.error("jailstats user lookup failed", {
+					userIdentifier,
+					error: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+				});
+				const msg = await ctx.reply(
+					fmt`Error looking up user stats. Please try again.`,
+				);
+				autoDeleteInGroup(ctx, msg.message_id);
+				return;
+			}
 		}
 
 		// Show global statistics (original behavior)
