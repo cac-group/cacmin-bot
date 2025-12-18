@@ -121,7 +121,21 @@ export class JailService {
 	 */
 	static getUserJailEvents(userId: number, limit: number = 10): JailEvent[] {
 		return query<JailEvent>(
-			"SELECT * FROM jail_events WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+			`SELECT
+				id,
+				user_id AS userId,
+				event_type AS eventType,
+				admin_id AS adminId,
+				duration_minutes AS durationMinutes,
+				bail_amount AS bailAmount,
+				paid_by_user_id AS paidByUserId,
+				payment_tx AS paymentTx,
+				timestamp,
+				metadata
+			FROM jail_events
+			WHERE user_id = ?
+			ORDER BY timestamp DESC
+			LIMIT ?`,
 			[userId, limit],
 		);
 	}
@@ -134,7 +148,20 @@ export class JailService {
 	 */
 	static getAllJailEvents(limit: number = 100): JailEvent[] {
 		return query<JailEvent>(
-			"SELECT * FROM jail_events ORDER BY timestamp DESC LIMIT ?",
+			`SELECT
+				id,
+				user_id AS userId,
+				event_type AS eventType,
+				admin_id AS adminId,
+				duration_minutes AS durationMinutes,
+				bail_amount AS bailAmount,
+				paid_by_user_id AS paidByUserId,
+				payment_tx AS paymentTx,
+				timestamp,
+				metadata
+			FROM jail_events
+			ORDER BY timestamp DESC
+			LIMIT ?`,
 			[limit],
 		);
 	}

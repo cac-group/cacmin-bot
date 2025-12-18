@@ -865,7 +865,7 @@ describe('Database Services - Comprehensive Tests', () => {
 
         const events = JailService.getUserJailEvents(123456) as any[];
         expect(events).toHaveLength(3);
-        expect(events[0].event_type).toBe('jailed'); // Most recent
+        expect(events[0].eventType).toBe('jailed'); // Most recent
       });
 
       test('respects limit parameter', () => {
@@ -889,7 +889,7 @@ describe('Database Services - Comprehensive Tests', () => {
 
         const events = JailService.getUserJailEvents(123456) as any[];
         expect(events).toHaveLength(1);
-        expect(events[0].user_id).toBe(123456);
+        expect(events[0].userId).toBe(123456);
       });
     });
 
@@ -921,8 +921,8 @@ describe('Database Services - Comprehensive Tests', () => {
         JailService.logJailEvent(111111, 'jailed', 999999);
 
         const events = JailService.getAllJailEvents() as any[];
-        expect(events[0].user_id).toBe(111111); // Most recent
-        expect(events[1].user_id).toBe(123456);
+        expect(events[0].userId).toBe(111111); // Most recent
+        expect(events[1].userId).toBe(123456);
       });
     });
 
