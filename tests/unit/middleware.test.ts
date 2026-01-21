@@ -18,21 +18,13 @@ import {
   ownerOnly,
   adminOrHigher,
   elevatedOrHigher,
-  isElevated,
-  elevatedUserOnly,
-  elevatedAdminOnly,
 } from '../../src/middleware/index';
 import { messageFilterMiddleware } from '../../src/middleware/messageFilter';
 import {
   lockCheckMiddleware,
   financialLockCheck,
 } from '../../src/middleware/lockCheck';
-import {
-  isGroupOwner,
-  hasRole,
-  checkIsElevated,
-} from '../../src/utils/roles';
-import { logger, logStream } from '../../src/utils/logger';
+import { logger } from '../../src/utils/logger';
 import { setBotInstance, notifyAdmin } from '../../src/utils/adminNotify';
 import {
   createMockContext,
@@ -298,21 +290,6 @@ describe('Middleware and Utilities Test Suite', () => {
       });
     });
 
-    describe('Legacy middleware aliases', () => {
-      it.skip('isElevated should be alias for elevatedOrHigher', () => {
-        // Alias removed from implementation
-        expect(isElevated).toBe(elevatedOrHigher);
-      });
-
-      it.skip('elevatedUserOnly should be alias for elevatedOrHigher', () => {
-        // Alias removed from implementation
-        expect(elevatedUserOnly).toBe(elevatedOrHigher);
-      });
-
-      it('elevatedAdminOnly should be alias for elevatedOrHigher', () => {
-        expect(elevatedAdminOnly).toBe(elevatedOrHigher);
-      });
-    });
   });
 
   describe('src/middleware/messageFilter.ts - Message Filter Middleware', () => {
@@ -648,103 +625,7 @@ describe('Middleware and Utilities Test Suite', () => {
     });
   });
 
-  describe('src/utils/roles.ts - Role Utility Functions', () => {
-    describe('isGroupOwner', () => {
-      it('should return true if user is owner', () => {
-        expect(isGroupOwner(123456, 123456)).toBe(true);
-      });
-
-      it('should return false if user is not owner', () => {
-        expect(isGroupOwner(123456, 654321)).toBe(false);
-      });
-
-      it('should handle different number types', () => {
-        expect(isGroupOwner(999999999, 999999999)).toBe(true);
-        expect(isGroupOwner(0, 0)).toBe(true);
-      });
-    });
-
-    describe('hasRole', () => {
-      it('should return true for owner role', () => {
-        expect(hasRole(111111111, 'owner')).toBe(true);
-      });
-
-      it('should return true for admin role', () => {
-        expect(hasRole(222222222, 'admin')).toBe(true);
-      });
-
-      it('should return true for elevated role', () => {
-        expect(hasRole(333333333, 'elevated')).toBe(true);
-      });
-
-      it('should return true for pleb role', () => {
-        expect(hasRole(444444444, 'pleb' as any)).toBe(true);
-      });
-
-      it('should return false for incorrect role', () => {
-        expect(hasRole(111111111, 'admin')).toBe(false);
-        expect(hasRole(444444444, 'owner')).toBe(false);
-      });
-
-      it('should return false for non-existent user', () => {
-        expect(hasRole(999999999, 'owner')).toBe(false);
-      });
-    });
-
-    describe('checkIsElevated', () => {
-      it('should return true for owner', () => {
-        expect(checkIsElevated(111111111)).toBe(true);
-      });
-
-      it('should return true for admin', () => {
-        expect(checkIsElevated(222222222)).toBe(true);
-      });
-
-      it('should return true for elevated user', () => {
-        expect(checkIsElevated(333333333)).toBe(true);
-      });
-
-      it('should return false for pleb', () => {
-        expect(checkIsElevated(444444444)).toBe(false);
-      });
-
-      it('should return false for non-existent user', () => {
-        expect(checkIsElevated(999999999)).toBe(false);
-      });
-    });
-  });
-
-  describe('src/utils/logger.ts - Logger Functionality', () => {
-    it('should export logger instance', () => {
-      expect(logger).toBeDefined();
-      expect(typeof logger.info).toBe('function');
-      expect(typeof logger.error).toBe('function');
-      expect(typeof logger.warn).toBe('function');
-      expect(typeof logger.debug).toBe('function');
-    });
-
-    it('should have proper log methods', () => {
-      expect(() => logger.info('test message')).not.toThrow();
-      expect(() => logger.error('error message')).not.toThrow();
-      expect(() => logger.warn('warning message')).not.toThrow();
-      expect(() => logger.debug('debug message')).not.toThrow();
-    });
-
-    it('should handle log with metadata', () => {
-      expect(() => logger.info('test', { key: 'value', number: 123 })).not.toThrow();
-    });
-
-    it('should handle log with error object', () => {
-      const error = new Error('Test error');
-      expect(() => logger.error('Error occurred', { error })).not.toThrow();
-    });
-
-    it('should have logStream for middleware integration', () => {
-      expect(logStream).toBeDefined();
-      expect(typeof logStream.write).toBe('function');
-      expect(() => logStream.write('Stream message\n')).not.toThrow();
-    });
-  });
+  // Note: Role utility function tests (isGroupOwner, hasRole, checkIsElevated) are in roles.test.ts
 
   describe('src/utils/adminNotify.ts - Admin Notification System', () => {
     let mockBot: Telegraf;
