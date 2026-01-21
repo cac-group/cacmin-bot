@@ -7,7 +7,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
-import { bold, code, fmt, italic } from "telegraf/format";
+import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { execute, get } from "../database";
 import { elevatedOrHigher } from "../middleware/index";
@@ -124,96 +124,98 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			try {
 				// Show stats for specific user
 				const targetUserId = resolveUserId(userIdentifier);
-			if (!targetUserId) {
-				const msg = await ctx.reply(
-					fmt`User not found. Please use a valid @username or userId.`,
-				);
-				autoDeleteInGroup(ctx, msg.message_id);
-				return;
-			}
-
-			const user = get<User>("SELECT * FROM users WHERE id = ?", [
-				targetUserId,
-			]);
-			if (!user) {
-				const msg = await ctx.reply(fmt`User not found in database.`);
-				autoDeleteInGroup(ctx, msg.message_id);
-				return;
-			}
-
-			const userDisplay = formatUserIdDisplay(targetUserId);
-			const parts = [bold(`Jail Status for ${userDisplay}`), "\n\n"];
-
-			// Current jail status
-			if (user.muted_until && user.muted_until > now) {
-				const timeRemaining = user.muted_until - now;
-				const bailAmount = await JailService.calculateBailAmount(
-					Math.ceil(timeRemaining / 60),
-				);
-
-				parts.push(bold("Currently Jailed:"));
-				parts.push(" Yes\n");
-				parts.push(`Time Remaining: ${formatTimeRemaining(timeRemaining)}\n`);
-				parts.push(`Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`);
-				parts.push(
-					`Jailed Until: ${new Date(user.muted_until * 1000).toLocaleString()}\n\n`,
-				);
-			} else {
-				parts.push(bold("Currently Jailed:"));
-				parts.push(" No\n\n");
-			}
-
-			// Jail history for this user
-			const jailEvents = JailService.getUserJailEvents(targetUserId, 5);
-			if (jailEvents.length > 0) {
-				parts.push(bold("Recent Jail History:"));
-				parts.push("\n");
-				for (const event of jailEvents) {
-					const eventDate = new Date(
-						(event.timestamp || 0) * 1000,
-					).toLocaleString();
-					const eventType = event.eventType.replace("_", " ");
-
-					parts.push(`- ${eventType}`);
-					if (event.durationMinutes) {
-						parts.push(` (${event.durationMinutes}min)`);
-					}
-					if (event.bailAmount && event.bailAmount > 0) {
-						parts.push(` - ${escapeNumber(event.bailAmount, 2)} JUNO`);
-					}
-					parts.push(`\n  ${eventDate}\n`);
+				if (!targetUserId) {
+					const msg = await ctx.reply(
+						fmt`User not found. Please use a valid @username or userId.`,
+					);
+					autoDeleteInGroup(ctx, msg.message_id);
+					return;
 				}
+
+				const user = get<User>("SELECT * FROM users WHERE id = ?", [
+					targetUserId,
+				]);
+				if (!user) {
+					const msg = await ctx.reply(fmt`User not found in database.`);
+					autoDeleteInGroup(ctx, msg.message_id);
+					return;
+				}
+
+				const userDisplay = formatUserIdDisplay(targetUserId);
+				const parts = [bold(`Jail Status for ${userDisplay}`), "\n\n"];
+
+				// Current jail status
+				if (user.muted_until && user.muted_until > now) {
+					const timeRemaining = user.muted_until - now;
+					const bailAmount = await JailService.calculateBailAmount(
+						Math.ceil(timeRemaining / 60),
+					);
+
+					parts.push(bold("Currently Jailed:"));
+					parts.push(" Yes\n");
+					parts.push(`Time Remaining: ${formatTimeRemaining(timeRemaining)}\n`);
+					parts.push(`Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`);
+					parts.push(
+						`Jailed Until: ${new Date(user.muted_until * 1000).toLocaleString()}\n\n`,
+					);
+				} else {
+					parts.push(bold("Currently Jailed:"));
+					parts.push(" No\n\n");
+				}
+
+				// Jail history for this user
+				const jailEvents = JailService.getUserJailEvents(targetUserId, 5);
+				if (jailEvents.length > 0) {
+					parts.push(bold("Recent Jail History:"));
+					parts.push("\n");
+					for (const event of jailEvents) {
+						const eventDate = new Date(
+							(event.timestamp || 0) * 1000,
+						).toLocaleString();
+						const eventType = event.eventType.replace("_", " ");
+
+						parts.push(`- ${eventType}`);
+						if (event.durationMinutes) {
+							parts.push(` (${event.durationMinutes}min)`);
+						}
+						if (event.bailAmount && event.bailAmount > 0) {
+							parts.push(` - ${escapeNumber(event.bailAmount, 2)} JUNO`);
+						}
+						parts.push(`\n  ${eventDate}\n`);
+					}
+					parts.push("\n");
+				}
+
+				// User's jail statistics
+				const totalJails =
+					getRecord<{ count: number }>(
+						"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
+						[targetUserId, "jailed"],
+					)?.count || 0;
+
+				const totalBailsPaid =
+					getRecord<{ count: number }>(
+						"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
+						[targetUserId, "bail_paid"],
+					)?.count || 0;
+
+				const totalBailSpent =
+					getRecord<{ total: number }>(
+						"SELECT SUM(bail_amount) as total FROM jail_events WHERE user_id = ? AND event_type = ?",
+						[targetUserId, "bail_paid"],
+					)?.total || 0;
+
+				parts.push(bold("User Statistics:"));
 				parts.push("\n");
-			}
+				parts.push(`Times Jailed: ${totalJails}\n`);
+				parts.push(`Bails Paid: ${totalBailsPaid}\n`);
+				parts.push(
+					`Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`,
+				);
 
-			// User's jail statistics
-			const totalJails =
-				getRecord<{ count: number }>(
-					"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
-					[targetUserId, "jailed"],
-				)?.count || 0;
-
-			const totalBailsPaid =
-				getRecord<{ count: number }>(
-					"SELECT COUNT(*) as count FROM jail_events WHERE user_id = ? AND event_type = ?",
-					[targetUserId, "bail_paid"],
-				)?.count || 0;
-
-			const totalBailSpent =
-				getRecord<{ total: number }>(
-					"SELECT SUM(bail_amount) as total FROM jail_events WHERE user_id = ? AND event_type = ?",
-					[targetUserId, "bail_paid"],
-				)?.total || 0;
-
-			parts.push(bold("User Statistics:"));
-			parts.push("\n");
-			parts.push(`Times Jailed: ${totalJails}\n`);
-			parts.push(`Bails Paid: ${totalBailsPaid}\n`);
-			parts.push(`Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`);
-
-			const msg = await ctx.reply(fmt(parts));
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
+				const msg = await ctx.reply(fmt(parts));
+				autoDeleteInGroup(ctx, msg.message_id);
+				return;
 			} catch (error) {
 				logger.error("jailstats user lookup failed", {
 					userIdentifier,

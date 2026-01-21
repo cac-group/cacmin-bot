@@ -1,6 +1,6 @@
 import type { Context } from "telegraf";
-import { bold, code, fmt } from "telegraf/format";
 import type { FmtString } from "telegraf/format";
+import { bold, code, fmt } from "telegraf/format";
 import type { Message } from "telegraf/typings/core/types/typegram";
 import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
