@@ -123,7 +123,7 @@ For regex pattern examples: ${code("/regexhelp")}`,
 				restrictedAction && restrictedAction !== "-"
 					? restrictedAction
 					: undefined;
-			if (action && action.startsWith('"') && action.endsWith('"')) {
+			if (action?.startsWith('"') && action.endsWith('"')) {
 				action = action.slice(1, -1);
 			}
 			const metadata: Record<string, any> | undefined = undefined;

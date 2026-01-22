@@ -200,7 +200,9 @@ export class RestrictionService {
 
 		// Send new response, replying to violating message if provided
 		const sentMessage = replyToMessageId
-			? await ctx.reply(message, { reply_parameters: { message_id: replyToMessageId } })
+			? await ctx.reply(message, {
+					reply_parameters: { message_id: replyToMessageId },
+				})
 			: await ctx.reply(message);
 		const chatId = ctx.chat.id;
 
