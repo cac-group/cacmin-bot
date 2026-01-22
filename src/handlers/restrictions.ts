@@ -17,6 +17,7 @@ import {
 import { restrictionTypeKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
+import { resolveUserId } from "../utils/userResolver";
 
 /**
  * Registers all restriction management command handlers with the bot.
@@ -105,7 +106,13 @@ For regex pattern examples: ${code("/regexhelp")}`,
 		}
 
 		try {
-			const targetUserId = parseInt(userId, 10);
+			const targetUserId = resolveUserId(userId);
+
+			if (!targetUserId) {
+				return ctx.reply(
+					fmt`User '${userId}' not found. Use a numeric ID or @username of a known user.`,
+				);
+			}
 
 			// Check if target user is immune to moderation
 			if (isImmuneToModeration(targetUserId)) {
@@ -160,7 +167,7 @@ For regex pattern examples: ${code("/regexhelp")}`,
 
 			StructuredLogger.logSecurityEvent("Restriction added to user", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: targetUserId,
 				operation: "add_restriction",
 				restriction,
 				restrictedAction: action,
@@ -172,14 +179,14 @@ For regex pattern examples: ${code("/regexhelp")}`,
 			});
 
 			await ctx.reply(
-				fmt`Restriction '${restriction}' added for user ${userId}.
+				fmt`Restriction '${restriction}' added for user ${targetUserId}.
 Severity: ${severityLevel}
 Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, ${jailFine.toFixed(1)} JUNO fine)`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userInput: userId,
 				operation: "add_restriction",
 				restriction,
 			});
@@ -202,26 +209,36 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	bot.command("removerestriction", elevatedOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
 
-		const [userId, restriction] = ctx.message?.text.split(" ").slice(1) || [];
-		if (!userId || !restriction) {
-			return ctx.reply("Usage: /removerestriction <userId> <restriction>");
+		const [userIdent, restriction] =
+			ctx.message?.text.split(" ").slice(1) || [];
+		if (!userIdent || !restriction) {
+			return ctx.reply(
+				"Usage: /removerestriction <userId|@username> <restriction>",
+			);
+		}
+
+		const targetUserId = resolveUserId(userIdent);
+		if (!targetUserId) {
+			return ctx.reply(
+				fmt`User '${userIdent}' not found. Use a numeric ID or @username of a known user.`,
+			);
 		}
 
 		try {
-			removeUserRestriction(parseInt(userId, 10), restriction);
+			removeUserRestriction(targetUserId, restriction);
 			StructuredLogger.logSecurityEvent("Restriction removed from user", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: targetUserId,
 				operation: "remove_restriction",
 				restriction,
 			});
 			await ctx.reply(
-				fmt`Restriction '${restriction}' removed for user ${userId}.`,
+				fmt`Restriction '${restriction}' removed for user ${targetUserId}.`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userInput: userIdent,
 				operation: "remove_restriction",
 				restriction,
 			});
@@ -238,21 +255,30 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /listrestrictions <userId>
+	 * Usage: /listrestrictions <userId|@username>
 	 * Example: /listrestrictions 123456
 	 */
 	bot.command("listrestrictions", elevatedOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
 
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
-		if (!userId) {
-			return ctx.reply("Usage: /listrestrictions <userId>");
+		const [userIdent] = ctx.message?.text.split(" ").slice(1) || [];
+		if (!userIdent) {
+			return ctx.reply("Usage: /listrestrictions <userId|@username>");
+		}
+
+		const targetUserId = resolveUserId(userIdent);
+		if (!targetUserId) {
+			return ctx.reply(
+				fmt`User '${userIdent}' not found. Use a numeric ID or @username of a known user.`,
+			);
 		}
 
 		try {
-			const restrictions = getUserRestrictions(parseInt(userId, 10));
+			const restrictions = getUserRestrictions(targetUserId);
 			if (restrictions.length === 0) {
-				return ctx.reply(fmt`No restrictions found for user ${userId}.`);
+				return ctx.reply(
+					fmt`No restrictions found for user ${targetUserId}.`,
+				);
 			}
 
 			const message = restrictions
@@ -271,21 +297,21 @@ ${bold("Expires:")} ${expiresText}`.text;
 				})
 				.join("\n\n━━━━━━━━━━━━━━\n\n");
 			await ctx.reply(
-				fmt`${bold(`Restrictions for user ${userId}:`)}
+				fmt`${bold(`Restrictions for user ${targetUserId}:`)}
 
 ${message}`,
 			);
 
 			StructuredLogger.logUserAction("Restrictions queried", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: targetUserId,
 				operation: "list_restrictions",
 				count: restrictions.length.toString(),
 			});
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userInput: userIdent,
 				operation: "list_restrictions",
 			});
 			await ctx.reply("An error occurred while fetching restrictions.");

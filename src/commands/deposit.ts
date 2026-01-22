@@ -18,6 +18,7 @@ import {
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { resolveUserId } from "../utils/userResolver";
 
 interface ProcessedDeposit {
 	tx_hash: string;
@@ -350,15 +351,17 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 2) {
 			return ctx.reply(
-				fmt`${bold("Usage")}: /claimdeposit <transaction_hash> <user_id>\n\nAssign an unclaimed deposit to a user.`,
+				fmt`${bold("Usage")}: /claimdeposit <transaction_hash> <user_id|@username>\n\nAssign an unclaimed deposit to a user.`,
 			);
 		}
 
 		const txHash = args[0].trim();
-		const targetUserId = parseInt(args[1], 10);
+		const targetUserId = resolveUserId(args[1]);
 
-		if (Number.isNaN(targetUserId)) {
-			return ctx.reply("Invalid user ID");
+		if (!targetUserId) {
+			return ctx.reply(
+				"User not found. Use a numeric ID or @username of a known user.",
+			);
 		}
 
 		try {
