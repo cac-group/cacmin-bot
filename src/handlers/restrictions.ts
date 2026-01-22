@@ -118,10 +118,14 @@ For regex pattern examples: ${code("/regexhelp")}`,
 				restrictedUntil && restrictedUntil !== "-"
 					? parseInt(restrictedUntil, 10)
 					: undefined;
-			const action =
+			// Strip surrounding quotes from action if present (from command parsing)
+			let action =
 				restrictedAction && restrictedAction !== "-"
 					? restrictedAction
 					: undefined;
+			if (action && action.startsWith('"') && action.endsWith('"')) {
+				action = action.slice(1, -1);
+			}
 			const metadata: Record<string, any> | undefined = undefined;
 
 			// Parse severity parameters with defaults
