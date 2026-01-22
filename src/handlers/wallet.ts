@@ -655,7 +655,9 @@ export async function handleWalletStats(ctx: Context): Promise<void> {
 
 		// Delete the loading message
 		try {
-			await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
+			if (ctx.chat) {
+				await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+			}
 		} catch {}
 
 		const msg = await ctx.reply(

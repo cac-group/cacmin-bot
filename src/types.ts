@@ -70,6 +70,8 @@ export interface UserRestriction {
 	violationThreshold: number; // Violations before auto-jail
 	autoJailDuration: number; // Auto-jail duration in minutes (default 2880 = 2 days)
 	autoJailFine: number; // JUNO fine amount to unjail
+	fineAmount?: number; // Optional fine for this specific restriction
+	customMessage?: string; // Optional custom violation message
 	createdAt: number;
 }
 

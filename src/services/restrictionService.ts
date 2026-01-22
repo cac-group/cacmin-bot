@@ -1,4 +1,5 @@
 import type { Context } from "telegraf";
+import type { FmtString } from "telegraf/format";
 import { bold, code, fmt } from "telegraf/format";
 import type { Message } from "telegraf/typings/core/types/typegram";
 import { execute, query } from "../database";
@@ -7,6 +8,21 @@ import { logger } from "../utils/logger";
 import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
 import { JailService } from "./jailService";
 import { createViolation } from "./violationService";
+
+/** Auto-delete delay for violation responses in milliseconds */
+const VIOLATION_RESPONSE_AUTO_DELETE_MS = 120_000;
+
+/**
+ * Tracks pending violation response messages for auto-deletion.
+ * Key format: `${chatId}:${userId}:${restriction}`
+ */
+interface TrackedResponse {
+	messageId: number;
+	chatId: number;
+	timeoutId: ReturnType<typeof setTimeout>;
+}
+
+const pendingViolationResponses = new Map<string, TrackedResponse>();
 
 /**
  * Restriction check handler type
@@ -144,6 +160,58 @@ export class RestrictionService {
 	}
 
 	/**
+	 * Send a violation response with auto-delete tracking.
+	 * Deletes any previous similar response to the same user before sending.
+	 * Auto-deletes after 120 seconds or when replaced by a new similar response.
+	 *
+	 * @param ctx - Telegraf context
+	 * @param restriction - The restriction type for tracking key
+	 * @param message - The formatted message to send
+	 */
+	private static async sendTrackedViolationResponse(
+		ctx: Context,
+		restriction: string,
+		message: FmtString | string,
+	): Promise<void> {
+		if (!ctx.from || !ctx.chat) return;
+
+		const trackingKey = `${ctx.chat.id}:${ctx.from.id}:${restriction}`;
+
+		// Delete previous response if exists
+		const existing = pendingViolationResponses.get(trackingKey);
+		if (existing) {
+			clearTimeout(existing.timeoutId);
+			try {
+				await ctx.telegram.deleteMessage(existing.chatId, existing.messageId);
+			} catch {
+				// Message may already be deleted, ignore
+			}
+			pendingViolationResponses.delete(trackingKey);
+		}
+
+		// Send new response
+		const sentMessage = await ctx.reply(message);
+		const chatId = ctx.chat.id;
+
+		// Set up auto-delete timer
+		const timeoutId = setTimeout(async () => {
+			try {
+				await ctx.telegram.deleteMessage(chatId, sentMessage.message_id);
+			} catch {
+				// Message may already be deleted, ignore
+			}
+			pendingViolationResponses.delete(trackingKey);
+		}, VIOLATION_RESPONSE_AUTO_DELETE_MS);
+
+		// Track the response
+		pendingViolationResponses.set(trackingKey, {
+			messageId: sentMessage.message_id,
+			chatId: ctx.chat.id,
+			timeoutId,
+		});
+	}
+
+	/**
 	 * Handle restriction violation with severity-based penalties
 	 */
 	private static async handleViolation(
@@ -202,18 +270,40 @@ export class RestrictionService {
 					await RestrictionService.applyTemporaryMute(ctx, userId);
 					break;
 				default: {
-					// Just delete + warn (already done above)
-					const warningText =
-						recentViolations.length >= threshold - 1
-							? "WARNING: One more violation will result in automatic 2-day jail with a 10 JUNO fine!\n\n"
-							: "";
-					await ctx.reply(
-						fmt`Your message was deleted for violating restriction: ${restriction.restriction}
+					// Use custom message if available, otherwise default
+					const customMsg = userRestriction.customMessage;
+					const fineAmt = userRestriction.fineAmount || 0;
+
+					if (customMsg) {
+						// Custom message mode with optional fine
+						const fineText =
+							fineAmt > 0
+								? `\n\n${bold("To remove this restriction:")} Pay ${fineAmt} JUNO using ${code("/payfine")}`
+								: "";
+						await RestrictionService.sendTrackedViolationResponse(
+							ctx,
+							restriction.restriction,
+							fmt`${customMsg}${fineText}`,
+						);
+					} else {
+						// Default warning message
+						const warningText =
+							recentViolations.length >= threshold - 1
+								? "WARNING: One more violation will result in automatic 2-day jail with a 10 JUNO fine!\n\n"
+								: "";
+						const fineText =
+							fineAmt > 0
+								? `\n\nTo remove this restriction, pay ${fineAmt} JUNO: ${code("/payfine")}`
+								: "";
+						await RestrictionService.sendTrackedViolationResponse(
+							ctx,
+							restriction.restriction,
+							fmt`Your message was deleted for violating restriction: ${restriction.restriction}
 
 Violations in last hour: ${recentViolations.length}/${threshold}
-${warningText}Use /violations to check your status.
-If you get jailed, use /paybail to pay your fine and get unjailed immediately.`,
-					);
+${warningText}Use /violations to check your status.${fineText}`,
+						);
+					}
 					break;
 				}
 			}
