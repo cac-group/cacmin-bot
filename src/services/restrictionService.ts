@@ -257,12 +257,9 @@ export class RestrictionService {
 			// Check if auto-jail threshold reached
 			const threshold = userRestriction.violationThreshold || 5;
 
-			logger.debug("Restriction violation", {
-				userId,
-				type: restriction.restriction,
-				count: recentViolations.length,
-				threshold,
-			});
+			logger.info(
+				`Message deleted (user: ${userId}, reason: ${restriction.restriction}, violations: ${recentViolations.length}/${threshold})`,
+			);
 			if (recentViolations.length >= threshold) {
 				await ctx.deleteMessage();
 				await RestrictionService.applyAutoJail(ctx, userRestriction);
