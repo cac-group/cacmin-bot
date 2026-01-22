@@ -254,6 +254,8 @@ export const initDb = (): void => {
       violation_threshold INTEGER DEFAULT 5,
       auto_jail_duration INTEGER DEFAULT 2880,
       auto_jail_fine REAL DEFAULT 10.0,
+      fine_amount REAL DEFAULT 0,
+      custom_message TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -285,6 +287,18 @@ export const initDb = (): void => {
 		db.exec(
 			`ALTER TABLE user_restrictions ADD COLUMN auto_jail_fine REAL DEFAULT 10.0`,
 		);
+	} catch (_e) {
+		// Column already exists, ignore
+	}
+	try {
+		db.exec(
+			`ALTER TABLE user_restrictions ADD COLUMN fine_amount REAL DEFAULT 0`,
+		);
+	} catch (_e) {
+		// Column already exists, ignore
+	}
+	try {
+		db.exec(`ALTER TABLE user_restrictions ADD COLUMN custom_message TEXT`);
 	} catch (_e) {
 		// Column already exists, ignore
 	}
