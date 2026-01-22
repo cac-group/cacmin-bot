@@ -43,7 +43,11 @@ export const registerActionHandlers = (bot: Telegraf<Context>) => {
 	 */
 	bot.command("viewactions", async (ctx) => {
 		try {
-			const actions = query<GlobalAction>("SELECT * FROM global_restrictions");
+			const actions = query<GlobalAction>(
+				`SELECT id, restriction, restricted_action AS restrictedAction, metadata,
+				 restricted_until AS restrictedUntil, created_at AS createdAt
+				 FROM global_restrictions`,
+			);
 			if (actions.length === 0) {
 				return ctx.reply("No restricted actions found.");
 			}

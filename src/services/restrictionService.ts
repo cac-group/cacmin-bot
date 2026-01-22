@@ -77,8 +77,13 @@ export class RestrictionService {
 		const now = Math.floor(Date.now() / 1000);
 
 		// Get user restrictions - ALWAYS apply these
+		// Map snake_case DB columns to camelCase TypeScript properties
 		const userRestrictions = query<UserRestriction>(
-			"SELECT * FROM user_restrictions WHERE user_id = ? AND (restricted_until IS NULL OR restricted_until > ?)",
+			`SELECT id, user_id AS userId, restriction, restricted_action AS restrictedAction,
+			 metadata, restricted_until AS restrictedUntil, severity, violation_threshold AS violationThreshold,
+			 auto_jail_duration AS autoJailDuration, auto_jail_fine AS autoJailFine,
+			 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
+			 FROM user_restrictions WHERE user_id = ? AND (restricted_until IS NULL OR restricted_until > ?)`,
 			[userId, now],
 		);
 
@@ -88,7 +93,9 @@ export class RestrictionService {
 
 		if (!isElevated) {
 			globalRestrictions = query<GlobalAction>(
-				"SELECT * FROM global_restrictions WHERE restricted_until IS NULL OR restricted_until > ?",
+				`SELECT id, restriction, restricted_action AS restrictedAction, metadata,
+				 restricted_until AS restrictedUntil, created_at AS createdAt
+				 FROM global_restrictions WHERE restricted_until IS NULL OR restricted_until > ?`,
 				[now],
 			);
 		}
