@@ -254,15 +254,15 @@ export class RestrictionService {
 				60, // Last 60 minutes
 			);
 
-			logger.info("Restriction violation handled", {
-				userId,
-				restriction: restriction.restriction,
-				recentViolations: recentViolations.length,
-				severity: userRestriction.severity || "delete",
-			});
-
 			// Check if auto-jail threshold reached
 			const threshold = userRestriction.violationThreshold || 5;
+
+			logger.debug("Restriction violation", {
+				userId,
+				type: restriction.restriction,
+				count: recentViolations.length,
+				threshold,
+			});
 			if (recentViolations.length >= threshold) {
 				await ctx.deleteMessage();
 				await RestrictionService.applyAutoJail(ctx, userRestriction);
