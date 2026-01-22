@@ -174,11 +174,13 @@ export class RestrictionService {
 	 * @param ctx - Telegraf context
 	 * @param restriction - The restriction type for tracking key
 	 * @param message - The formatted message to send
+	 * @param replyToMessageId - Optional message ID to reply to (flags the violator)
 	 */
 	private static async sendTrackedViolationResponse(
 		ctx: Context,
 		restriction: string,
 		message: FmtString | string,
+		replyToMessageId?: number,
 	): Promise<void> {
 		if (!ctx.from || !ctx.chat) return;
 
@@ -196,8 +198,10 @@ export class RestrictionService {
 			pendingViolationResponses.delete(trackingKey);
 		}
 
-		// Send new response
-		const sentMessage = await ctx.reply(message);
+		// Send new response, replying to violating message if provided
+		const sentMessage = replyToMessageId
+			? await ctx.reply(message, { reply_parameters: { message_id: replyToMessageId } })
+			: await ctx.reply(message);
 		const chatId = ctx.chat.id;
 
 		// Set up auto-delete timer
@@ -219,7 +223,8 @@ export class RestrictionService {
 	}
 
 	/**
-	 * Handle restriction violation with severity-based penalties
+	 * Handle restriction violation with severity-based penalties.
+	 * Replies to the violating message first (to flag the user), then deletes it.
 	 */
 	private static async handleViolation(
 		ctx: Context,
@@ -230,12 +235,10 @@ export class RestrictionService {
 		try {
 			const userId = ctx.from.id;
 			const userRestriction = restriction as UserRestriction;
-
-			// Delete the message
-			await ctx.deleteMessage();
+			const msg = ctx.message as any;
+			const violatingMessageId = msg?.message_id;
 
 			// Create violation record
-			const msg = ctx.message as any;
 			await createViolation(
 				userId,
 				restriction.restriction,
@@ -259,6 +262,7 @@ export class RestrictionService {
 			// Check if auto-jail threshold reached
 			const threshold = userRestriction.violationThreshold || 5;
 			if (recentViolations.length >= threshold) {
+				await ctx.deleteMessage();
 				await RestrictionService.applyAutoJail(ctx, userRestriction);
 				return;
 			}
@@ -269,11 +273,13 @@ export class RestrictionService {
 			switch (severity) {
 				case "jail":
 					// Immediate jail on any violation
+					await ctx.deleteMessage();
 					await RestrictionService.applyImmediateJail(ctx, userRestriction);
 					break;
 
 				case "mute":
 					// Temporary mute (30 minutes)
+					await ctx.deleteMessage();
 					await RestrictionService.applyTemporaryMute(ctx, userId);
 					break;
 				default: {
@@ -283,6 +289,7 @@ export class RestrictionService {
 
 					if (customMsg) {
 						// Custom message mode with optional fine
+						// Reply to violating message first (flags the user), then delete it
 						const fineText =
 							fineAmt > 0
 								? `\n\n${bold("To remove this restriction:")} Pay ${fineAmt} JUNO using ${code("/payfine")}`
@@ -291,7 +298,9 @@ export class RestrictionService {
 							ctx,
 							restriction.restriction,
 							fmt`${customMsg}${fineText}`,
+							violatingMessageId,
 						);
+						await ctx.deleteMessage();
 					} else {
 						// Default warning message
 						const warningText =
@@ -309,7 +318,9 @@ export class RestrictionService {
 
 Violations in last hour: ${recentViolations.length}/${threshold}
 ${warningText}Use /violations to check your status.${fineText}`,
+							violatingMessageId,
 						);
+						await ctx.deleteMessage();
 					}
 					break;
 				}
