@@ -30,12 +30,6 @@ export async function createViolation(
 		[Math.floor(Date.now() / 1000), userId],
 	);
 
-	StructuredLogger.logSecurityEvent("Violation created", {
-		userId,
-		operation: "violation_created",
-		amount: fineAmount.toString(),
-	});
-
 	return result.lastInsertRowid as number;
 }
 
