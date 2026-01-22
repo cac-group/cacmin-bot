@@ -159,7 +159,11 @@ export const removeUserRestriction = (
  */
 export const getUserRestrictions = (userId: number): UserRestriction[] => {
 	return query<UserRestriction>(
-		"SELECT * FROM user_restrictions WHERE user_id = ?",
+		`SELECT id, user_id AS userId, restriction, restricted_action AS restrictedAction,
+		 metadata, restricted_until AS restrictedUntil, severity, violation_threshold AS violationThreshold,
+		 auto_jail_duration AS autoJailDuration, auto_jail_fine AS autoJailFine,
+		 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
+		 FROM user_restrictions WHERE user_id = ?`,
 		[userId],
 	);
 };

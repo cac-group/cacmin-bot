@@ -20,6 +20,11 @@ import {
 import type { User, Violation } from "../types";
 import { logger, StructuredLogger } from "../utils/logger";
 
+/** SQL fragment for mapping violation columns to camelCase */
+const VIOLATION_SELECT = `SELECT id, user_id AS userId, rule_id AS ruleId, restriction,
+	message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
+	paid_by_user_id AS paidByUserId, paid_at AS paidAt FROM violations`;
+
 /**
  * Registers all payment-related commands with the bot.
  *
@@ -285,7 +290,7 @@ After payment, send:
 
 		// Get specific violation
 		const violation = get<Violation>(
-			"SELECT * FROM violations WHERE id = ? AND user_id = ?",
+			`${VIOLATION_SELECT} WHERE id = ? AND user_id = ?`,
 			[violationId, userId],
 		);
 
@@ -341,7 +346,7 @@ After payment, send:
 
 		// Get violation
 		const violation = get<Violation>(
-			"SELECT * FROM violations WHERE id = ? AND user_id = ?",
+			`${VIOLATION_SELECT} WHERE id = ? AND user_id = ?`,
 			[violationId, userId],
 		);
 

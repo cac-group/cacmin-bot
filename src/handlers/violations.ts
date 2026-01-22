@@ -49,7 +49,10 @@ export const registerViolationHandlers = (bot: Telegraf<Context>) => {
 
 		try {
 			const violations = query<Violation>(
-				"SELECT * FROM violations WHERE user_id = ?",
+				`SELECT id, user_id AS userId, rule_id AS ruleId, restriction,
+				 message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
+				 paid_by_user_id AS paidByUserId, paid_at AS paidAt
+				 FROM violations WHERE user_id = ?`,
 				[userId],
 			);
 
