@@ -17,6 +17,7 @@ import {
 import { restrictionTypeKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
+import { getRemainingArgs, resolveTargetUser } from "../utils/userResolver";
 
 /**
  * Registers all restriction management command handlers with the bot.
@@ -51,19 +52,9 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	bot.command("addrestriction", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
 		const args = ctx.message?.text.split(" ").slice(1) || [];
-		const [
-			userId,
-			restriction,
-			restrictedAction,
-			restrictedUntil,
-			severity,
-			violationThreshold,
-			autoJailDuration,
-			autoJailFine,
-		] = args;
 
 		// If no arguments, show interactive keyboard
-		if (!userId || !restriction) {
+		if (args.length === 0) {
 			return ctx.reply(
 				fmt`${bold("Add User Restriction")}
 
@@ -87,30 +78,57 @@ ${bold("Severity Levels:")}
 • ${bold("jail")} - Immediate 1-hour jail with 5 JUNO fine
 
 Command format:
-${code("/addrestriction <userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]")}
+${code("/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]")}
 
 ${bold("Examples:")}
-${code("/addrestriction 123456 no_photos")} (delete only)
+${code("/addrestriction @alice no_photos")} (delete only)
 ${code("/addrestriction 123456 no_photos - - mute")} (mute 30min)
-${code("/addrestriction 123456 no_stickers - - delete 3")} (auto-jail after 3 violations)
+${code("/addrestriction @bob no_stickers - - delete 3")} (auto-jail after 3 violations)
 ${code('/addrestriction 123456 regex_block "spam" - jail')} (instant jail)
 
 Auto-escalation: After threshold violations (default 5) within 60 minutes, user gets auto-jailed for jailDuration (default 2880 min = 2 days) with jailFine (default 10 JUNO).
 
-For regex pattern examples: ${code("/regexhelp")}`,
+For regex pattern examples: ${code("/regexhelp")}
+
+You can also reply to a user's message: ${code("/addrestriction <type> [options...]")}`,
 				{
 					reply_markup: restrictionTypeKeyboard,
 				},
 			);
 		}
 
-		try {
-			const targetUserId = parseInt(userId, 10);
+		// Resolve target user (supports @username, userId, reply-to)
+		const target = resolveTargetUser(ctx, args);
+		if (!target) {
+			return ctx.reply(
+				fmt`${bold("Usage")}: /addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]
 
+Or reply to a user's message with: /addrestriction <type> [options...]`,
+			);
+		}
+
+		const remainingArgs = getRemainingArgs(args, target);
+		const [
+			restriction,
+			restrictedAction,
+			restrictedUntil,
+			severity,
+			violationThreshold,
+			autoJailDuration,
+			autoJailFine,
+		] = remainingArgs;
+
+		if (!restriction) {
+			return ctx.reply(
+				"Please specify a restriction type. Use /regexhelp for pattern examples.",
+			);
+		}
+
+		try {
 			// Check if target user is immune to moderation
-			if (isImmuneToModeration(targetUserId)) {
+			if (isImmuneToModeration(target.userId)) {
 				return ctx.reply(
-					fmt`Cannot restrict user ${targetUserId} - admins and owners are immune to moderation actions.`,
+					fmt`Cannot restrict @${target.username} - admins and owners are immune to moderation actions.`,
 				);
 			}
 
@@ -147,7 +165,7 @@ For regex pattern examples: ${code("/regexhelp")}`,
 				autoJailFine && autoJailFine !== "-" ? parseFloat(autoJailFine) : 10.0;
 
 			addUserRestriction(
-				targetUserId,
+				target.userId,
 				restriction,
 				action,
 				metadata,
@@ -160,7 +178,7 @@ For regex pattern examples: ${code("/regexhelp")}`,
 
 			StructuredLogger.logSecurityEvent("Restriction added to user", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_restriction",
 				restriction,
 				restrictedAction: action,
@@ -172,14 +190,14 @@ For regex pattern examples: ${code("/regexhelp")}`,
 			});
 
 			await ctx.reply(
-				fmt`Restriction '${restriction}' added for user ${userId}.
+				fmt`Restriction '${restriction}' added for @${target.username} (${target.userId}).
 Severity: ${severityLevel}
 Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, ${jailFine.toFixed(1)} JUNO fine)`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "add_restriction",
 				restriction,
 			});
@@ -201,27 +219,37 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	 */
 	bot.command("removerestriction", elevatedOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
+		const args = ctx.message?.text.split(" ").slice(1) || [];
 
-		const [userId, restriction] = ctx.message?.text.split(" ").slice(1) || [];
-		if (!userId || !restriction) {
-			return ctx.reply("Usage: /removerestriction <userId> <restriction>");
+		const target = resolveTargetUser(ctx, args);
+		if (!target) {
+			return ctx.reply(
+				"Usage: /removerestriction <@username|userId> <restriction> or reply to a user's message",
+			);
+		}
+
+		const remainingArgs = getRemainingArgs(args, target);
+		const [restriction] = remainingArgs;
+
+		if (!restriction) {
+			return ctx.reply("Please specify the restriction type to remove.");
 		}
 
 		try {
-			removeUserRestriction(parseInt(userId, 10), restriction);
+			removeUserRestriction(target.userId, restriction);
 			StructuredLogger.logSecurityEvent("Restriction removed from user", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_restriction",
 				restriction,
 			});
 			await ctx.reply(
-				fmt`Restriction '${restriction}' removed for user ${userId}.`,
+				fmt`Restriction '${restriction}' removed for @${target.username} (${target.userId}).`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "remove_restriction",
 				restriction,
 			});
@@ -243,16 +271,21 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	 */
 	bot.command("listrestrictions", elevatedOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
+		const args = ctx.message?.text.split(" ").slice(1) || [];
 
-		const [userId] = ctx.message?.text.split(" ").slice(1) || [];
-		if (!userId) {
-			return ctx.reply("Usage: /listrestrictions <userId>");
+		const target = resolveTargetUser(ctx, args);
+		if (!target) {
+			return ctx.reply(
+				"Usage: /listrestrictions <@username|userId> or reply to a user's message",
+			);
 		}
 
 		try {
-			const restrictions = getUserRestrictions(parseInt(userId, 10));
+			const restrictions = getUserRestrictions(target.userId);
 			if (restrictions.length === 0) {
-				return ctx.reply(fmt`No restrictions found for user ${userId}.`);
+				return ctx.reply(
+					fmt`No restrictions found for @${target.username} (${target.userId}).`,
+				);
 			}
 
 			const message = restrictions
@@ -271,21 +304,21 @@ ${bold("Expires:")} ${expiresText}`.text;
 				})
 				.join("\n\n━━━━━━━━━━━━━━\n\n");
 			await ctx.reply(
-				fmt`${bold(`Restrictions for user ${userId}:`)}
+				fmt`${bold(`Restrictions for @${target.username} (${target.userId}):`)}
 
 ${message}`,
 			);
 
 			StructuredLogger.logUserAction("Restrictions queried", {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "list_restrictions",
 				count: restrictions.length.toString(),
 			});
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
-				userId: parseInt(userId, 10),
+				userId: target.userId,
 				operation: "list_restrictions",
 			});
 			await ctx.reply("An error occurred while fetching restrictions.");
