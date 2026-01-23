@@ -28,7 +28,10 @@ import { config, validateConfig } from "./config";
 import { execute, initDb } from "./database";
 import { registerActionHandlers } from "./handlers/actions";
 import { registerBlacklistHandlers } from "./handlers/blacklist";
-import { registerCallbackHandlers } from "./handlers/callbacks";
+import {
+	handleSessionText,
+	registerCallbackHandlers,
+} from "./handlers/callbacks";
 import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
 import { registerViolationHandlers } from "./handlers/violations";
@@ -157,6 +160,27 @@ async function main() {
 		registerGamblingCommands(bot); // Roll gambling game
 		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
+
+		// Session text handler for multi-step interactive flows
+		// Must be after command handlers to avoid intercepting commands
+		bot.on("text", async (ctx, next) => {
+			// In groups, only handle direct replies to bot messages
+			if (ctx.chat?.type !== "private") {
+				const botInfo = await ctx.telegram.getMe();
+				const isReplyToBot =
+					ctx.message &&
+					"reply_to_message" in ctx.message &&
+					ctx.message.reply_to_message?.from?.id === botInfo.id;
+				if (!isReplyToBot) {
+					return next();
+				}
+			}
+
+			const handled = await handleSessionText(ctx);
+			if (!handled) {
+				await next();
+			}
+		});
 
 		// Error handling
 		bot.catch((err, ctx) => {
