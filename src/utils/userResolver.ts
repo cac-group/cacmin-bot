@@ -159,3 +159,47 @@ export function getRemainingArgs(
 	// User was from args, skip first arg
 	return args.slice(1);
 }
+
+/**
+ * Resolve target user with automatic error reply on failure.
+ * Consolidates the common pattern of resolving + replying with usage.
+ *
+ * @param ctx - Telegraf context
+ * @param commandName - Command name for usage message (without /)
+ * @param options - Optional configuration
+ * @returns Target user info or null if not resolvable (error reply sent)
+ */
+export async function requireTargetUser(
+	ctx: Context,
+	commandName: string,
+	options?: {
+		checkImmunity?: boolean;
+		immunityMessage?: string;
+	},
+): Promise<TargetUserResult | null> {
+	const args =
+		ctx.message && "text" in ctx.message
+			? ctx.message.text.split(" ").slice(1)
+			: [];
+	const target = resolveTargetUser(ctx, args);
+
+	if (!target) {
+		await ctx.reply(
+			`Usage: /${commandName} <@username|userId> or reply to a user's message`,
+		);
+		return null;
+	}
+
+	if (options?.checkImmunity) {
+		const { isImmuneToModeration } = await import("./roles");
+		if (isImmuneToModeration(target.userId)) {
+			await ctx.reply(
+				options.immunityMessage ||
+					`Cannot execute /${commandName} on @${target.username} - admins and owners are immune.`,
+			);
+			return null;
+		}
+	}
+
+	return target;
+}
