@@ -170,6 +170,16 @@ cp -r "$EXTRACT_DIR"/* "$INSTALL_DIR/"
 # Cleanup extract dir
 rm -rf "$EXTRACT_DIR"
 
+# Rebuild native modules for target architecture (x86 builds don't work on ARM)
+echo -e "\n${YELLOW}Rebuilding native modules for target architecture...${NC}"
+cd "$INSTALL_DIR"
+if npm rebuild better-sqlite3 2>/dev/null; then
+    echo -e "${GREEN}✓ Native modules rebuilt${NC}"
+else
+    echo -e "${YELLOW}Warning: npm rebuild failed, trying full reinstall of native modules...${NC}"
+    npm install better-sqlite3 --build-from-source 2>/dev/null || true
+fi
+
 # Create data directory if it doesn't exist
 mkdir -p "$INSTALL_DIR/data"
 
