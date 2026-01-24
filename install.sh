@@ -33,14 +33,7 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-# Check if yarn is installed
-if ! command -v yarn &> /dev/null; then
-    echo -e "${YELLOW}Yarn not found. Installing yarn...${NC}"
-    npm install -g yarn
-fi
-
 echo "Node version: $(node --version)"
-echo "Yarn version: $(yarn --version)"
 echo ""
 
 # Create service user if it doesn't exist
@@ -61,14 +54,15 @@ mkdir -p "$INSTALL_DIR/data"
 if [ -d "./dist" ] && [ -f "./package.json" ]; then
     echo -e "${YELLOW}Installing from current directory${NC}"
 
-    # Copy files
+    # Copy files (dist and node_modules are pre-built)
     cp -r ./dist "$INSTALL_DIR/"
+    cp -r ./node_modules "$INSTALL_DIR/"
     cp package.json "$INSTALL_DIR/"
-    cp yarn.lock "$INSTALL_DIR/"
 
-    if [ -f "./cacmin-bot.service" ]; then
-        cp cacmin-bot.service "$INSTALL_DIR/"
-    fi
+    [ -f "./cacmin-bot.service" ] && cp cacmin-bot.service "$INSTALL_DIR/"
+    [ -f "./cacmin-bot-update.service" ] && cp cacmin-bot-update.service "$INSTALL_DIR/"
+    [ -f "./cacmin-bot-update.timer" ] && cp cacmin-bot-update.timer "$INSTALL_DIR/"
+    [ -f "./auto-update.sh" ] && cp auto-update.sh "$INSTALL_DIR/"
 
     echo -e "${GREEN}✓ Files copied${NC}\n"
 elif [ -f "cacmin-bot-dist.tar.gz" ]; then
@@ -80,12 +74,6 @@ else
     echo "Please run this script from the project directory or with the tarball present"
     exit 1
 fi
-
-# Install production dependencies
-echo -e "${YELLOW}Installing production dependencies...${NC}"
-cd "$INSTALL_DIR"
-yarn install --production --frozen-lockfile
-echo -e "${GREEN}✓ Dependencies installed${NC}\n"
 
 # Handle .env file
 if [ -f "$INSTALL_DIR/.env" ]; then
@@ -153,6 +141,20 @@ if [ -f "$INSTALL_DIR/cacmin-bot.service" ]; then
     echo -e "${GREEN}✓ Systemd service installed and enabled${NC}\n"
 else
     echo -e "${YELLOW}Warning: cacmin-bot.service not found, skipping systemd setup${NC}\n"
+fi
+
+# Install auto-update timer (optional)
+if [ -f "$INSTALL_DIR/cacmin-bot-update.timer" ] && [ -f "$INSTALL_DIR/cacmin-bot-update.service" ]; then
+    echo -e "${YELLOW}Installing auto-update timer...${NC}"
+
+    cp "$INSTALL_DIR/cacmin-bot-update.service" "/etc/systemd/system/"
+    cp "$INSTALL_DIR/cacmin-bot-update.timer" "/etc/systemd/system/"
+
+    systemctl daemon-reload
+    systemctl enable cacmin-bot-update.timer
+    systemctl start cacmin-bot-update.timer
+
+    echo -e "${GREEN}✓ Auto-update timer installed (runs daily at 4am)${NC}\n"
 fi
 
 # Initialize database
