@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
+    # Native ARM64 runner - no emulation, fast builds
 
     steps:
       - name: Checkout code
@@ -30,24 +31,10 @@ jobs:
       - name: Build TypeScript
         run: bun run build
 
-      - name: Setup QEMU for ARM64 emulation
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Install ARM64 production dependencies
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: bookworm
-          githubToken: ${{ github.token }}
-          install: |
-            apt-get update -q
-            apt-get install -q -y nodejs npm
-          run: |
-            rm -rf node_modules
-            npm ci --production --ignore-scripts
-            npm rebuild better-sqlite3
+      - name: Install production dependencies
+        run: |
+          rm -rf node_modules
+          bun install --production --frozen-lockfile
 
       - name: Create release archive
         run: |
