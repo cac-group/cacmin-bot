@@ -1,0 +1,10 @@
+[Unit]
+Description=Update cacmin-bot from GitHub releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/cacmin-bot/auto-update.sh
+StandardOutput=journal
+StandardError=journal

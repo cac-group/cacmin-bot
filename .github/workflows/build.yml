@@ -45,7 +45,7 @@ jobs:
           else
             echo "main-${GITHUB_SHA:0:7}" > version.txt
           fi
-          tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json cacmin-bot.service install.sh auto-update.sh version.txt
+          tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json cacmin-bot.service cacmin-bot-update.service cacmin-bot-update.timer install.sh auto-update.sh version.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

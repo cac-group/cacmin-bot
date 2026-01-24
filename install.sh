@@ -59,9 +59,10 @@ if [ -d "./dist" ] && [ -f "./package.json" ]; then
     cp -r ./node_modules "$INSTALL_DIR/"
     cp package.json "$INSTALL_DIR/"
 
-    if [ -f "./cacmin-bot.service" ]; then
-        cp cacmin-bot.service "$INSTALL_DIR/"
-    fi
+    [ -f "./cacmin-bot.service" ] && cp cacmin-bot.service "$INSTALL_DIR/"
+    [ -f "./cacmin-bot-update.service" ] && cp cacmin-bot-update.service "$INSTALL_DIR/"
+    [ -f "./cacmin-bot-update.timer" ] && cp cacmin-bot-update.timer "$INSTALL_DIR/"
+    [ -f "./auto-update.sh" ] && cp auto-update.sh "$INSTALL_DIR/"
 
     echo -e "${GREEN}✓ Files copied${NC}\n"
 elif [ -f "cacmin-bot-dist.tar.gz" ]; then
@@ -140,6 +141,20 @@ if [ -f "$INSTALL_DIR/cacmin-bot.service" ]; then
     echo -e "${GREEN}✓ Systemd service installed and enabled${NC}\n"
 else
     echo -e "${YELLOW}Warning: cacmin-bot.service not found, skipping systemd setup${NC}\n"
+fi
+
+# Install auto-update timer (optional)
+if [ -f "$INSTALL_DIR/cacmin-bot-update.timer" ] && [ -f "$INSTALL_DIR/cacmin-bot-update.service" ]; then
+    echo -e "${YELLOW}Installing auto-update timer...${NC}"
+
+    cp "$INSTALL_DIR/cacmin-bot-update.service" "/etc/systemd/system/"
+    cp "$INSTALL_DIR/cacmin-bot-update.timer" "/etc/systemd/system/"
+
+    systemctl daemon-reload
+    systemctl enable cacmin-bot-update.timer
+    systemctl start cacmin-bot-update.timer
+
+    echo -e "${GREEN}✓ Auto-update timer installed (runs daily at 4am)${NC}\n"
 fi
 
 # Initialize database
