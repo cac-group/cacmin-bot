@@ -33,14 +33,7 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-# Check if yarn is installed
-if ! command -v yarn &> /dev/null; then
-    echo -e "${YELLOW}Yarn not found. Installing yarn...${NC}"
-    npm install -g yarn
-fi
-
 echo "Node version: $(node --version)"
-echo "Yarn version: $(yarn --version)"
 echo ""
 
 # Create service user if it doesn't exist
@@ -61,10 +54,10 @@ mkdir -p "$INSTALL_DIR/data"
 if [ -d "./dist" ] && [ -f "./package.json" ]; then
     echo -e "${YELLOW}Installing from current directory${NC}"
 
-    # Copy files
+    # Copy files (dist and node_modules are pre-built)
     cp -r ./dist "$INSTALL_DIR/"
+    cp -r ./node_modules "$INSTALL_DIR/"
     cp package.json "$INSTALL_DIR/"
-    cp yarn.lock "$INSTALL_DIR/"
 
     if [ -f "./cacmin-bot.service" ]; then
         cp cacmin-bot.service "$INSTALL_DIR/"
@@ -80,12 +73,6 @@ else
     echo "Please run this script from the project directory or with the tarball present"
     exit 1
 fi
-
-# Install production dependencies
-echo -e "${YELLOW}Installing production dependencies...${NC}"
-cd "$INSTALL_DIR"
-yarn install --production --frozen-lockfile
-echo -e "${GREEN}✓ Dependencies installed${NC}\n"
 
 # Handle .env file
 if [ -f "$INSTALL_DIR/.env" ]; then

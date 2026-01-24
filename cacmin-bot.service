@@ -15,8 +15,8 @@ WorkingDirectory=/opt/cacmin-bot
 # Load environment variables from .env file
 EnvironmentFile=/opt/cacmin-bot/.env
 
-# Main process
-ExecStart=/usr/bin/yarn start
+# Main process - run node directly for cleaner process management
+ExecStart=/usr/bin/node dist/bot.js
 
 # Restart configuration
 Restart=always

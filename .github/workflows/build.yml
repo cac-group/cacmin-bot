@@ -19,17 +19,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '22'
-          cache: 'yarn'
+          bun-version: latest
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Build TypeScript
-        run: yarn build
+        run: bun run build
+
+      - name: Install production dependencies
+        run: |
+          rm -rf node_modules
+          bun install --production --frozen-lockfile
 
       - name: Create release archive
         run: |
@@ -41,7 +45,7 @@ jobs:
           else
             echo "main-${GITHUB_SHA:0:7}" > version.txt
           fi
-          tar -czf cacmin-bot-dist.tar.gz dist/ package.json yarn.lock cacmin-bot.service install.sh auto-update.sh version.txt
+          tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json cacmin-bot.service install.sh auto-update.sh version.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

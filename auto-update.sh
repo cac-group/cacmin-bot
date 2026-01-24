@@ -156,16 +156,12 @@ EXTRACT_DIR="/tmp/cacmin-bot-extract-$$"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf cacmin-bot-dist.tar.gz -C "$EXTRACT_DIR/"
 
-# Remove old files EXCEPT .env, data, node_modules, logs, .yarn, .cache
-# This preserves the directory inode so shells don't lose their cwd
+# Remove old files EXCEPT .env, data, logs
+# node_modules is now shipped in the tarball, so we remove it to get fresh version
 find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 \
     ! -name '.env' \
     ! -name 'data' \
-    ! -name 'node_modules' \
     ! -name 'logs' \
-    ! -name '.yarn' \
-    ! -name '.cache' \
-    ! -name '.yarn-installed' \
     -exec rm -rf {} + 2>/dev/null || true
 
 # Copy new files into existing directory (preserving inode)
@@ -178,31 +174,6 @@ rm -rf "$EXTRACT_DIR"
 mkdir -p "$INSTALL_DIR/data"
 
 echo -e "${GREEN}✓ Files extracted${NC}"
-
-# Install/update dependencies only if needed
-echo -e "\n${YELLOW}Checking dependencies...${NC}"
-cd "$INSTALL_DIR"
-
-# If node_modules exists and package.json hasn't changed, skip install
-if [ -d "node_modules" ] && [ -f ".yarn-installed" ]; then
-    PREV_PACKAGE_HASH=$(cat .yarn-installed 2>/dev/null || echo "")
-    CURR_PACKAGE_HASH=$(md5sum package.json 2>/dev/null | cut -d' ' -f1 || md5 -q package.json 2>/dev/null || echo "")
-
-    if [ "$PREV_PACKAGE_HASH" == "$CURR_PACKAGE_HASH" ]; then
-        echo -e "${GREEN}✓ Dependencies up to date (skipping install)${NC}"
-    else
-        echo -e "${YELLOW}Package.json changed, updating dependencies...${NC}"
-        yarn install --production --frozen-lockfile --prefer-offline
-        echo "$CURR_PACKAGE_HASH" > .yarn-installed
-        echo -e "${GREEN}✓ Dependencies updated${NC}"
-    fi
-else
-    echo -e "${YELLOW}Installing dependencies...${NC}"
-    yarn install --production --frozen-lockfile --prefer-offline
-    CURR_PACKAGE_HASH=$(md5sum package.json 2>/dev/null | cut -d' ' -f1 || md5 -q package.json 2>/dev/null || echo "")
-    echo "$CURR_PACKAGE_HASH" > .yarn-installed
-    echo -e "${GREEN}✓ Dependencies installed${NC}"
-fi
 
 # Set proper permissions
 echo -e "\n${YELLOW}Setting permissions...${NC}"
