@@ -6,37 +6,9 @@ import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
 
 /**
- * Resolve username or ID string to numeric userId
+ * Resolve username or ID to complete User object
  * Supports: numeric ID, @username, username (case-insensitive)
  * Returns null if not found in database
- */
-export function resolveUserId(userIdentifier: string): number | null {
-	// Remove @ prefix if present
-	const cleanIdentifier = userIdentifier.startsWith("@")
-		? userIdentifier.substring(1)
-		: userIdentifier;
-
-	// Check if it's a numeric ID
-	const numericId = parseInt(cleanIdentifier, 10);
-	if (!Number.isNaN(numericId)) {
-		// Verify the user exists
-		const user = get<User>("SELECT id FROM users WHERE id = ?", [numericId]);
-		return user ? numericId : null;
-	}
-
-	// Try to find by username (case-insensitive)
-	const user = get<User>(
-		"SELECT id FROM users WHERE LOWER(username) = LOWER(?)",
-		[cleanIdentifier],
-	);
-
-	return user ? user.id : null;
-}
-
-/**
- * Resolve username or ID to complete User object
- * Returns full user record with role, restrictions, etc.
- * Case-insensitive for username lookups
  */
 export function resolveUser(userIdentifier: string): User | null {
 	// Remove @ prefix if present
@@ -46,7 +18,7 @@ export function resolveUser(userIdentifier: string): User | null {
 
 	// Check if it's a numeric ID
 	const numericId = parseInt(cleanIdentifier, 10);
-	if (!Number.isNaN(numericId)) {
+	if (!Number.isNaN(numericId) && numericId > 0) {
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [numericId]);
 		return user || null;
 	}
@@ -58,6 +30,15 @@ export function resolveUser(userIdentifier: string): User | null {
 	);
 
 	return user || null;
+}
+
+/**
+ * Resolve username or ID string to numeric userId
+ * Convenience wrapper around resolveUser when only ID is needed
+ */
+export function resolveUserId(userIdentifier: string): number | null {
+	const user = resolveUser(userIdentifier);
+	return user ? user.id : null;
 }
 
 /** Format User object for display: @username (123456) */
@@ -98,29 +79,10 @@ export function resolveTargetUser(
 ): TargetUserResult | null {
 	// Priority 1: Check command arguments
 	if (args.length > 0 && args[0]) {
-		const userIdent = args[0];
-		const cleanIdent = userIdent.startsWith("@")
-			? userIdent.substring(1)
-			: userIdent;
-
-		// Try numeric ID first
-		const numericId = parseInt(cleanIdent, 10);
-		if (!Number.isNaN(numericId) && numericId > 0) {
-			const user = get<User>("SELECT * FROM users WHERE id = ?", [numericId]);
-			if (user) {
-				return { userId: user.id, username: user.username, source: "args" };
-			}
-		}
-
-		// Try username lookup
-		const user = get<User>(
-			"SELECT * FROM users WHERE LOWER(username) = LOWER(?)",
-			[cleanIdent],
-		);
+		const user = resolveUser(args[0]);
 		if (user) {
 			return { userId: user.id, username: user.username, source: "args" };
 		}
-
 		// Not found in database
 		return null;
 	}
@@ -158,48 +120,4 @@ export function getRemainingArgs(
 	}
 	// User was from args, skip first arg
 	return args.slice(1);
-}
-
-/**
- * Resolve target user with automatic error reply on failure.
- * Consolidates the common pattern of resolving + replying with usage.
- *
- * @param ctx - Telegraf context
- * @param commandName - Command name for usage message (without /)
- * @param options - Optional configuration
- * @returns Target user info or null if not resolvable (error reply sent)
- */
-export async function requireTargetUser(
-	ctx: Context,
-	commandName: string,
-	options?: {
-		checkImmunity?: boolean;
-		immunityMessage?: string;
-	},
-): Promise<TargetUserResult | null> {
-	const args =
-		ctx.message && "text" in ctx.message
-			? ctx.message.text.split(" ").slice(1)
-			: [];
-	const target = resolveTargetUser(ctx, args);
-
-	if (!target) {
-		await ctx.reply(
-			`Usage: /${commandName} <@username|userId> or reply to a user's message`,
-		);
-		return null;
-	}
-
-	if (options?.checkImmunity) {
-		const { isImmuneToModeration } = await import("./roles");
-		if (isImmuneToModeration(target.userId)) {
-			await ctx.reply(
-				options.immunityMessage ||
-					`Cannot execute /${commandName} on @${target.username} - admins and owners are immune.`,
-			);
-			return null;
-		}
-	}
-
-	return target;
 }

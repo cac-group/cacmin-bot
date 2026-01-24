@@ -131,6 +131,9 @@ async function main() {
 		// Create bot instance
 		const bot = new Telegraf(config.botToken);
 
+		// Cache bot info at startup for efficient reply detection
+		const botInfo = await bot.telegram.getMe();
+
 		// Set bot instance for admin notifications
 		setBotInstance(bot);
 
@@ -166,7 +169,6 @@ async function main() {
 		bot.on("text", async (ctx, next) => {
 			// In groups, only handle direct replies to bot messages
 			if (ctx.chat?.type !== "private") {
-				const botInfo = await ctx.telegram.getMe();
 				const isReplyToBot =
 					ctx.message &&
 					"reply_to_message" in ctx.message &&

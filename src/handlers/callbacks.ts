@@ -9,11 +9,17 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import type { CallbackQuery } from "telegraf/types";
 import { execute, get } from "../database";
+import { JailService } from "../services/jailService";
 import { LedgerService } from "../services/ledgerService";
 import {
 	getGiveawayEscrowId,
 	SYSTEM_USER_IDS,
 } from "../services/unifiedWalletService";
+import {
+	addUserRestriction,
+	getUserById,
+	setUserRole,
+} from "../services/userService";
 import { giveawayClaimKeyboard, mainMenuKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import {
@@ -22,6 +28,8 @@ import {
 	validateMenuInteraction,
 } from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
+import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
+import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 interface Giveaway {
 	id: number;
@@ -96,6 +104,14 @@ export function setSession(
  */
 export function clearSession(userId: number): void {
 	sessions.delete(userId);
+}
+
+/**
+ * Verify user still has admin or higher role.
+ * Used in session handlers since role could change between session creation and execution.
+ */
+function verifyAdminRole(userId: number): boolean {
+	return checkIsElevated(userId);
 }
 
 /**
@@ -1003,10 +1019,17 @@ async function processAddRestrictionSession(
 ): Promise<boolean> {
 	const userId = ctx.from?.id;
 	if (!userId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return true;
+	}
+
 	const { restrictionType } = session.data;
-	const { resolveUserId } = await import("../utils/userResolver");
-	const { isImmuneToModeration } = await import("../utils/roles");
-	const { addUserRestriction } = await import("../services/userService");
 
 	// Resolve the target user from text input
 	const targetId = resolveUserId(text.trim());
@@ -1062,11 +1085,17 @@ async function processJailSession(
 ): Promise<boolean> {
 	const adminId = ctx.from?.id;
 	if (!adminId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
+
 	const { minutes } = session.data;
-	const { resolveUserId, formatUserIdDisplay } = await import(
-		"../utils/userResolver"
-	);
-	const { isImmuneToModeration } = await import("../utils/roles");
 
 	// Parse: "userId" or "@username" or "userId minutes" for custom
 	const parts = text.trim().split(/\s+/);
@@ -1094,8 +1123,6 @@ async function processJailSession(
 		return true;
 	}
 
-	// Import jail service and execute jail
-	const { JailService } = await import("../services/jailService");
 	const mutedUntil = Math.floor(Date.now() / 1000) + jailMinutes * 60;
 	const bailAmount = await JailService.calculateBailAmount(jailMinutes);
 
@@ -1117,7 +1144,7 @@ async function processJailSession(
 
 	const userDisplay = formatUserIdDisplay(targetId);
 	await ctx.reply(
-		`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(2)} JUNO`,
+		fmt`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(2)} JUNO`,
 	);
 
 	StructuredLogger.logSecurityEvent("User jailed via interactive flow", {
@@ -1143,9 +1170,6 @@ async function processGiveawaySession(
 	const userId = ctx.from?.id;
 	if (!userId) return false;
 	const { amount } = session.data;
-	const { resolveUserId, formatUserIdDisplay } = await import(
-		"../utils/userResolver"
-	);
 
 	// Parse: "@username amount" or "userId amount" or just "@username" if amount preset
 	const parts = text.trim().split(/\s+/);
@@ -1166,7 +1190,6 @@ async function processGiveawaySession(
 	}
 
 	// Execute transfer
-	const { LedgerService } = await import("../services/ledgerService");
 	const result = await LedgerService.transferBetweenUsers(
 		userId,
 		targetId,
@@ -1206,8 +1229,17 @@ async function processGlobalActionSession(
 ): Promise<boolean> {
 	const userId = ctx.from?.id;
 	if (!userId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return true;
+	}
+
 	const { actionType } = session.data;
-	const { execute } = await import("../database");
 
 	const cleanText = text.trim().toLowerCase();
 	const action = cleanText === "apply" ? undefined : text.trim();
@@ -1246,8 +1278,15 @@ async function processRoleSession(
 ): Promise<boolean> {
 	const adminId = ctx.from?.id;
 	if (!adminId) return false;
-	const { resolveUserId } = await import("../utils/userResolver");
-	const { setUserRole, getUserById } = await import("../services/userService");
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
 
 	const targetId = resolveUserId(text.trim());
 	if (!targetId) {
@@ -1306,8 +1345,15 @@ async function processListSession(
 ): Promise<boolean> {
 	const adminId = ctx.from?.id;
 	if (!adminId) return false;
-	const { resolveUserId } = await import("../utils/userResolver");
-	const { isImmuneToModeration } = await import("../utils/roles");
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
 
 	const targetId = resolveUserId(text.trim());
 	if (!targetId) {

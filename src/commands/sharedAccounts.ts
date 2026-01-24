@@ -13,6 +13,7 @@ import { elevatedAdminOnly } from "../middleware";
 import { SharedAccountService } from "../services/sharedAccountService";
 import { UnifiedWalletService } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
+import { resolveUserId } from "../utils/userResolver";
 
 /**
  * Registers all shared account commands
@@ -190,22 +191,12 @@ async function handleGrantAccess(ctx: Context): Promise<void> {
 		}
 
 		// Resolve target user
-		let targetUserId: number;
-		if (targetUser.startsWith("@")) {
-			const user = await UnifiedWalletService.findUserByUsername(targetUser);
-			if (!user) {
-				await ctx.reply(
-					`User ${targetUser} not found. They need to interact with the bot first.`,
-				);
-				return;
-			}
-			targetUserId = user.id;
-		} else {
-			targetUserId = parseInt(targetUser, 10);
-			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${targetUser}`);
-				return;
-			}
+		const targetUserId = resolveUserId(targetUser);
+		if (!targetUserId) {
+			await ctx.reply(
+				`User '${targetUser}' not found. Use a numeric ID or @username of a known user.`,
+			);
+			return;
 		}
 
 		await SharedAccountService.grantPermission(
@@ -266,20 +257,12 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		}
 
 		// Resolve target user
-		let targetUserId: number;
-		if (targetUser.startsWith("@")) {
-			const user = await UnifiedWalletService.findUserByUsername(targetUser);
-			if (!user) {
-				await ctx.reply(`User ${targetUser} not found.`);
-				return;
-			}
-			targetUserId = user.id;
-		} else {
-			targetUserId = parseInt(targetUser, 10);
-			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${targetUser}`);
-				return;
-			}
+		const targetUserId = resolveUserId(targetUser);
+		if (!targetUserId) {
+			await ctx.reply(
+				`User '${targetUser}' not found. Use a numeric ID or @username of a known user.`,
+			);
+			return;
 		}
 
 		await SharedAccountService.revokePermission(
@@ -344,20 +327,12 @@ async function handleUpdateAccess(ctx: Context): Promise<void> {
 		}
 
 		// Resolve target user
-		let targetUserId: number;
-		if (targetUser.startsWith("@")) {
-			const user = await UnifiedWalletService.findUserByUsername(targetUser);
-			if (!user) {
-				await ctx.reply(`User ${targetUser} not found.`);
-				return;
-			}
-			targetUserId = user.id;
-		} else {
-			targetUserId = parseInt(targetUser, 10);
-			if (Number.isNaN(targetUserId)) {
-				await ctx.reply(`Invalid user ID: ${targetUser}`);
-				return;
-			}
+		const targetUserId = resolveUserId(targetUser);
+		if (!targetUserId) {
+			await ctx.reply(
+				`User '${targetUser}' not found. Use a numeric ID or @username of a known user.`,
+			);
+			return;
 		}
 
 		await SharedAccountService.updatePermission(
@@ -483,22 +458,12 @@ async function handleSharedSend(ctx: Context): Promise<void> {
 		}
 
 		// Resolve recipient
-		let recipientId: number;
-		if (recipient.startsWith("@")) {
-			const user = await UnifiedWalletService.findUserByUsername(recipient);
-			if (!user) {
-				await ctx.reply(
-					`User ${recipient} not found. They need to interact with the bot first.`,
-				);
-				return;
-			}
-			recipientId = user.id;
-		} else {
-			recipientId = parseInt(recipient, 10);
-			if (Number.isNaN(recipientId)) {
-				await ctx.reply(`Invalid user ID: ${recipient}`);
-				return;
-			}
+		const recipientId = resolveUserId(recipient);
+		if (!recipientId) {
+			await ctx.reply(
+				`User '${recipient}' not found. Use a numeric ID or @username of a known user.`,
+			);
+			return;
 		}
 
 		await ctx.reply("Processing transaction...");

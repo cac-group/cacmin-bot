@@ -27,6 +27,7 @@ import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated } from "../utils/roles";
+import { resolveUserId } from "../utils/userResolver";
 
 /**
  * Handles the /balance command.
@@ -514,8 +515,6 @@ export async function handleTransactions(ctx: Context): Promise<void> {
 		// Determine which user's transactions to fetch
 		let targetUserId = requesterId;
 		if (args.length > 0) {
-			const specifiedUserId = parseInt(args[0], 10);
-
 			if (!isOwner) {
 				await ctx.reply(
 					"Only owners can view other users' transaction history.",
@@ -523,8 +522,11 @@ export async function handleTransactions(ctx: Context): Promise<void> {
 				return;
 			}
 
-			if (Number.isNaN(specifiedUserId)) {
-				await ctx.reply("Invalid user ID. Please provide a numeric user ID.");
+			const specifiedUserId = resolveUserId(args[0]);
+			if (!specifiedUserId) {
+				await ctx.reply(
+					"User not found. Please provide a valid numeric user ID or @username.",
+				);
 				return;
 			}
 
