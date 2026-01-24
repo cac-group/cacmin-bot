@@ -91,6 +91,42 @@ export const userExists = (userId: number): boolean => {
 };
 
 /**
+ * Set or update a user's role in the database.
+ * Creates user if not exists, updates role if exists.
+ *
+ * @param userId - Telegram user ID
+ * @param username - Current username
+ * @param role - Target role: 'owner', 'admin', 'elevated', or 'pleb'
+ */
+export const setUserRole = (
+	userId: number,
+	username: string,
+	role: "owner" | "admin" | "elevated" | "pleb",
+): void => {
+	execute(
+		`INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET role = ?, username = COALESCE(?, username), updated_at = ?`,
+		[
+			userId,
+			username,
+			role,
+			Math.floor(Date.now() / 1000),
+			Math.floor(Date.now() / 1000),
+			role,
+			username,
+			Math.floor(Date.now() / 1000),
+		],
+	);
+
+	StructuredLogger.logSecurityEvent("User role updated", {
+		userId,
+		username,
+		role,
+		operation: "set_role",
+	});
+};
+
+/**
  * Add restriction for user
  * Can be time-limited or permanent with optional metadata and severity levels
  * restrictedUntil: Unix timestamp (null for permanent)

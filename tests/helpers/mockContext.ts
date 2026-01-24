@@ -84,6 +84,15 @@ export function createMockContext(options: MockContextOptions = {}): Partial<Con
   const banChatMemberSpy = vi.fn().mockResolvedValue(true);
   const unbanChatMemberSpy = vi.fn().mockResolvedValue(true);
 
+  const answerCbQuerySpy = vi.fn().mockResolvedValue(true);
+  const editMessageTextSpy = vi.fn().mockResolvedValue(true);
+  const getMeSpy = vi.fn().mockResolvedValue({
+    id: 987654321,
+    is_bot: true,
+    first_name: 'TestBot',
+    username: 'testbot',
+  });
+
   const mockContext: Partial<Context> = {
     update: mockUpdate,
     message: mockMessage as any,
@@ -91,11 +100,14 @@ export function createMockContext(options: MockContextOptions = {}): Partial<Con
     chat: mockChat,
     reply: replySpy,
     deleteMessage: deleteMessageSpy,
+    answerCbQuery: answerCbQuerySpy,
+    editMessageText: editMessageTextSpy,
     telegram: {
       restrictChatMember: restrictChatMemberSpy,
       banChatMember: banChatMemberSpy,
       unbanChatMember: unbanChatMemberSpy,
       sendMessage: replySpy,
+      getMe: getMeSpy,
     } as any,
     state: {},
   };

@@ -12,14 +12,12 @@ import { execute, get } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware/index";
 import { JailService } from "../services/jailService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
-import { getCommandArgs, getUserIdentifier } from "../utils/commandHelper";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
 import {
 	formatUserIdDisplay,
 	getRemainingArgs,
 	resolveTargetUser,
-	resolveUserId,
 } from "../utils/userResolver";
 
 /**
@@ -67,21 +65,13 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const adminId = ctx.from?.id;
 		if (!adminId) return;
 
-		// Get user identifier (supports reply-to-message or explicit username/userId)
-		const userIdentifier = getUserIdentifier(ctx);
-		const isReply =
-			ctx.message &&
-			"reply_to_message" in ctx.message &&
-			ctx.message.reply_to_message;
-
-		// Get command arguments (excluding user identifier if not a reply)
-		const args = isReply
-			? ctx.message && "text" in ctx.message
+		const args =
+			ctx.message && "text" in ctx.message
 				? ctx.message.text.split(" ").slice(1)
-				: []
-			: getCommandArgs(ctx, true);
+				: [];
+		const target = resolveTargetUser(ctx, args);
 
-		if (!userIdentifier) {
+		if (!target) {
 			const msg = await ctx.reply(
 				fmt`⚠️ ${bold("Usage:")}
 • Reply to a user: ${code("/jail <minutes>")}
@@ -92,24 +82,18 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		if (args.length < 1) {
+		// Get remaining args after user identifier (the minutes)
+		const remainingArgs = getRemainingArgs(args, target);
+
+		if (remainingArgs.length < 1) {
 			const msg = await ctx.reply("⚠️ Please specify duration in minutes.");
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
 
-		const minutesStr = args[0];
+		const minutesStr = remainingArgs[0];
 		const minutes = parseInt(minutesStr, 10);
-
-		// Resolve username or userId to numeric ID
-		const userId = resolveUserId(userIdentifier);
-		if (!userId) {
-			const msg = await ctx.reply(
-				"⚠️ User not found. Please use a valid @username or userId.",
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
+		const userId = target.userId;
 
 		// Check if target user is immune to moderation
 		if (isImmuneToModeration(userId)) {

@@ -9,11 +9,17 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import type { CallbackQuery } from "telegraf/types";
 import { execute, get } from "../database";
+import { JailService } from "../services/jailService";
 import { LedgerService } from "../services/ledgerService";
 import {
 	getGiveawayEscrowId,
 	SYSTEM_USER_IDS,
 } from "../services/unifiedWalletService";
+import {
+	addUserRestriction,
+	getUserById,
+	setUserRole,
+} from "../services/userService";
 import { giveawayClaimKeyboard, mainMenuKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import {
@@ -22,6 +28,8 @@ import {
 	validateMenuInteraction,
 } from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
+import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
+import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 interface Giveaway {
 	id: number;
@@ -46,7 +54,7 @@ function giveawayFromDb(row: Giveaway): Giveaway {
 }
 
 // Store for tracking multi-step interactions
-interface SessionData {
+export interface SessionData {
 	action: string;
 	step: number;
 	data: Record<string, any>;
@@ -61,7 +69,7 @@ const SESSION_TIMEOUT = 5 * 60 * 1000;
 /**
  * Get or create a session for a user
  */
-function getSession(userId: number): SessionData | null {
+export function getSession(userId: number): SessionData | null {
 	const session = sessions.get(userId);
 	if (!session) return null;
 
@@ -77,7 +85,7 @@ function getSession(userId: number): SessionData | null {
 /**
  * Set session data for a user
  */
-function setSession(
+export function setSession(
 	userId: number,
 	action: string,
 	step: number,
@@ -94,8 +102,16 @@ function setSession(
 /**
  * Clear session for a user
  */
-function clearSession(userId: number): void {
+export function clearSession(userId: number): void {
 	sessions.delete(userId);
+}
+
+/**
+ * Verify user still has admin or higher role.
+ * Used in session handlers since role could change between session creation and execution.
+ */
+function verifyAdminRole(userId: number): boolean {
+	return checkIsElevated(userId);
 }
 
 /**
@@ -944,4 +960,448 @@ Click below to claim your share!`,
 		});
 		await ctx.answerCbQuery("An error occurred. Please try again.");
 	}
+}
+
+/**
+ * Handle text message replies for active multi-step sessions.
+ * Called from bot.ts when a user sends a text message that might be a session reply.
+ *
+ * @param ctx - Telegraf context
+ * @returns true if message was handled, false otherwise
+ */
+export async function handleSessionText(ctx: Context): Promise<boolean> {
+	const userId = ctx.from?.id;
+	if (!userId) return false;
+
+	const session = getSession(userId);
+	if (!session) return false;
+
+	const text = ctx.message && "text" in ctx.message ? ctx.message.text : "";
+	if (!text || text.startsWith("/")) return false; // Ignore commands
+
+	try {
+		switch (session.action) {
+			case "add_restriction":
+				return await processAddRestrictionSession(ctx, session, text);
+			case "jail":
+				return await processJailSession(ctx, session, text);
+			case "giveaway":
+				return await processGiveawaySession(ctx, session, text);
+			case "add_global_action":
+				return await processGlobalActionSession(ctx, session, text);
+			case "role_admin":
+			case "role_elevated":
+			case "role_revoke":
+				return await processRoleSession(ctx, session, text);
+			case "list_add_white":
+			case "list_add_black":
+			case "list_remove_white":
+			case "list_remove_black":
+				return await processListSession(ctx, session, text);
+			default:
+				return false;
+		}
+	} catch (error) {
+		logger.error("Session text handler error", { userId, session, error });
+		clearSession(userId);
+		await ctx.reply("An error occurred. Please start over.");
+		return true;
+	}
+}
+
+/**
+ * Process add_restriction session - user provided target user
+ */
+async function processAddRestrictionSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const userId = ctx.from?.id;
+	if (!userId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return true;
+	}
+
+	const { restrictionType } = session.data;
+
+	// Resolve the target user from text input
+	const targetId = resolveUserId(text.trim());
+	if (!targetId) {
+		await ctx.reply(
+			"User not found. Please provide a valid userId or @username.",
+		);
+		return true;
+	}
+
+	if (isImmuneToModeration(targetId)) {
+		await ctx.reply(
+			"Cannot restrict this user - admins and owners are immune.",
+		);
+		clearSession(userId);
+		return true;
+	}
+
+	// Apply the restriction with default severity
+	addUserRestriction(
+		targetId,
+		restrictionType,
+		undefined,
+		undefined,
+		undefined,
+		"delete",
+		5,
+		2880,
+		10.0,
+	);
+
+	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
+		adminId: userId,
+		userId: targetId,
+		operation: "add_restriction",
+		restriction: restrictionType,
+	});
+
+	await ctx.reply(
+		`Restriction '${restrictionType}' added for user ${targetId}.`,
+	);
+	clearSession(userId);
+	return true;
+}
+
+/**
+ * Process jail session - user provided target and optionally duration
+ */
+async function processJailSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const adminId = ctx.from?.id;
+	if (!adminId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
+
+	const { minutes } = session.data;
+
+	// Parse: "userId" or "@username" or "userId minutes" for custom
+	const parts = text.trim().split(/\s+/);
+	const targetId = resolveUserId(parts[0]);
+
+	if (!targetId) {
+		await ctx.reply(
+			"User not found. Please provide a valid userId or @username.",
+		);
+		return true;
+	}
+
+	const jailMinutes = minutes ?? (parts[1] ? parseInt(parts[1], 10) : 30);
+
+	if (isImmuneToModeration(targetId)) {
+		await ctx.reply("Cannot jail this user - admins and owners are immune.");
+		clearSession(adminId);
+		return true;
+	}
+
+	if (Number.isNaN(jailMinutes) || jailMinutes < 1) {
+		await ctx.reply(
+			"Invalid duration. Please provide a positive number of minutes.",
+		);
+		return true;
+	}
+
+	const mutedUntil = Math.floor(Date.now() / 1000) + jailMinutes * 60;
+	const bailAmount = await JailService.calculateBailAmount(jailMinutes);
+
+	// Update database
+	execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
+		mutedUntil,
+		Math.floor(Date.now() / 1000),
+		targetId,
+	]);
+
+	// Log the jail event
+	JailService.logJailEvent(
+		targetId,
+		"jailed",
+		adminId,
+		jailMinutes,
+		bailAmount,
+	);
+
+	const userDisplay = formatUserIdDisplay(targetId);
+	await ctx.reply(
+		fmt`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(2)} JUNO`,
+	);
+
+	StructuredLogger.logSecurityEvent("User jailed via interactive flow", {
+		adminId,
+		userId: targetId,
+		operation: "jail",
+		duration: jailMinutes,
+		bailAmount: bailAmount.toString(),
+	});
+
+	clearSession(adminId);
+	return true;
+}
+
+/**
+ * Process giveaway session - user provided target and optionally amount
+ */
+async function processGiveawaySession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const userId = ctx.from?.id;
+	if (!userId) return false;
+	const { amount } = session.data;
+
+	// Parse: "@username amount" or "userId amount" or just "@username" if amount preset
+	const parts = text.trim().split(/\s+/);
+	const targetId = resolveUserId(parts[0]);
+
+	if (!targetId) {
+		await ctx.reply(
+			"User not found. Please provide a valid userId or @username.",
+		);
+		return true;
+	}
+
+	const giveAmount = amount ?? (parts[1] ? parseFloat(parts[1]) : null);
+
+	if (!giveAmount || Number.isNaN(giveAmount) || giveAmount <= 0) {
+		await ctx.reply("Invalid amount. Please provide a positive JUNO amount.");
+		return true;
+	}
+
+	// Execute transfer
+	const result = await LedgerService.transferBetweenUsers(
+		userId,
+		targetId,
+		giveAmount,
+		"Giveaway via interactive flow",
+	);
+
+	if (!result.success) {
+		await ctx.reply(`Transfer failed: ${result.error || "Unknown error"}`);
+		clearSession(userId);
+		return true;
+	}
+
+	const userDisplay = formatUserIdDisplay(targetId);
+	await ctx.reply(
+		`Successfully sent ${giveAmount.toFixed(6)} JUNO to ${userDisplay}!`,
+	);
+
+	StructuredLogger.logTransaction("Giveaway via interactive flow", {
+		userId,
+		targetUserId: targetId,
+		amount: giveAmount.toString(),
+		operation: "giveaway_interactive",
+	});
+
+	clearSession(userId);
+	return true;
+}
+
+/**
+ * Process global action session - user provided action details
+ */
+async function processGlobalActionSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const userId = ctx.from?.id;
+	if (!userId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return true;
+	}
+
+	const { actionType } = session.data;
+
+	const cleanText = text.trim().toLowerCase();
+	const action = cleanText === "apply" ? undefined : text.trim();
+
+	execute(
+		"INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)",
+		[actionType, action || null],
+	);
+
+	const actionDesc = action ? ` with action '${action}'` : "";
+	await ctx.reply(
+		`Global restriction '${actionType}'${actionDesc} has been added.`,
+	);
+
+	StructuredLogger.logSecurityEvent(
+		"Global action added via interactive flow",
+		{
+			adminId: userId,
+			operation: "add_global_action",
+			actionType,
+			action,
+		},
+	);
+
+	clearSession(userId);
+	return true;
+}
+
+/**
+ * Process role session - user provided target for role change
+ */
+async function processRoleSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const adminId = ctx.from?.id;
+	if (!adminId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
+
+	const targetId = resolveUserId(text.trim());
+	if (!targetId) {
+		await ctx.reply(
+			"User not found. Please provide a valid userId or @username.",
+		);
+		return true;
+	}
+
+	const targetUser = getUserById(targetId);
+	const username = targetUser?.username || `user_${targetId}`;
+
+	let role: "owner" | "admin" | "elevated" | "pleb";
+	let message: string;
+
+	switch (session.action) {
+		case "role_admin":
+			role = "admin";
+			message = `Admin privileges granted to @${username}!`;
+			break;
+		case "role_elevated":
+			role = "elevated";
+			message = `Elevated privileges granted to @${username}!`;
+			break;
+		case "role_revoke":
+			role = "pleb";
+			message = `Privileges revoked from @${username}.`;
+			break;
+		default:
+			clearSession(adminId);
+			return false;
+	}
+
+	setUserRole(targetId, username, role);
+
+	await ctx.reply(message);
+
+	StructuredLogger.logSecurityEvent("Role changed via interactive flow", {
+		adminId,
+		targetUserId: targetId,
+		operation: session.action,
+		newRole: role,
+	});
+
+	clearSession(adminId);
+	return true;
+}
+
+/**
+ * Process list session - user provided target for whitelist/blacklist
+ */
+async function processListSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const adminId = ctx.from?.id;
+	if (!adminId) return false;
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(adminId)) {
+		await ctx.reply(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(adminId);
+		return true;
+	}
+
+	const targetId = resolveUserId(text.trim());
+	if (!targetId) {
+		await ctx.reply(
+			"User not found. Please provide a valid userId or @username.",
+		);
+		return true;
+	}
+
+	let message: string;
+
+	switch (session.action) {
+		case "list_add_white":
+			execute("UPDATE users SET whitelist = 1 WHERE id = ?", [targetId]);
+			message = `User ${targetId} has been whitelisted.`;
+			break;
+		case "list_add_black":
+			if (isImmuneToModeration(targetId)) {
+				await ctx.reply(
+					"Cannot blacklist this user - admins and owners are immune.",
+				);
+				clearSession(adminId);
+				return true;
+			}
+			execute("UPDATE users SET blacklist = 1 WHERE id = ?", [targetId]);
+			message = `User ${targetId} has been blacklisted.`;
+			break;
+		case "list_remove_white":
+			execute("UPDATE users SET whitelist = 0 WHERE id = ?", [targetId]);
+			message = `User ${targetId} has been removed from the whitelist.`;
+			break;
+		case "list_remove_black":
+			execute("UPDATE users SET blacklist = 0 WHERE id = ?", [targetId]);
+			message = `User ${targetId} has been removed from the blacklist.`;
+			break;
+		default:
+			clearSession(adminId);
+			return false;
+	}
+
+	await ctx.reply(message);
+
+	StructuredLogger.logSecurityEvent("List updated via interactive flow", {
+		adminId,
+		targetUserId: targetId,
+		operation: session.action,
+	});
+
+	clearSession(adminId);
+	return true;
 }
