@@ -20,6 +20,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -31,10 +36,10 @@ jobs:
       - name: Build TypeScript
         run: bun run build
 
-      - name: Install production dependencies
+      - name: Install production dependencies (with Node 22 native modules)
         run: |
           rm -rf node_modules
-          bun install --production --frozen-lockfile
+          npm install --omit=dev
 
       - name: Create release archive
         run: |
