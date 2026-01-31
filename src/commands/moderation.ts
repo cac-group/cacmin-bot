@@ -323,12 +323,23 @@ The bot may lack admin permissions or the user may have left.`,
 	 * Issue a formal warning to a user.
 	 *
 	 * Permission: Admin or owner (enforced by adminOrHigher middleware)
-	 * Syntax: /warn <userId> <reason>
+	 *
+	 * Syntax:
+	 * - Direct: /warn <@username|userId> <reason>
+	 * - Reply: Reply to user's message with /warn <reason>
+	 *
+	 * Note: When using reply-based invocation, the reason must not start with
+	 * a number that could be mistaken for a user ID.
 	 *
 	 * @example
-	 * User: /warn 123456 Spamming in chat
+	 * User: /warn @alice Spamming in chat
 	 * Bot: User 123456 has been warned.
 	 *      Reason: Spamming in chat
+	 *
+	 * @example
+	 * User: (replying to alice) /warn Repeated rule violations
+	 * Bot: User 123456 has been warned.
+	 *      Reason: Repeated rule violations
 	 */
 	bot.command("warn", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
