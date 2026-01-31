@@ -39,15 +39,46 @@ import { getRemainingArgs, resolveTargetUser } from "../utils/userResolver";
 export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	/**
 	 * Command handler for /addrestriction.
-	 * Adds a specific restriction to a user with optional expiration.
+	 * Adds a specific restriction to a user with configurable severity and auto-jail settings.
 	 *
 	 * Permission: Admin or higher
+	 *
+	 * **Two invocation modes:**
+	 *
+	 * 1. **Interactive mode** (no arguments):
+	 *    Shows a keyboard to select restriction type, then prompts for:
+	 *    - Target user (via text reply)
+	 *    - Severity level (delete/mute/jail)
+	 *    - Auto-jail settings (default/strict/lenient/disabled)
+	 *
+	 * 2. **Command-line mode** (with arguments):
+	 *    Full control via command arguments:
+	 *    `/addrestriction <user> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]`
+	 *
+	 * **Restriction Types:**
+	 * no_stickers, no_urls, no_media, no_photos, no_videos, no_documents,
+	 * no_gifs, no_voice, no_forwarding, regex_block
+	 *
+	 * **Severity Levels:**
+	 * - delete: Just delete the violating message (default)
+	 * - mute: 30-minute mute on each violation
+	 * - jail: Immediate 1-hour jail with 5 JUNO fine
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /addrestriction <userId> <restriction> [restrictedAction] [restrictedUntil]
-	 * Example: /addrestriction 123456 no_stickers stickerpack_name 1735689600
+	 * // Interactive mode - just run the command
+	 * /addrestriction
+	 *
+	 * @example
+	 * // Command-line mode - full specification
+	 * /addrestriction @alice no_photos
+	 * /addrestriction 123456 no_stickers - - mute
+	 * /addrestriction @bob regex_block "spam" - jail
+	 *
+	 * @example
+	 * // Reply-based - reply to user's message
+	 * /addrestriction no_urls - - delete 3
 	 */
 	bot.command("addrestriction", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;

@@ -20,7 +20,12 @@ import {
 	getUserById,
 	setUserRole,
 } from "../services/userService";
-import { giveawayClaimKeyboard, mainMenuKeyboard } from "../utils/keyboards";
+import {
+	autoJailKeyboard,
+	giveawayClaimKeyboard,
+	mainMenuKeyboard,
+	severityKeyboard,
+} from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import {
 	cleanupMenuByMessage,
@@ -129,6 +134,8 @@ type CallbackHandler = (
  */
 const callbackHandlers: Array<{ prefix: string; handler: CallbackHandler }> = [
 	{ prefix: "restrict_", handler: handleRestrictionCallback },
+	{ prefix: "severity_", handler: handleSeverityCallback },
+	{ prefix: "autojail_", handler: handleAutoJailCallback },
 	{ prefix: "jail_", handler: handleJailCallback },
 	{ prefix: "duration_", handler: handleDurationCallback },
 	{ prefix: "giveaway_fund_", handler: handleGiveawayFundCallback },
@@ -223,6 +230,180 @@ Please reply with the user ID or @username to restrict.
 
 Format: ${code("userId")} or ${code("@username")}`,
 	);
+}
+
+/**
+ * Handles severity level selection in the interactive restriction flow.
+ * This is step 2 of the restriction creation process (after target user is selected).
+ *
+ * Severity levels determine how violations are handled:
+ * - "delete": Just delete the violating message (default)
+ * - "mute": Apply a 30-minute mute on each violation
+ * - "jail": Immediate 1-hour jail with 5 JUNO fine
+ *
+ * After severity selection, prompts user for auto-jail settings.
+ *
+ * @param ctx - Telegraf callback query context
+ * @param data - Callback data in format "severity_<level>"
+ * @param userId - ID of the user who clicked the button
+ */
+async function handleSeverityCallback(
+	ctx: Context,
+	data: string,
+	userId: number,
+): Promise<void> {
+	const session = getSession(userId);
+	if (!session || session.action !== "add_restriction" || session.step !== 2) {
+		await ctx.editMessageText("Session expired. Please start over.");
+		return;
+	}
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.editMessageText(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return;
+	}
+
+	const severity = data.replace("severity_", "") as "delete" | "mute" | "jail";
+	session.data.severity = severity;
+	setSession(userId, "add_restriction", 3, session.data);
+
+	const { restrictionType, targetId } = session.data;
+	const targetDisplay = formatUserIdDisplay(targetId);
+
+	await ctx.editMessageText(
+		fmt`${bold(`Restriction: ${restrictionType}`)}
+Target: ${targetDisplay}
+Severity: ${severity}
+
+${bold("Select auto-jail settings:")}
+(Auto-jail triggers after repeated violations within 60 minutes)
+
+• ${bold("Default")} - Jail after 5 violations (2 days, 10 JUNO fine)
+• ${bold("Strict")} - Jail after 3 violations (3 days, 15 JUNO fine)
+• ${bold("Lenient")} - Jail after 10 violations (1 day, 5 JUNO fine)
+• ${bold("Disabled")} - No automatic jailing`,
+		{
+			reply_markup: autoJailKeyboard,
+		},
+	);
+}
+
+/**
+ * Handles auto-jail settings selection and applies the restriction.
+ * This is the final step (step 3) of the interactive restriction creation flow.
+ *
+ * Auto-jail settings determine when repeated violations trigger automatic jailing:
+ * - "default": 5 violations in 60 min -> 2 day jail, 10 JUNO fine
+ * - "strict": 3 violations in 60 min -> 3 day jail, 15 JUNO fine
+ * - "lenient": 10 violations in 60 min -> 1 day jail, 5 JUNO fine
+ * - "disabled": No automatic jailing (threshold set to 999999)
+ *
+ * After selection, the restriction is applied to the target user with all
+ * configured options (type, severity, auto-jail settings).
+ *
+ * @param ctx - Telegraf callback query context
+ * @param data - Callback data in format "autojail_<setting>"
+ * @param userId - ID of the user who clicked the button
+ */
+async function handleAutoJailCallback(
+	ctx: Context,
+	data: string,
+	userId: number,
+): Promise<void> {
+	const session = getSession(userId);
+	if (!session || session.action !== "add_restriction" || session.step !== 3) {
+		await ctx.editMessageText("Session expired. Please start over.");
+		return;
+	}
+
+	// Verify user still has admin privileges
+	if (!verifyAdminRole(userId)) {
+		await ctx.editMessageText(
+			"Your admin privileges have been revoked. Action cancelled.",
+		);
+		clearSession(userId);
+		return;
+	}
+
+	const autoJailSetting = data.replace("autojail_", "");
+	const { restrictionType, targetId, severity } = session.data;
+
+	// Configure auto-jail parameters based on selection
+	let threshold: number;
+	let jailDuration: number;
+	let jailFine: number;
+
+	switch (autoJailSetting) {
+		case "strict":
+			threshold = 3;
+			jailDuration = 4320; // 3 days
+			jailFine = 15.0;
+			break;
+		case "lenient":
+			threshold = 10;
+			jailDuration = 1440; // 1 day
+			jailFine = 5.0;
+			break;
+		case "disabled":
+			threshold = 999999; // Effectively disabled
+			jailDuration = 0;
+			jailFine = 0;
+			break;
+		case "default":
+		default:
+			threshold = 5;
+			jailDuration = 2880; // 2 days
+			jailFine = 10.0;
+			break;
+	}
+
+	// Apply the restriction
+	addUserRestriction(
+		targetId,
+		restrictionType,
+		undefined,
+		undefined,
+		undefined,
+		severity,
+		threshold,
+		jailDuration,
+		jailFine,
+	);
+
+	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
+		adminId: userId,
+		userId: targetId,
+		operation: "add_restriction",
+		restriction: restrictionType,
+		severity,
+		autoJailSetting,
+		threshold,
+		jailDuration,
+		jailFine,
+	});
+
+	const targetDisplay = formatUserIdDisplay(targetId);
+	const autoJailText =
+		autoJailSetting === "disabled"
+			? "Auto-jail: Disabled"
+			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s), ${jailFine.toFixed(1)} JUNO fine)`;
+
+	await ctx.editMessageText(
+		fmt`${bold("Restriction Applied")}
+
+Type: ${restrictionType}
+Target: ${targetDisplay}
+Severity: ${severity}
+${autoJailText}
+
+Use ${code(`/listrestrictions ${targetId}`)} to view all restrictions.`,
+	);
+
+	clearSession(userId);
 }
 
 /**
@@ -1010,7 +1191,20 @@ export async function handleSessionText(ctx: Context): Promise<boolean> {
 }
 
 /**
- * Process add_restriction session - user provided target user
+ * Processes step 1 of the add_restriction interactive session.
+ * Called when user provides a target userId/username via text reply.
+ *
+ * **Multi-step Flow:**
+ * 1. User runs /addrestriction -> shows restriction type keyboard
+ * 2. User clicks restriction type -> handleRestrictionCallback prompts for target
+ * 3. User replies with userId/username -> THIS FUNCTION validates and prompts for severity
+ * 4. User clicks severity -> handleSeverityCallback prompts for auto-jail settings
+ * 5. User clicks auto-jail option -> handleAutoJailCallback applies the restriction
+ *
+ * @param ctx - Telegraf context from the text message
+ * @param session - Current session data containing restriction type
+ * @param text - User's text input (should be userId or @username)
+ * @returns True if message was handled, false otherwise
  */
 async function processAddRestrictionSession(
 	ctx: Context,
@@ -1031,7 +1225,7 @@ async function processAddRestrictionSession(
 
 	const { restrictionType } = session.data;
 
-	// Resolve the target user from text input
+	// Step 1: Resolve the target user from text input
 	const targetId = resolveUserId(text.trim());
 	if (!targetId) {
 		await ctx.reply(
@@ -1048,30 +1242,24 @@ async function processAddRestrictionSession(
 		return true;
 	}
 
-	// Apply the restriction with default severity
-	addUserRestriction(
-		targetId,
-		restrictionType,
-		undefined,
-		undefined,
-		undefined,
-		"delete",
-		5,
-		2880,
-		10.0,
-	);
+	// Store target and move to step 2: severity selection
+	session.data.targetId = targetId;
+	setSession(userId, "add_restriction", 2, session.data);
 
-	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
-		adminId: userId,
-		userId: targetId,
-		operation: "add_restriction",
-		restriction: restrictionType,
-	});
-
+	const targetDisplay = formatUserIdDisplay(targetId);
 	await ctx.reply(
-		`Restriction '${restrictionType}' added for user ${targetId}.`,
+		fmt`${bold(`Restriction: ${restrictionType}`)}
+Target: ${targetDisplay}
+
+${bold("Select severity level:")}
+• ${bold("Delete Only")} - Just delete the violating message
+• ${bold("Mute 30min")} - 30-minute mute on each violation
+• ${bold("Instant Jail")} - Immediate 1-hour jail with 5 JUNO fine`,
+		{
+			reply_markup: severityKeyboard,
+		},
 	);
-	clearSession(userId);
+
 	return true;
 }
 

@@ -240,3 +240,51 @@ export const mainMenuKeyboard: InlineKeyboardMarkup = {
 		[{ text: "Help", callback_data: "menu_help" }],
 	],
 };
+
+/**
+ * Restriction severity level keyboard.
+ * Used in step 2 of the interactive /addrestriction flow.
+ *
+ * **Severity Options:**
+ * - Delete Only: Just delete the violating message (callback: severity_delete)
+ * - Mute 30min: Apply 30-minute mute per violation (callback: severity_mute)
+ * - Instant Jail: Immediate 1-hour jail + 5 JUNO fine (callback: severity_jail)
+ *
+ * After selection, proceeds to auto-jail settings (step 3).
+ */
+export const severityKeyboard: InlineKeyboardMarkup = {
+	inline_keyboard: [
+		[
+			{ text: "Delete Only", callback_data: "severity_delete" },
+			{ text: "Mute 30min", callback_data: "severity_mute" },
+		],
+		[{ text: "Instant Jail", callback_data: "severity_jail" }],
+		[{ text: "Cancel", callback_data: "cancel" }],
+	],
+};
+
+/**
+ * Auto-jail settings keyboard for restrictions.
+ * Used in step 3 (final step) of the interactive /addrestriction flow.
+ *
+ * **Auto-jail Options:**
+ * - Default: 5 violations in 60 min -> 2 day jail, 10 JUNO fine
+ * - Strict: 3 violations in 60 min -> 3 day jail, 15 JUNO fine
+ * - Lenient: 10 violations in 60 min -> 1 day jail, 5 JUNO fine
+ * - Disabled: No automatic jailing regardless of violation count
+ *
+ * After selection, the restriction is applied to the target user.
+ */
+export const autoJailKeyboard: InlineKeyboardMarkup = {
+	inline_keyboard: [
+		[
+			{ text: "Default (5 violations)", callback_data: "autojail_default" },
+			{ text: "Strict (3 violations)", callback_data: "autojail_strict" },
+		],
+		[
+			{ text: "Lenient (10 violations)", callback_data: "autojail_lenient" },
+			{ text: "Disabled", callback_data: "autojail_disabled" },
+		],
+		[{ text: "Cancel", callback_data: "cancel" }],
+	],
+};
