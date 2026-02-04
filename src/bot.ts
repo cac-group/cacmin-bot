@@ -32,6 +32,7 @@ import {
 	handleSessionText,
 	registerCallbackHandlers,
 } from "./handlers/callbacks";
+import { registerReactionSpamHandler } from "./handlers/reactionSpam";
 import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
 import { registerViolationHandlers } from "./handlers/violations";
@@ -163,6 +164,7 @@ async function main() {
 		registerGamblingCommands(bot); // Roll gambling game
 		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
+		registerReactionSpamHandler(bot); // Reaction-based spam detection
 
 		// Session text handler for multi-step interactive flows
 		// Must be after command handlers to avoid intercepting commands
@@ -267,9 +269,29 @@ async function main() {
 		process.once("SIGINT", () => bot.stop("SIGINT"));
 		process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
-		// Start the bot
-		await bot.launch();
-		logger.info("Bot started successfully");
+		// Start the bot with message_reaction updates enabled for spam detection
+		await bot.launch({
+			allowedUpdates: [
+				"message",
+				"edited_message",
+				"channel_post",
+				"edited_channel_post",
+				"callback_query",
+				"inline_query",
+				"chosen_inline_result",
+				"shipping_query",
+				"pre_checkout_query",
+				"poll",
+				"poll_answer",
+				"my_chat_member",
+				"chat_member",
+				"chat_join_request",
+				"message_reaction", // Required for reaction spam detection
+			],
+		});
+		logger.info(
+			"Bot started successfully (with message_reaction updates enabled)",
+		);
 		console.log(" CAC Admin Bot is running...");
 	} catch (error) {
 		logger.error("Failed to start bot", error);
