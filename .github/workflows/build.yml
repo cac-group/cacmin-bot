@@ -45,12 +45,8 @@ jobs:
         run: |
           chmod +x install.sh
           chmod +x auto-update.sh
-          # Create version file
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "${GITHUB_REF#refs/tags/}" > version.txt
-          else
-            echo "main-${GITHUB_SHA:0:7}" > version.txt
-          fi
+          # Version file is always a unix timestamp for reliable comparison in auto-update.sh
+          date +%s > version.txt
           tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json cacmin-bot.service cacmin-bot-update.service cacmin-bot-update.timer install.sh auto-update.sh version.txt
 
       - name: Upload build artifact
@@ -60,28 +56,33 @@ jobs:
           path: cacmin-bot-dist.tar.gz
           retention-days: 90
 
-      - name: Create or Update Latest Release
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: latest
-          name: Latest Build
-          files: cacmin-bot-dist.tar.gz
-          prerelease: true
-          body: |
-            Automated build from ${{ github.ref }}
-            Commit: ${{ github.sha }}
+      - name: Delete old latest release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Version Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: cacmin-bot-dist.tar.gz
-          generate_release_notes: true
+      - name: Create latest release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          gh release create latest \
+            --title "Latest Build" \
+            --notes "Build from main @ ${GITHUB_SHA:0:7} ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
+            --prerelease \
+            cacmin-bot-dist.tar.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create version release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            cacmin-bot-dist.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   deploy:
     needs: build
