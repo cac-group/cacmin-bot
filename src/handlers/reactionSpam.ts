@@ -8,8 +8,12 @@
 
 import type { Context, Telegraf } from "telegraf";
 import type { Chat, User } from "telegraf/types";
+import { get } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
+
+/** Minimum messages a user must have sent before being exempt from spam bio checks */
+const MIN_MESSAGES_FOR_EXEMPTION = 10;
 
 /**
  * Patterns that indicate a spam bot bio.
@@ -158,6 +162,19 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			return;
 		}
 
+		// Skip users with enough message history (established members)
+		const countRow = get<{ message_count: number }>(
+			"SELECT message_count FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
+			[user.id, chat.id],
+		);
+		if (countRow && countRow.message_count >= MIN_MESSAGES_FOR_EXEMPTION) {
+			logger.debug("Skipping spam check for established user", {
+				userId: user.id,
+				messageCount: countRow.message_count,
+			});
+			return;
+		}
+
 		// Fetch and check user's bio
 		try {
 			const bio = await getUserBio(ctx.telegram, user.id);
@@ -166,7 +183,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				logger.info("[USER_BIO]", {
 					userId: user.id,
 					username: user.username,
-					bio: bio.substring(0, 200), // Truncate for logging
+					bio: bio.substring(0, 200),
 				});
 			}
 
@@ -179,12 +196,14 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 					operation: "reaction_spam_detection",
 				});
 
-				// Ban the user
+				// Ban the user and delete the message they reacted to
 				try {
 					await ctx.telegram.banChatMember(chat.id, user.id);
 
 					const banMessage = getBanMessage(user);
-					await ctx.telegram.sendMessage(chat.id, banMessage);
+					await ctx.telegram.sendMessage(chat.id, banMessage, {
+						reply_parameters: { message_id: reaction.message_id },
+					});
 
 					StructuredLogger.logSecurityEvent("Spam bot banned", {
 						userId: user.id,

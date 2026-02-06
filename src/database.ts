@@ -500,6 +500,16 @@ export const initDb = (): void => {
     );
   `);
 
+	// Lightweight message counter for spam detection (capped at 10)
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS user_message_counts (
+      user_id INTEGER NOT NULL,
+      chat_id INTEGER NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, chat_id)
+    );
+  `);
+
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);

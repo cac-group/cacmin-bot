@@ -6,11 +6,14 @@
  */
 
 import type { Context, MiddlewareFn } from "telegraf";
-import { get } from "../database";
+import { execute, get } from "../database";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
 import { logger } from "../utils/logger";
+
+/** Max message count to track per user per chat (used for spam detection heuristics) */
+const MESSAGE_COUNT_CAP = 10;
 
 /**
  * Middleware that filters messages based on user restrictions and mute status.
@@ -96,6 +99,18 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 				// Message was deleted and violation recorded
 				return; // Don't continue to next middleware
 			}
+		}
+
+		// Increment message count for spam detection (capped at MESSAGE_COUNT_CAP)
+		if (isGroupChat) {
+			execute(
+				`INSERT INTO user_message_counts (user_id, chat_id, message_count)
+				VALUES (?, ?, 1)
+				ON CONFLICT(user_id, chat_id) DO UPDATE
+				SET message_count = MIN(message_count + 1, ?)
+				WHERE message_count < ?`,
+				[ctx.from.id, ctx.chat.id, MESSAGE_COUNT_CAP, MESSAGE_COUNT_CAP],
+			);
 		}
 
 		return next();
