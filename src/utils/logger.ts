@@ -70,9 +70,11 @@ export const logger = winston.createLogger({
 	level: getLogLevel(),
 	format: logFormat,
 	transports: [
-		// Console output
+		// Console output (no colors when running under systemd/piped)
 		new winston.transports.Console({
-			format: winston.format.combine(winston.format.colorize(), logFormat),
+			format: process.stdout.isTTY
+				? winston.format.combine(winston.format.colorize(), logFormat)
+				: logFormat,
 		}),
 		// Combined log file with rotation
 		new winston.transports.File({
