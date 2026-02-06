@@ -150,6 +150,33 @@ export class UnifiedWalletService {
 			await LedgerService.ensureUserBalance(SYSTEM_USER_IDS.UNCLAIMED);
 			logger.info("Created unclaimed deposits user in ledger");
 		}
+
+		// One-time migration: transfer any SYSTEM_RESERVE deficit to BOT_TREASURY.
+		// Gas fees and adjustments were incorrectly debited from SYSTEM_RESERVE
+		// (which was never funded), creating an impossible negative balance.
+		const reserveMicro = await LedgerService.getUserBalanceMicro(
+			SYSTEM_USER_IDS.SYSTEM_RESERVE,
+		);
+		if (reserveMicro < 0) {
+			const deficitJuno = AmountPrecision.fromDbMicro(Math.abs(reserveMicro));
+			logger.info("Migrating SYSTEM_RESERVE deficit to BOT_TREASURY", {
+				reserveBalanceMicro: reserveMicro,
+				deficitJuno,
+			});
+			// Credit SYSTEM_RESERVE back to zero
+			await LedgerService.processAdjustment(
+				SYSTEM_USER_IDS.SYSTEM_RESERVE,
+				deficitJuno,
+				"Migration: zeroing SYSTEM_RESERVE deficit",
+			);
+			// Debit the same amount from BOT_TREASURY
+			await LedgerService.processAdjustment(
+				SYSTEM_USER_IDS.BOT_TREASURY,
+				-deficitJuno,
+				"Migration: absorbing SYSTEM_RESERVE deficit as gas/adjustment costs",
+			);
+			logger.info("SYSTEM_RESERVE deficit migrated to BOT_TREASURY");
+		}
 	}
 
 	/**
@@ -903,7 +930,7 @@ export class UnifiedWalletService {
 				const gasFeeJuno = AmountPrecision.fromDbMicro(gasFeeUjuno);
 				if (gasFeeJuno > 0.000001) {
 					await LedgerService.processAdjustment(
-						SYSTEM_USER_IDS.SYSTEM_RESERVE,
+						SYSTEM_USER_IDS.BOT_TREASURY,
 						-gasFeeJuno,
 						`Gas fee for withdrawal ${result.transactionHash.slice(0, 16)}...`,
 					);
