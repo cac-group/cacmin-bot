@@ -757,14 +757,20 @@ export class LedgerService {
 						onChainMicro = Math.round(Number(junoBalance.amount));
 					}
 				} else {
-					logger.error("Failed to query treasury wallet balance for reconciliation", {
-						address,
-					});
+					logger.error(
+						"Failed to query treasury wallet balance for reconciliation",
+						{
+							address,
+						},
+					);
 				}
 			} catch (error) {
-				logger.error("Error querying treasury wallet balance for reconciliation", {
-					error,
-				});
+				logger.error(
+					"Error querying treasury wallet balance for reconciliation",
+					{
+						error,
+					},
+				);
 			}
 		}
 
