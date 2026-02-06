@@ -1016,8 +1016,8 @@ ${code("/adjustbalance 1.009 debit Gas fees")} - Reduce internal total
 ${code("/adjustbalance 0.5 credit Missed deposit")} - Increase internal total
 
 ${bold("How it works:")}
-- ${code("debit")}: Removes amount from SYSTEM_RESERVE (reduces internal total)
-- ${code("credit")}: Adds amount to SYSTEM_RESERVE (increases internal total)
+- ${code("debit")}: Removes amount from Treasury (reduces internal total)
+- ${code("credit")}: Adds amount to Treasury (increases internal total)
 
 ${bold("When to use:")}
 - After ${code("/reconcile")} shows a mismatch
@@ -1053,22 +1053,20 @@ Run ${code("/reconcile")} first to see the current discrepancy.`,
 			"../services/unifiedWalletService"
 		);
 
-		// Ensure SYSTEM_RESERVE has a balance entry
-		await LedgerService.ensureUserBalance(SYSTEM_USER_IDS.SYSTEM_RESERVE);
+		// Use BOT_TREASURY for adjustments (it has actual funds)
+		await LedgerService.ensureUserBalance(SYSTEM_USER_IDS.BOT_TREASURY);
 
 		let result: { success: boolean; newBalance: number };
 
 		if (direction === "debit") {
-			// Debit from SYSTEM_RESERVE (will go negative, representing owed amount)
 			result = await LedgerService.processAdjustment(
-				SYSTEM_USER_IDS.SYSTEM_RESERVE,
+				SYSTEM_USER_IDS.BOT_TREASURY,
 				-amount,
 				`[DEBIT] ${reason} (Reconciliation adjustment by user ${userId})`,
 			);
 		} else {
-			// Credit to SYSTEM_RESERVE
 			result = await LedgerService.processAdjustment(
-				SYSTEM_USER_IDS.SYSTEM_RESERVE,
+				SYSTEM_USER_IDS.BOT_TREASURY,
 				amount,
 				`[CREDIT] ${reason} (Reconciliation adjustment by user ${userId})`,
 			);
@@ -1087,7 +1085,7 @@ Run ${code("/reconcile")} first to see the current discrepancy.`,
 
 ${bold("Operation:")} ${direction.toUpperCase()} ${amount.toFixed(6)} JUNO
 ${bold("Reason:")} ${reason}
-${bold("SYSTEM_RESERVE Balance:")} ${result.newBalance.toFixed(6)} JUNO
+${bold("Treasury Balance:")} ${result.newBalance.toFixed(6)} JUNO
 
 ${bold("Before:")}
 Internal: ${beforeState.internalTotal.toFixed(6)} JUNO
@@ -1110,7 +1108,7 @@ Status: ${afterState.matched ? "BALANCED" : "Still mismatched"}`,
 			reason,
 			beforeDifference: beforeState.difference.toFixed(6),
 			afterDifference: afterState.difference.toFixed(6),
-			reserveBalance: result.newBalance.toFixed(6),
+			treasuryBalance: result.newBalance.toFixed(6),
 		});
 
 		StructuredLogger.logSecurityEvent("Manual ledger adjustment performed", {
