@@ -894,14 +894,14 @@ export class UnifiedWalletService {
 				);
 			}
 
-			// Record gas fee in ledger to keep internal total accurate
-			// Gas is paid from the on-chain wallet but not yet tracked in ledger
-			if (result.gasUsed) {
-				const gasUsedNum = Number(result.gasUsed);
-				const gasFeeUjuno = gasUsedNum * 0.075; // gas price is 0.075ujuno
-				const gasFeeJuno = gasFeeUjuno / 1_000_000;
+			// Record gas fee in ledger to keep internal total accurate.
+			// The actual fee charged on-chain is based on gasWanted (the gas limit),
+			// not gasUsed (gas consumed). Use integer math via AmountPrecision.
+			if (result.gasWanted) {
+				const gasWantedNum = Number(result.gasWanted);
+				const gasFeeUjuno = Math.ceil(gasWantedNum * 0.075);
+				const gasFeeJuno = AmountPrecision.fromDbMicro(gasFeeUjuno);
 				if (gasFeeJuno > 0.000001) {
-					// Debit from SYSTEM_RESERVE to track the gas cost
 					await LedgerService.processAdjustment(
 						SYSTEM_USER_IDS.SYSTEM_RESERVE,
 						-gasFeeJuno,
@@ -910,7 +910,8 @@ export class UnifiedWalletService {
 					logger.info("Gas fee recorded in ledger", {
 						userId,
 						txHash: result.transactionHash,
-						gasUsed: gasUsedNum,
+						gasWanted: gasWantedNum,
+						gasFeeUjuno,
 						gasFeeJuno,
 					});
 				}

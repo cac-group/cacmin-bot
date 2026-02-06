@@ -681,6 +681,17 @@ export class LedgerService {
 		return AmountPrecision.fromDbMicro(totalMicro);
 	}
 
+	/**
+	 * Get the total of all user balances in microJUNO (integer).
+	 * Used for reconciliation to avoid floating-point precision loss.
+	 */
+	static getTotalUserBalanceMicro(): MicroAmount {
+		const result = get<{ total: number }>(
+			"SELECT SUM(balance) as total FROM user_balances",
+		);
+		return Math.round(result?.total || 0);
+	}
+
 	/** Get on-chain balance of system wallets */
 	static async getSysBalance(
 		walletType: "treasury" | "user_funds",
@@ -726,22 +737,61 @@ export class LedgerService {
 		difference: number;
 		matched: boolean;
 	}> {
-		const internalTotal = await LedgerService.getTotalUserBalance();
-		const onChainBalance = await LedgerService.getSysBalance("treasury");
+		// Work in microJUNO (integers) to avoid floating-point precision errors
+		const internalMicro = LedgerService.getTotalUserBalanceMicro();
 
-		const difference = Math.abs(internalTotal - onChainBalance);
-		const matched = difference < 0.000001; // Allow for minor rounding differences
+		// Get on-chain balance as raw ujuno integer
+		let onChainMicro = 0;
+		const address = LedgerService.botTreasuryAddress;
+		if (address) {
+			try {
+				const response = await fetch(
+					`${LedgerService.apiEndpoint}/cosmos/bank/v1beta1/balances/${address}`,
+				);
+				if (response.ok) {
+					const data = (await response.json()) as any;
+					const junoBalance = data.balances?.find(
+						(b: any) => b.denom === "ujuno",
+					);
+					if (junoBalance) {
+						onChainMicro = Math.round(Number(junoBalance.amount));
+					}
+				} else {
+					logger.error(
+						"Failed to query treasury wallet balance for reconciliation",
+						{
+							address,
+						},
+					);
+				}
+			} catch (error) {
+				logger.error(
+					"Error querying treasury wallet balance for reconciliation",
+					{
+						error,
+					},
+				);
+			}
+		}
+
+		// Integer subtraction - no floating-point noise
+		const differenceMicro = Math.abs(internalMicro - onChainMicro);
+		const matched = differenceMicro === 0;
+
+		const internalTotal = AmountPrecision.fromDbMicro(internalMicro);
+		const onChainTotal = AmountPrecision.fromDbMicro(onChainMicro);
+		const difference = AmountPrecision.fromDbMicro(differenceMicro);
 
 		logger.info("Balance reconciliation", {
 			internalTotal,
-			onChainTotal: onChainBalance,
+			onChainTotal,
 			difference,
 			matched,
 		});
 
 		return {
 			internalTotal,
-			onChainTotal: onChainBalance,
+			onChainTotal,
 			difference,
 			matched,
 		};
