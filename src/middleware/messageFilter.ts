@@ -7,6 +7,7 @@
 
 import type { Context, MiddlewareFn } from "telegraf";
 import { execute, get } from "../database";
+import { ChatIndexerService } from "../services/chatIndexerService";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
@@ -57,6 +58,12 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 
 		// Skip ALL filtering for whitelisted users, owners, and admins
 		if (user?.whitelist || user?.role === "owner" || user?.role === "admin") {
+			// Index message for chat explorer (fire-and-forget)
+			const isGroup =
+				ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
+			if (isGroup) {
+				ChatIndexerService.indexMessage(ctx).catch(() => {});
+			}
 			return next();
 		}
 
@@ -111,6 +118,9 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 				WHERE message_count < ?`,
 				[ctx.from.id, ctx.chat.id, MESSAGE_COUNT_CAP, MESSAGE_COUNT_CAP],
 			);
+
+			// Index message for chat explorer (fire-and-forget)
+			ChatIndexerService.indexMessage(ctx).catch(() => {});
 		}
 
 		return next();

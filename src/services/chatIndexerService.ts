@@ -1,0 +1,730 @@
+/**
+ * Live chat indexer service for the CAC Admin Bot.
+ * Captures group messages in real-time and writes them to the telegram-chat-explorer
+ * SQLite database, enabling live-updating search and analytics.
+ *
+ * Features:
+ * - Indexes every group message into the explorer's messages table (FTS auto-indexed via triggers)
+ * - Upserts author statistics (message_count, first_seen, last_seen)
+ * - Downloads photo attachments via Telegram Bot API
+ * - Periodically generates semantic embeddings via Ollama
+ * - Describes images via Ollama vision model
+ * - Keyword-based topic classification against existing topics
+ *
+ * @module services/chatIndexerService
+ */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import Database from "better-sqlite3";
+import type { Context, Telegraf } from "telegraf";
+import { config } from "../config";
+import { logger } from "../utils/logger";
+
+/** Shape of a row in the explorer's messages table */
+interface MessageRow {
+	id: number;
+	text: string;
+	timestamp_unix: number;
+	reply_to_id: number | null;
+	media_type: string | null;
+	media_path: string | null;
+}
+
+/** Cached topic with compiled keyword regex for fast matching */
+interface TopicPattern {
+	id: number;
+	name: string;
+	regex: RegExp;
+}
+
+/** Concurrency limit for Ollama embedding requests */
+const EMBED_CONCURRENCY = 5;
+/** Number of reply-chain messages to include as context on each side */
+const THREAD_WINDOW = 2;
+/** Number of temporal neighbor messages to include as fallback context */
+const LOCAL_WINDOW = 5;
+/** Max characters for contextual embedding text */
+const MAX_CONTEXT_CHARS = 2000;
+
+/**
+ * Service that indexes group chat messages into the telegram-chat-explorer database.
+ * Follows the static-method service pattern used throughout cacmin-bot.
+ */
+export class ChatIndexerService {
+	private static db: Database.Database | null = null;
+	private static bot: Telegraf<Context> | null = null;
+	private static topicPatterns: TopicPattern[] = [];
+	private static embedInterval: ReturnType<typeof setInterval> | null = null;
+	private static photoQueue: { messageId: number; fileId: string }[] = [];
+	private static enabled = false;
+
+	/**
+	 * Initializes the indexer service by opening a separate DB connection to the
+	 * explorer's dataset database and starting periodic tasks.
+	 *
+	 * @param bot - Telegraf bot instance for Telegram file API access
+	 */
+	static initialize(bot: Telegraf<Context>): void {
+		if (!config.indexerEnabled || !config.indexerDbPath) {
+			logger.info(
+				"Chat indexer disabled (INDEXER_ENABLED != true or INDEXER_DB_PATH not set)",
+			);
+			return;
+		}
+
+		try {
+			if (!existsSync(config.indexerDbPath)) {
+				logger.warn(
+					`Indexer DB not found at ${config.indexerDbPath}, disabling indexer`,
+				);
+				return;
+			}
+
+			ChatIndexerService.db = new Database(config.indexerDbPath);
+			ChatIndexerService.db.pragma("journal_mode = WAL");
+			ChatIndexerService.db.pragma("synchronous = NORMAL");
+			ChatIndexerService.bot = bot;
+			ChatIndexerService.enabled = true;
+
+			// Ensure image_descriptions table exists (may not if embeddings haven't been run yet)
+			ChatIndexerService.db.exec(`
+				CREATE TABLE IF NOT EXISTS image_descriptions (
+					message_id INTEGER PRIMARY KEY,
+					description TEXT
+				)
+			`);
+
+			// Load existing topic patterns for keyword classification
+			ChatIndexerService.loadTopicPatterns();
+
+			// Start periodic embedding batch task
+			ChatIndexerService.embedInterval = setInterval(() => {
+				ChatIndexerService.runEmbeddingBatch().catch((err) => {
+					logger.error("Indexer embedding batch failed", { error: err });
+				});
+			}, config.embedBatchIntervalMs);
+
+			logger.info("Chat indexer initialized", {
+				dbPath: config.indexerDbPath,
+				embedInterval: `${config.embedBatchIntervalMs / 1000}s`,
+			});
+		} catch (error) {
+			logger.error("Failed to initialize chat indexer, disabling", { error });
+			ChatIndexerService.enabled = false;
+			ChatIndexerService.db = null;
+		}
+	}
+
+	/**
+	 * Indexes a single message from the Telegraf context into the explorer DB.
+	 * Fire-and-forget: errors are logged but never thrown.
+	 * Only processes messages from the configured group chat.
+	 *
+	 * @param ctx - Telegraf context containing the message to index
+	 */
+	static async indexMessage(ctx: Context): Promise<void> {
+		if (!ChatIndexerService.enabled || !ChatIndexerService.db) return;
+
+		try {
+			const msg = ctx.message;
+			if (!msg || !ctx.from) return;
+
+			// Only index messages from the configured group chat
+			if (config.groupChatId && ctx.chat?.id !== config.groupChatId) return;
+
+			const messageId = msg.message_id;
+			const firstName = ctx.from.first_name || "";
+			const lastName = ctx.from.last_name || "";
+			const author = lastName ? `${firstName} ${lastName}` : firstName;
+			const timestamp = new Date(msg.date * 1000).toISOString();
+			const timestampUnix = msg.date;
+
+			// Extract text from various message types
+			const text =
+				("text" in msg ? msg.text : null) ||
+				("caption" in msg ? msg.caption : null) ||
+				null;
+
+			// Detect photo media
+			const hasPhoto =
+				"photo" in msg && Array.isArray(msg.photo) && msg.photo.length > 0;
+			const hasMedia = hasPhoto ? 1 : 0;
+			const mediaType = hasPhoto ? "photo" : null;
+
+			// Reply threading
+			const replyToId =
+				"reply_to_message" in msg && msg.reply_to_message
+					? msg.reply_to_message.message_id
+					: null;
+
+			// Forwarding info
+			const isForwarded =
+				("forward_from" in msg && !!msg.forward_from) ||
+				("forward_from_chat" in msg && !!msg.forward_from_chat)
+					? 1
+					: 0;
+			const forwardedFrom =
+				"forward_from" in msg && msg.forward_from
+					? (msg.forward_from as { first_name?: string }).first_name || null
+					: null;
+
+			// Check for duplicate (idempotent insert)
+			const existing = ChatIndexerService.db
+				.prepare("SELECT id FROM messages WHERE id = ?")
+				.get(messageId);
+			if (existing) return;
+
+			// Insert into messages table (FTS triggers fire automatically)
+			ChatIndexerService.db
+				.prepare(`
+					INSERT INTO messages (id, author, timestamp, timestamp_unix, text, has_media,
+						media_type, media_path, reply_to_id, is_forwarded, forwarded_from, file_path, raw_html)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`)
+				.run(
+					messageId,
+					author,
+					timestamp,
+					timestampUnix,
+					text,
+					hasMedia,
+					mediaType,
+					null, // media_path set after download
+					replyToId,
+					isForwarded,
+					forwardedFrom,
+					"live", // sentinel for live messages
+					null, // no raw_html for live messages
+				);
+
+			// Update author stats
+			ChatIndexerService.updateAuthorStats(author, timestamp);
+
+			// Classify into topics inline (cheap keyword matching)
+			if (text) {
+				ChatIndexerService.classifyTopics(messageId, text);
+			}
+
+			// Queue photo for download if present
+			if (hasPhoto && "photo" in msg && msg.photo) {
+				const largest = msg.photo[msg.photo.length - 1];
+				ChatIndexerService.photoQueue.push({
+					messageId,
+					fileId: largest.file_id,
+				});
+				// Process photo download immediately (non-blocking)
+				ChatIndexerService.processPhotoQueue().catch(() => {});
+			}
+
+			logger.debug("Indexed message", { messageId, author });
+		} catch (error) {
+			logger.error("Failed to index message", { error });
+		}
+	}
+
+	/**
+	 * Downloads queued photos via the Telegram Bot API and updates the DB.
+	 */
+	private static async processPhotoQueue(): Promise<void> {
+		if (!ChatIndexerService.bot || !ChatIndexerService.db) return;
+
+		while (ChatIndexerService.photoQueue.length > 0) {
+			const item = ChatIndexerService.photoQueue.shift();
+			if (!item) break;
+
+			try {
+				const fileLink = await ChatIndexerService.bot.telegram.getFileLink(
+					item.fileId,
+				);
+				const response = await fetch(fileLink.href);
+				if (!response.ok) continue;
+
+				const buffer = Buffer.from(await response.arrayBuffer());
+
+				// Build media path matching explorer convention
+				const datasetId = config.indexerDatasetId || "live";
+				const mediaDir = config.indexerMediaDir
+					? join(config.indexerMediaDir, datasetId, "photos")
+					: join(
+							dirname(config.indexerDbPath || ""),
+							"media",
+							datasetId,
+							"photos",
+						);
+
+				if (!existsSync(mediaDir)) {
+					mkdirSync(mediaDir, { recursive: true });
+				}
+
+				const filename = `live_${item.messageId}.jpg`;
+				const fullPath = join(mediaDir, filename);
+				writeFileSync(fullPath, buffer);
+
+				// Store relative path from DB location (matches explorer convention)
+				const relativePath = `media/${datasetId}/photos/${filename}`;
+				ChatIndexerService.db
+					.prepare("UPDATE messages SET media_path = ? WHERE id = ?")
+					.run(relativePath, item.messageId);
+
+				logger.debug("Downloaded photo", {
+					messageId: item.messageId,
+					path: relativePath,
+				});
+			} catch (error) {
+				logger.error("Failed to download photo", {
+					messageId: item.messageId,
+					error,
+				});
+			}
+		}
+	}
+
+	/**
+	 * Incrementally upserts author statistics in the explorer's authors table.
+	 *
+	 * @param authorName - Display name of the author
+	 * @param timestamp - ISO timestamp of the message
+	 */
+	private static updateAuthorStats(
+		authorName: string,
+		timestamp: string,
+	): void {
+		if (!ChatIndexerService.db) return;
+
+		try {
+			ChatIndexerService.db
+				.prepare(`
+					INSERT INTO authors (name, message_count, first_seen, last_seen)
+					VALUES (?, 1, ?, ?)
+					ON CONFLICT(name) DO UPDATE SET
+						message_count = message_count + 1,
+						last_seen = ?
+				`)
+				.run(authorName, timestamp, timestamp, timestamp);
+		} catch (error) {
+			logger.error("Failed to update author stats", { authorName, error });
+		}
+	}
+
+	/**
+	 * Classifies a message into existing topics using keyword matching.
+	 * Only matches against topics already in the DB (no LLM discovery here).
+	 *
+	 * @param messageId - The message ID to classify
+	 * @param text - The message text to match against topic keywords
+	 */
+	private static classifyTopics(messageId: number, text: string): void {
+		if (!ChatIndexerService.db || ChatIndexerService.topicPatterns.length === 0)
+			return;
+
+		try {
+			const lowerText = text.toLowerCase();
+			const insertTopic = ChatIndexerService.db.prepare(`
+				INSERT OR IGNORE INTO message_topics (message_id, topic_id, confidence)
+				VALUES (?, ?, ?)
+			`);
+			const updateCount = ChatIndexerService.db.prepare(`
+				UPDATE topics SET message_count = message_count + 1 WHERE id = ?
+			`);
+
+			for (const topic of ChatIndexerService.topicPatterns) {
+				if (topic.regex.test(lowerText)) {
+					insertTopic.run(messageId, topic.id, 0.8);
+					updateCount.run(topic.id);
+				}
+			}
+		} catch (error) {
+			logger.error("Failed to classify topics", { messageId, error });
+		}
+	}
+
+	/**
+	 * Loads topic keyword patterns from the DB and compiles regexes for fast matching.
+	 */
+	private static loadTopicPatterns(): void {
+		if (!ChatIndexerService.db) return;
+
+		try {
+			const topics = ChatIndexerService.db
+				.prepare(
+					"SELECT id, name, keywords FROM topics WHERE keywords IS NOT NULL",
+				)
+				.all() as { id: number; name: string; keywords: string }[];
+
+			ChatIndexerService.topicPatterns = topics
+				.map((t) => {
+					const keywords = t.keywords
+						.split(",")
+						.map((k) => k.trim().toLowerCase())
+						.filter((k) => k.length > 0);
+					if (keywords.length === 0) return null;
+
+					// Build a regex that matches any of the keywords as whole words
+					const pattern = keywords
+						.map((k) => `\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`)
+						.join("|");
+					return {
+						id: t.id,
+						name: t.name,
+						regex: new RegExp(pattern, "i"),
+					};
+				})
+				.filter((t): t is TopicPattern => t !== null);
+
+			logger.debug("Loaded topic patterns", {
+				count: ChatIndexerService.topicPatterns.length,
+			});
+		} catch (error) {
+			logger.error("Failed to load topic patterns", { error });
+		}
+	}
+
+	/**
+	 * Runs a batch embedding generation cycle.
+	 * Queries un-embedded messages, builds contextual text, calls Ollama, stores vectors.
+	 * Replicates the logic from telegram-chat-explorer/src/embeddings/generate.ts.
+	 */
+	private static async runEmbeddingBatch(): Promise<void> {
+		const db = ChatIndexerService.db;
+		if (!db) return;
+
+		try {
+			// Test Ollama connectivity before proceeding
+			const tagResp = await fetch(`${config.ollamaUrl}/api/tags`, {
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!tagResp.ok) {
+				logger.debug("Ollama unreachable, skipping embedding batch");
+				return;
+			}
+		} catch {
+			logger.debug("Ollama unreachable, skipping embedding batch");
+			return;
+		}
+
+		try {
+			// Process image descriptions for photos without descriptions
+			await ChatIndexerService.processImageDescriptions();
+
+			// Load image description cache
+			const imageDescMap = new Map<number, string>();
+			const descRows = db
+				.prepare("SELECT message_id, description FROM image_descriptions")
+				.all() as { message_id: number; description: string }[];
+			for (const row of descRows) {
+				imageDescMap.set(row.message_id, row.description);
+			}
+
+			// Query messages needing embeddings (text >= 20 chars, no existing embedding)
+			const messages = db
+				.prepare(`
+					SELECT m.id, m.text, m.timestamp_unix, m.reply_to_id, m.media_type, m.media_path
+					FROM messages m
+					LEFT JOIN embeddings e ON m.id = e.message_id
+					WHERE m.text IS NOT NULL
+						AND length(m.text) >= 20
+						AND e.message_id IS NULL
+					ORDER BY m.id
+					LIMIT 500
+				`)
+				.all() as MessageRow[];
+
+			if (messages.length === 0) return;
+
+			logger.info("Embedding batch started", { count: messages.length });
+
+			const insertEmbedding = db.prepare(`
+				INSERT OR REPLACE INTO embeddings (message_id, vector)
+				VALUES (?, ?)
+			`);
+
+			const batchSize = 100;
+			let processed = 0;
+			let errors = 0;
+
+			for (let i = 0; i < messages.length; i += batchSize) {
+				const batch = messages.slice(i, i + batchSize);
+				const embeddings: { messageId: number; vector: Buffer }[] = [];
+
+				// Process with limited concurrency
+				for (let j = 0; j < batch.length; j += EMBED_CONCURRENCY) {
+					const chunk = batch.slice(j, j + EMBED_CONCURRENCY);
+					const results = await Promise.allSettled(
+						chunk.map(async (msg) => {
+							const contextual = ChatIndexerService.buildContextualText(
+								msg,
+								imageDescMap,
+							);
+							const vector = await ChatIndexerService.getEmbedding(contextual);
+							return {
+								messageId: msg.id,
+								vector: ChatIndexerService.vectorToBlob(vector),
+							};
+						}),
+					);
+
+					for (const result of results) {
+						if (result.status === "fulfilled") {
+							embeddings.push(result.value);
+						} else {
+							errors++;
+						}
+					}
+				}
+
+				// Insert batch in a transaction
+				const insertBatch = db.transaction(() => {
+					for (const emb of embeddings) {
+						insertEmbedding.run(emb.messageId, emb.vector);
+					}
+				});
+				insertBatch();
+
+				processed += batch.length;
+			}
+
+			logger.info("Embedding batch completed", { processed, errors });
+		} catch (error) {
+			logger.error("Embedding batch error", { error });
+		}
+	}
+
+	/**
+	 * Processes photos that don't have image descriptions yet using the Ollama vision model.
+	 */
+	private static async processImageDescriptions(): Promise<void> {
+		if (!ChatIndexerService.db) return;
+
+		const photos = ChatIndexerService.db
+			.prepare(`
+				SELECT id, media_path
+				FROM messages
+				WHERE media_type = 'photo' AND media_path IS NOT NULL
+					AND id NOT IN (SELECT message_id FROM image_descriptions)
+				LIMIT 50
+			`)
+			.all() as { id: number; media_path: string }[];
+
+		if (photos.length === 0) return;
+
+		const insertDesc = ChatIndexerService.db.prepare(`
+			INSERT OR REPLACE INTO image_descriptions (message_id, description)
+			VALUES (?, ?)
+		`);
+
+		for (const photo of photos) {
+			const desc = await ChatIndexerService.describeImage(photo.media_path);
+			if (desc) {
+				insertDesc.run(photo.id, desc);
+			}
+		}
+	}
+
+	/**
+	 * Calls the Ollama vision model to describe a photo.
+	 *
+	 * @param mediaPath - Relative or absolute path to the image file
+	 * @returns Description string or null if unavailable
+	 */
+	private static async describeImage(
+		mediaPath: string,
+	): Promise<string | null> {
+		try {
+			const filePath = isAbsolute(mediaPath)
+				? mediaPath
+				: join(dirname(config.indexerDbPath || ""), mediaPath);
+
+			if (!existsSync(filePath)) return null;
+
+			const base64 = readFileSync(filePath).toString("base64");
+			const resp = await fetch(`${config.ollamaUrl}/api/generate`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: config.visionModel,
+					prompt: "Describe the image in one concise sentence.",
+					images: [base64],
+					stream: false,
+				}),
+				signal: AbortSignal.timeout(30000),
+			});
+
+			if (!resp.ok) return null;
+			const data = (await resp.json()) as { response?: string };
+			const desc =
+				typeof data.response === "string" ? data.response.trim() : null;
+			return desc && desc.length > 0 ? desc.slice(0, 500) : null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Calls the Ollama embedding API to generate a vector for the given text.
+	 *
+	 * @param text - Text to embed
+	 * @returns Float array of embedding dimensions
+	 */
+	private static async getEmbedding(text: string): Promise<number[]> {
+		const response = await fetch(`${config.ollamaUrl}/api/embed`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: config.embedModel,
+				input: text,
+			}),
+			signal: AbortSignal.timeout(15000),
+		});
+
+		if (!response.ok) {
+			throw new Error(`Ollama embed API error: ${response.status}`);
+		}
+
+		const data = (await response.json()) as { embeddings: number[][] };
+		return data.embeddings[0];
+	}
+
+	/**
+	 * Converts a float array to a binary blob for SQLite storage.
+	 *
+	 * @param vector - Array of floats from the embedding model
+	 * @returns Buffer containing little-endian Float32 values
+	 */
+	private static vectorToBlob(vector: number[]): Buffer {
+		const buffer = Buffer.alloc(vector.length * 4);
+		for (let i = 0; i < vector.length; i++) {
+			buffer.writeFloatLE(vector[i], i * 4);
+		}
+		return buffer;
+	}
+
+	/**
+	 * Builds context-aware text for embedding a message.
+	 * Prefers reply-chain context; falls back to temporal neighbors.
+	 * Mirrors the logic from telegram-chat-explorer/src/embeddings/generate.ts.
+	 *
+	 * @param msg - Message row to build context for
+	 * @param imageDescMap - Cached image descriptions keyed by message ID
+	 * @returns Contextual text suitable for the embedding model
+	 */
+	private static buildContextualText(
+		msg: MessageRow,
+		imageDescMap: Map<number, string>,
+	): string {
+		if (!ChatIndexerService.db) return msg.text || "";
+
+		const lines: string[] = [];
+		const mainText = msg.text || "";
+
+		// Prepend image description if available
+		if (msg.media_type === "photo" && msg.media_path) {
+			const desc = imageDescMap.get(msg.id);
+			if (desc) {
+				lines.push(`Image description: ${desc}`);
+			}
+		}
+
+		// Try reply-chain context first
+		if (msg.reply_to_id) {
+			try {
+				const threadMessages = ChatIndexerService.db
+					.prepare(`
+						WITH RECURSIVE thread(id, reply_to_id, timestamp_unix, text) AS (
+							SELECT id, reply_to_id, timestamp_unix, text FROM messages WHERE id = ?
+							UNION ALL
+							SELECT m.id, m.reply_to_id, m.timestamp_unix, m.text
+							FROM messages m
+							JOIN thread t ON m.reply_to_id = t.id
+						)
+						SELECT id, text FROM thread WHERE text IS NOT NULL ORDER BY timestamp_unix
+					`)
+					.all(msg.reply_to_id) as { id: number; text: string }[];
+
+				if (threadMessages.length > 0) {
+					const idx = threadMessages.findIndex((t) => t.id === msg.id);
+					const start = Math.max(0, idx - THREAD_WINDOW);
+					const end = Math.min(threadMessages.length, idx + THREAD_WINDOW + 1);
+					const before = threadMessages
+						.slice(start, idx)
+						.map((t) => t.text.slice(0, 200));
+					const after = threadMessages
+						.slice(idx + 1, end)
+						.map((t) => t.text.slice(0, 200));
+
+					if (before.length) {
+						lines.push("Thread context (before):", ...before);
+					}
+					lines.push("Message:", mainText.slice(0, 1000));
+					if (after.length) {
+						lines.push("Thread context (after):", ...after);
+					}
+
+					return (
+						lines.join("\n").slice(0, MAX_CONTEXT_CHARS) ||
+						mainText.slice(0, MAX_CONTEXT_CHARS)
+					);
+				}
+			} catch {
+				// Fall through to temporal neighbors
+			}
+		}
+
+		// Fallback: temporal neighbors
+		try {
+			const neighbors = ChatIndexerService.db
+				.prepare(`
+					SELECT text FROM messages
+					WHERE text IS NOT NULL
+						AND id != ?
+						AND timestamp_unix BETWEEN ? - 1000000000 AND ? + 1000000000
+					ORDER BY ABS(timestamp_unix - ?)
+					LIMIT ?
+				`)
+				.all(
+					msg.id,
+					msg.timestamp_unix,
+					msg.timestamp_unix,
+					msg.timestamp_unix,
+					LOCAL_WINDOW,
+				) as {
+				text: string;
+			}[];
+
+			if (neighbors.length) {
+				lines.push("Nearby messages:");
+				lines.push(...neighbors.map((n) => n.text.slice(0, 200)));
+			}
+		} catch {
+			// Proceed without context
+		}
+
+		lines.push("Message:", mainText.slice(0, 1000));
+		const joined = lines.join("\n").slice(0, MAX_CONTEXT_CHARS);
+		return joined || mainText.slice(0, MAX_CONTEXT_CHARS);
+	}
+
+	/**
+	 * Gracefully shuts down the indexer service.
+	 * Clears periodic tasks and closes the DB connection.
+	 */
+	static shutdown(): void {
+		if (ChatIndexerService.embedInterval) {
+			clearInterval(ChatIndexerService.embedInterval);
+			ChatIndexerService.embedInterval = null;
+		}
+
+		if (ChatIndexerService.db) {
+			try {
+				ChatIndexerService.db.close();
+			} catch {
+				// Ignore close errors during shutdown
+			}
+			ChatIndexerService.db = null;
+		}
+
+		ChatIndexerService.enabled = false;
+		ChatIndexerService.photoQueue = [];
+		logger.info("Chat indexer shut down");
+	}
+}

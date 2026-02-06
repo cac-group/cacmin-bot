@@ -81,6 +81,30 @@ interface Config {
 		/** Temporary ban duration in milliseconds */
 		tempBan: number;
 	};
+
+	/** Whether the chat indexer feature is enabled */
+	indexerEnabled: boolean;
+
+	/** Path to the indexer dataset SQLite database */
+	indexerDbPath?: string;
+
+	/** Dataset ID for media path construction */
+	indexerDatasetId?: string;
+
+	/** Base directory for downloaded media files */
+	indexerMediaDir?: string;
+
+	/** Ollama API endpoint URL */
+	ollamaUrl: string;
+
+	/** Ollama embedding model name */
+	embedModel: string;
+
+	/** Ollama vision model name for image descriptions */
+	visionModel: string;
+
+	/** Interval in ms between embedding batch runs (default: 5 min) */
+	embedBatchIntervalMs: number;
 }
 
 /**
@@ -123,6 +147,18 @@ export const config: Config = {
 		mute: 60 * 60 * 1000, // 1 hour
 		tempBan: 7 * 24 * 60 * 60 * 1000, // 7 days
 	},
+
+	indexerEnabled: process.env.INDEXER_ENABLED === "true",
+	indexerDbPath: process.env.INDEXER_DB_PATH,
+	indexerDatasetId: process.env.INDEXER_DATASET_ID,
+	indexerMediaDir: process.env.INDEXER_MEDIA_DIR,
+	ollamaUrl: process.env.OLLAMA_URL || "http://192.168.0.170:26886",
+	embedModel: process.env.EMBED_MODEL || "nomic-embed-text",
+	visionModel: process.env.VISION_MODEL || "qwen3-vl:2b",
+	embedBatchIntervalMs: parseInt(
+		process.env.EMBED_BATCH_INTERVAL_MS || "300000",
+		10,
+	),
 };
 
 /**

@@ -37,6 +37,7 @@ import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
 import { registerViolationHandlers } from "./handlers/violations";
 import { messageFilterMiddleware } from "./middleware/messageFilter";
+import { ChatIndexerService } from "./services/chatIndexerService";
 import { DuelService } from "./services/duelService";
 import { JailService } from "./services/jailService";
 import { LedgerService } from "./services/ledgerService";
@@ -140,6 +141,9 @@ async function main() {
 
 		// Initialize jail service with bot instance
 		JailService.initialize(bot);
+
+		// Initialize chat indexer for live message indexing to explorer DB
+		ChatIndexerService.initialize(bot);
 
 		// Apply global middleware
 		bot.use(messageFilterMiddleware);
@@ -266,8 +270,14 @@ async function main() {
 		});
 
 		// Graceful shutdown
-		process.once("SIGINT", () => bot.stop("SIGINT"));
-		process.once("SIGTERM", () => bot.stop("SIGTERM"));
+		process.once("SIGINT", () => {
+			ChatIndexerService.shutdown();
+			bot.stop("SIGINT");
+		});
+		process.once("SIGTERM", () => {
+			ChatIndexerService.shutdown();
+			bot.stop("SIGTERM");
+		});
 
 		// Start the bot with message_reaction updates enabled for spam detection
 		await bot.launch({
