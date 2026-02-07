@@ -412,7 +412,9 @@ ${warningText}Use /violations to check your status.${fineText}`,
 
 			// Notify user with payment guidance
 			const days = Math.round(duration / 1440);
-			await ctx.reply(
+			await RestrictionService.sendTrackedViolationResponse(
+				ctx,
+				"auto_jail",
 				fmt`${bold("AUTOMATIC JAIL - Spam Detection")}
 
 You have been automatically jailed for ${duration} minutes (${days} days) due to repeated violations of: ${restriction.restriction}
@@ -501,7 +503,9 @@ View your violations: ${code("/violations")}`,
 				});
 			}
 
-			await ctx.reply(
+			await RestrictionService.sendTrackedViolationResponse(
+				ctx,
+				"immediate_jail",
 				fmt`${bold("JAILED - Restriction Violation")}
 
 You have been jailed for ${duration} minutes for violating: ${restriction.restriction}
@@ -567,7 +571,9 @@ View your violations: ${code("/violations")}`,
 				userId,
 			]);
 
-			await ctx.reply(
+			await RestrictionService.sendTrackedViolationResponse(
+				ctx,
+				"mute",
 				fmt`${bold("MUTED - Restriction Violation")}
 
 You have been temporarily muted for ${duration} minutes.
