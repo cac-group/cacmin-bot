@@ -49,6 +49,21 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		return next();
 	}
 
+	// Skip service messages (joins, leaves, etc.) -- these aren't real user messages
+	const msg = ctx.message;
+	if (
+		"new_chat_members" in msg ||
+		"left_chat_member" in msg ||
+		"new_chat_title" in msg ||
+		"new_chat_photo" in msg ||
+		"delete_chat_photo" in msg ||
+		"pinned_message" in msg ||
+		"migrate_to_chat_id" in msg ||
+		"migrate_from_chat_id" in msg
+	) {
+		return next();
+	}
+
 	try {
 		// Ensure user exists (synchronous operation)
 		ensureUserExists(ctx.from.id, ctx.from.username || "unknown");
