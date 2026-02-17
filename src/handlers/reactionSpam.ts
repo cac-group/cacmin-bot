@@ -172,6 +172,7 @@ async function sendKickAnnouncement(
 	const sent = await telegram.sendMessage(chatId, message, {
 		parse_mode: "HTML",
 		reply_parameters: { message_id: replyToMessageId },
+		link_preview_options: { is_disabled: true },
 	});
 
 	// Schedule auto-delete and track for replacement
