@@ -286,13 +286,19 @@ async function main() {
 			logger.warn("Initial price fetch failed", { error });
 		});
 
-		// Graceful shutdown -- clear all intervals so the event loop can drain
+		// Graceful shutdown -- stop bot, clear intervals, then force exit
 		const shutdown = (signal: string) => {
+			logger.info(`Shutting down (${signal})...`);
 			for (const id of intervals) {
 				clearInterval(id);
 			}
 			ChatIndexerService.shutdown();
 			bot.stop(signal);
+			// Force exit after 5s -- intervals in services/handlers keep the event loop alive
+			setTimeout(() => {
+				logger.info("Forcing exit after shutdown timeout");
+				process.exit(0);
+			}, 5000).unref();
 		};
 		process.once("SIGINT", () => shutdown("SIGINT"));
 		process.once("SIGTERM", () => shutdown("SIGTERM"));
