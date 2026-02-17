@@ -195,73 +195,90 @@ async function main() {
 			logger.error("Bot error", { error: err, update: ctx.update });
 		});
 
+		// Collect interval IDs for cleanup on shutdown
+		const intervals: NodeJS.Timeout[] = [];
+
 		// Periodic cleanup of expired restrictions (every hour)
-		setInterval(
-			() => {
-				RestrictionService.cleanExpiredRestrictions();
-			},
-			60 * 60 * 1000,
+		intervals.push(
+			setInterval(
+				() => {
+					RestrictionService.cleanExpiredRestrictions();
+				},
+				60 * 60 * 1000,
+			),
 		);
 
 		// Periodic cleanup of expired jails (every 5 minutes)
-		setInterval(
-			() => {
-				JailService.cleanExpiredJails();
-			},
-			5 * 60 * 1000,
+		intervals.push(
+			setInterval(
+				() => {
+					JailService.cleanExpiredJails();
+				},
+				5 * 60 * 1000,
+			),
 		);
 
 		// Periodic cleanup of expired transaction locks (every minute)
-		setInterval(async () => {
-			await TransactionLockService.cleanExpiredLocks();
-		}, 60 * 1000);
+		intervals.push(
+			setInterval(async () => {
+				await TransactionLockService.cleanExpiredLocks();
+			}, 60 * 1000),
+		);
 
 		// Periodic cleanup of expired duels (every minute)
-		setInterval(async () => {
-			await DuelService.cleanExpiredDuels();
-		}, 60 * 1000);
+		intervals.push(
+			setInterval(async () => {
+				await DuelService.cleanExpiredDuels();
+			}, 60 * 1000),
+		);
 
 		// Periodic balance reconciliation check (every hour)
-		setInterval(
-			async () => {
-				try {
-					const result = await LedgerService.reconcileAndAlert();
-					if (!result.matched) {
-						logger.warn("Balance reconciliation mismatch detected", result);
+		intervals.push(
+			setInterval(
+				async () => {
+					try {
+						const result = await LedgerService.reconcileAndAlert();
+						if (!result.matched) {
+							logger.warn("Balance reconciliation mismatch detected", result);
+						}
+					} catch (error) {
+						logger.error("Error during periodic reconciliation", { error });
 					}
-				} catch (error) {
-					logger.error("Error during periodic reconciliation", { error });
-				}
-			},
-			60 * 60 * 1000,
+				},
+				60 * 60 * 1000,
+			),
 		);
 
 		// Periodic JUNO price update (every 15 minutes)
-		setInterval(
-			async () => {
-				try {
-					await PriceService.updatePriceHistory();
-				} catch (error) {
-					logger.error("Error updating price history", { error });
-				}
-			},
-			15 * 60 * 1000,
+		intervals.push(
+			setInterval(
+				async () => {
+					try {
+						await PriceService.updatePriceHistory();
+					} catch (error) {
+						logger.error("Error updating price history", { error });
+					}
+				},
+				15 * 60 * 1000,
+			),
 		);
 
 		// Periodic server seed rotation for provable fairness (every hour)
-		setInterval(
-			() => {
-				try {
-					const { oldHash, newHash } = rotateServerSeed();
-					logger.info("Roll server seed rotated", {
-						previousCommitment: oldHash.substring(0, 16),
-						newCommitment: newHash.substring(0, 16),
-					});
-				} catch (error) {
-					logger.error("Error rotating server seed", { error });
-				}
-			},
-			60 * 60 * 1000,
+		intervals.push(
+			setInterval(
+				() => {
+					try {
+						const { oldHash, newHash } = rotateServerSeed();
+						logger.info("Roll server seed rotated", {
+							previousCommitment: oldHash.substring(0, 16),
+							newCommitment: newHash.substring(0, 16),
+						});
+					} catch (error) {
+						logger.error("Error rotating server seed", { error });
+					}
+				},
+				60 * 60 * 1000,
+			),
 		);
 
 		// Initial price fetch on startup
@@ -269,15 +286,16 @@ async function main() {
 			logger.warn("Initial price fetch failed", { error });
 		});
 
-		// Graceful shutdown
-		process.once("SIGINT", () => {
+		// Graceful shutdown -- clear all intervals so the event loop can drain
+		const shutdown = (signal: string) => {
+			for (const id of intervals) {
+				clearInterval(id);
+			}
 			ChatIndexerService.shutdown();
-			bot.stop("SIGINT");
-		});
-		process.once("SIGTERM", () => {
-			ChatIndexerService.shutdown();
-			bot.stop("SIGTERM");
-		});
+			bot.stop(signal);
+		};
+		process.once("SIGINT", () => shutdown("SIGINT"));
+		process.once("SIGTERM", () => shutdown("SIGTERM"));
 
 		// Start the bot with message_reaction updates enabled for spam detection
 		await bot.launch({
