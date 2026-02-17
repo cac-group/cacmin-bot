@@ -51,16 +51,30 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 
 	// Skip service messages (joins, leaves, etc.) -- these aren't real user messages
 	const msg = ctx.message;
-	if (
-		"new_chat_members" in msg ||
+	const isServiceMessage =
 		"left_chat_member" in msg ||
 		"new_chat_title" in msg ||
 		"new_chat_photo" in msg ||
 		"delete_chat_photo" in msg ||
 		"pinned_message" in msg ||
 		"migrate_to_chat_id" in msg ||
-		"migrate_from_chat_id" in msg
-	) {
+		"migrate_from_chat_id" in msg;
+
+	if ("new_chat_members" in msg) {
+		// Reset message counts for rejoining users so kicked spammers don't keep accumulated credit
+		const chatId = ctx.chat?.id;
+		if (chatId && msg.new_chat_members) {
+			for (const member of msg.new_chat_members) {
+				execute(
+					"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
+					[member.id, chatId],
+				);
+			}
+		}
+		return next();
+	}
+
+	if (isServiceMessage) {
 		return next();
 	}
 
