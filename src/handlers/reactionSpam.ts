@@ -9,7 +9,7 @@
 
 import type { Context, Telegraf } from "telegraf";
 import type { Chat, User } from "telegraf/types";
-import { get } from "../database";
+import { execute, get } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
 
@@ -344,7 +344,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				});
 
 				try {
-					await kickUser(ctx.telegram, chat.id, user.id);
+					await ctx.telegram.banChatMember(chat.id, user.id);
 					kickedUsers.add(userChatKey);
 					reactionTracker.delete(userChatKey);
 
@@ -354,7 +354,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						reply_parameters: { message_id: reaction.message_id },
 					});
 
-					logger.info("[AUTO_KICK]", {
+					logger.info("[AUTO_BAN]", {
 						userId: user.id,
 						username: user.username,
 						firstName: user.first_name,
@@ -362,11 +362,11 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						reason: `spam_${spamField}`,
 						matchedValue: matchedValue?.substring(0, 100),
 					});
-				} catch (kickError) {
-					logger.error("Failed to kick spam bot (profile)", {
+				} catch (banError) {
+					logger.error("Failed to ban spam bot (profile)", {
 						userId: user.id,
 						chatId: chat.id,
-						error: kickError,
+						error: banError,
 					});
 				}
 				return; // Already handled
@@ -399,8 +399,15 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				kickedUsers.add(userChatKey);
 				reactionTracker.delete(userChatKey);
 
+				// Reset message count so they don't accumulate credit across kicks
+				execute(
+					"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
+					[user.id, chat.id],
+				);
+
 				const kickMessage = getKickMessage(user);
 				await ctx.telegram.sendMessage(chat.id, kickMessage, {
+					parse_mode: "HTML",
 					reply_parameters: { message_id: reaction.message_id },
 				});
 
