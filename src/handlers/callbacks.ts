@@ -353,7 +353,6 @@ async function handleAutoJailCallback(
 			jailDuration = 0;
 			jailFine = 0;
 			break;
-		case "default":
 		default:
 			threshold = 5;
 			jailDuration = 2880; // 2 days
