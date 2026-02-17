@@ -97,15 +97,33 @@ function detectSpamProfile(profile: UserProfile): string | null {
 
 /**
  * Gets a random kick message, replacing {name} with the user's name.
+ * If the user has a username, the name is rendered as an HTML link to their profile.
  *
  * @param user - The user being kicked
- * @returns Formatted kick message
+ * @returns Formatted kick message with HTML link
  */
 function getKickMessage(user: User): string {
-	const name = user.first_name + (user.last_name ? ` ${user.last_name}` : "");
+	const displayName =
+		user.first_name + (user.last_name ? ` ${user.last_name}` : "");
+	const nameHtml = user.username
+		? `<a href="https://t.me/${user.username}">${escapeHtml(displayName)}</a>`
+		: escapeHtml(displayName);
 	const template =
 		KICK_MESSAGES[Math.floor(Math.random() * KICK_MESSAGES.length)];
-	return template.replace("{name}", name);
+	return template.replace("{name}", nameHtml);
+}
+
+/**
+ * Escapes HTML special characters in a string.
+ *
+ * @param text - The text to escape
+ * @returns HTML-safe text
+ */
+function escapeHtml(text: string): string {
+	return text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
 }
 
 /**
@@ -332,6 +350,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 
 					const kickMessage = getKickMessage(user);
 					await ctx.telegram.sendMessage(chat.id, kickMessage, {
+						parse_mode: "HTML",
 						reply_parameters: { message_id: reaction.message_id },
 					});
 
