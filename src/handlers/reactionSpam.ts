@@ -1,7 +1,8 @@
 /**
  * Reaction-based spam detection handler for the CAC Admin Bot.
- * Monitors chat reactions and automatically bans users with suspicious bios
- * (typically adult content spam bots that react to messages to get attention).
+ * Monitors chat reactions and kicks users detected as spam bots via two methods:
+ * 1. Bio pattern matching - immediate kick if bio matches known spam patterns
+ * 2. Velocity detection - kick if a low-message user reacts to many messages rapidly
  *
  * @module handlers/reactionSpam
  */
@@ -12,8 +13,17 @@ import { get } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
 
-/** Minimum messages a user must have sent before being exempt from spam bio checks */
+/** Minimum messages a user must have sent before being exempt from spam checks */
 const MIN_MESSAGES_FOR_EXEMPTION = 10;
+
+/** Max reactions allowed within the time window before triggering a velocity kick */
+const VELOCITY_REACTION_LIMIT = 3;
+
+/** Time window in milliseconds for velocity tracking (60 seconds) */
+const VELOCITY_WINDOW_MS = 60_000;
+
+/** How often to prune stale entries from the velocity tracker (5 minutes) */
+const VELOCITY_CLEANUP_INTERVAL_MS = 300_000;
 
 /**
  * Patterns that indicate a spam bot bio.
@@ -38,16 +48,26 @@ const SPAM_BIO_PATTERNS = [
 ];
 
 /**
- * Fun ban messages for spam bots.
- * One is randomly selected when banning.
+ * Fun kick messages for spam bots.
+ * One is randomly selected when kicking.
  */
-const BAN_MESSAGES = [
+const KICK_MESSAGES = [
 	"Be gone thot!",
 	"{name} is banished, our members' virginity remains untarnished.",
 	"{name} tried to corrupt the chat. The horny police have intervened.",
-	"Begone, spam demon! {name} has been yeeted into the void.",
-	"{name} was sent to the shadow realm for being too spicy.",
 ];
+
+/**
+ * In-memory tracker for reaction velocity per user per chat.
+ * Key format: `${userId}:${chatId}` -> array of timestamps
+ */
+const reactionTracker = new Map<string, number[]>();
+
+/**
+ * Set of users already kicked this session to avoid duplicate kick attempts.
+ * Key format: `${userId}:${chatId}`
+ */
+const kickedUsers = new Set<string>();
 
 /**
  * Checks if a bio matches any spam patterns.
@@ -62,15 +82,15 @@ function isSpamBio(bio: string | undefined): boolean {
 }
 
 /**
- * Gets a random ban message, replacing {name} with the user's name.
+ * Gets a random kick message, replacing {name} with the user's name.
  *
- * @param user - The user being banned
- * @returns Formatted ban message
+ * @param user - The user being kicked
+ * @returns Formatted kick message
  */
-function getBanMessage(user: User): string {
+function getKickMessage(user: User): string {
 	const name = user.first_name + (user.last_name ? ` ${user.last_name}` : "");
 	const template =
-		BAN_MESSAGES[Math.floor(Math.random() * BAN_MESSAGES.length)];
+		KICK_MESSAGES[Math.floor(Math.random() * KICK_MESSAGES.length)];
 	return template.replace("{name}", name);
 }
 
@@ -89,22 +109,89 @@ async function getUserBio(
 		const chat = (await telegram.getChat(userId)) as Chat.PrivateGetChat;
 		return chat.bio;
 	} catch (error) {
-		// User may have privacy settings that prevent fetching chat info
-		logger.debug("Could not fetch user bio", { userId, error });
+		logger.info("[REACTION_BIO_FETCH_FAILED]", {
+			userId,
+			error: error instanceof Error ? error.message : String(error),
+		});
 		return undefined;
 	}
 }
 
 /**
+ * Records a reaction event and checks if the user has exceeded the velocity limit.
+ *
+ * @param userId - The user who reacted
+ * @param chatId - The chat where the reaction occurred
+ * @returns True if the user exceeded the velocity limit
+ */
+function checkReactionVelocity(userId: number, chatId: number): boolean {
+	const key = `${userId}:${chatId}`;
+	const now = Date.now();
+	const cutoff = now - VELOCITY_WINDOW_MS;
+
+	// Get existing timestamps and prune old ones
+	const timestamps = (reactionTracker.get(key) ?? []).filter((t) => t > cutoff);
+
+	// Add current reaction
+	timestamps.push(now);
+	reactionTracker.set(key, timestamps);
+
+	return timestamps.length >= VELOCITY_REACTION_LIMIT;
+}
+
+/**
+ * Kicks a user from a chat (ban + immediate unban so they can rejoin).
+ *
+ * @param telegram - Telegram API instance
+ * @param chatId - Chat to kick from
+ * @param userId - User to kick
+ */
+async function kickUser(
+	telegram: Telegraf<Context>["telegram"],
+	chatId: number,
+	userId: number,
+): Promise<void> {
+	await telegram.banChatMember(chatId, userId);
+	await telegram.unbanChatMember(chatId, userId);
+}
+
+/**
+ * Removes stale entries from the velocity tracker.
+ */
+function pruneReactionTracker(): void {
+	const now = Date.now();
+	const cutoff = now - VELOCITY_WINDOW_MS;
+
+	for (const [key, timestamps] of reactionTracker) {
+		const fresh = timestamps.filter((t) => t > cutoff);
+		if (fresh.length === 0) {
+			reactionTracker.delete(key);
+		} else {
+			reactionTracker.set(key, fresh);
+		}
+	}
+
+	// Also clear kicked users set periodically so it doesn't grow forever
+	// (safe because Telegram won't deliver reactions from users no longer in chat)
+	kickedUsers.clear();
+}
+
+/**
  * Registers the reaction spam detection handler with the bot.
- * Monitors all reactions in the chat and checks reacting users' bios for spam patterns.
+ * Monitors all reactions in the chat and detects spam bots via bio matching
+ * and reaction velocity tracking.
+ *
+ * Detection methods:
+ * 1. Bio check: If a reacting user's bio matches spam patterns, kick immediately
+ * 2. Velocity check: If a user with few messages reacts to 3+ messages within
+ *    60 seconds, kick for reaction spam
  *
  * Features:
- * - Logs all reactions to the chat log
- * - Checks user bios for spam patterns when they react
- * - Automatically bans users with spam bios
- * - Sends a fun ban message to the chat
- * - Admins and owners are exempt from checks
+ * - Logs all reactions for audit trail
+ * - Kicks (not bans) so false positives can rejoin
+ * - Sends a fun kick message to the chat
+ * - Admins, owners, and established members are exempt
+ * - Detailed logging for debugging detection failures
  *
  * Requirements:
  * - Bot must be an administrator in the chat
@@ -119,6 +206,9 @@ async function getUserBio(
  * ```
  */
 export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
+	// Periodic cleanup of stale velocity tracking data
+	setInterval(pruneReactionTracker, VELOCITY_CLEANUP_INTERVAL_MS);
+
 	bot.on("message_reaction", async (ctx) => {
 		const reaction = ctx.messageReaction;
 		if (!reaction) return;
@@ -142,7 +232,6 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			userId: user.id,
 			username: user.username,
 			firstName: user.first_name,
-			lastName: user.last_name,
 			chatId: chat.id,
 			chatTitle: "title" in chat ? chat.title : undefined,
 			messageId: reaction.message_id,
@@ -153,7 +242,9 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 
 		// Skip checks for owners and admins
 		if (isOwner(user.id) || isAdmin(user.id)) {
-			logger.debug("Skipping spam check for admin/owner", { userId: user.id });
+			logger.debug("Skipping spam check for admin/owner", {
+				userId: user.id,
+			});
 			return;
 		}
 
@@ -162,79 +253,134 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		// Skip users with enough message history (established members)
+		// Skip if already kicked this session
+		const userChatKey = `${user.id}:${chat.id}`;
+		if (kickedUsers.has(userChatKey)) {
+			return;
+		}
+
+		// Check message history
 		const countRow = get<{ message_count: number }>(
 			"SELECT message_count FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
 			[user.id, chat.id],
 		);
-		if (countRow && countRow.message_count >= MIN_MESSAGES_FOR_EXEMPTION) {
+		const messageCount = countRow?.message_count ?? 0;
+
+		if (messageCount >= MIN_MESSAGES_FOR_EXEMPTION) {
 			logger.debug("Skipping spam check for established user", {
 				userId: user.id,
-				messageCount: countRow.message_count,
+				messageCount,
 			});
 			return;
 		}
 
-		// Fetch and check user's bio
+		logger.info("[REACTION_CHECK]", {
+			userId: user.id,
+			username: user.username,
+			messageCount,
+		});
+
+		// --- Detection method 1: Bio pattern matching ---
 		try {
 			const bio = await getUserBio(ctx.telegram, user.id);
 
 			if (bio) {
-				logger.info("[USER_BIO]", {
+				logger.info("[REACTION_BIO]", {
 					userId: user.id,
 					username: user.username,
 					bio: bio.substring(0, 200),
 				});
+			} else {
+				logger.info("[REACTION_NO_BIO]", {
+					userId: user.id,
+					username: user.username,
+				});
 			}
 
 			if (isSpamBio(bio)) {
-				StructuredLogger.logSecurityEvent("Spam bot detected via reaction", {
+				StructuredLogger.logSecurityEvent("Spam bot detected via bio pattern", {
 					userId: user.id,
 					username: user.username,
 					bio: bio?.substring(0, 200),
 					chatId: chat.id,
-					operation: "reaction_spam_detection",
+					operation: "reaction_spam_bio",
 				});
 
-				// Ban the user and delete the message they reacted to
 				try {
-					await ctx.telegram.banChatMember(chat.id, user.id);
+					await kickUser(ctx.telegram, chat.id, user.id);
+					kickedUsers.add(userChatKey);
+					reactionTracker.delete(userChatKey);
 
-					const banMessage = getBanMessage(user);
-					await ctx.telegram.sendMessage(chat.id, banMessage, {
+					const kickMessage = getKickMessage(user);
+					await ctx.telegram.sendMessage(chat.id, kickMessage, {
 						reply_parameters: { message_id: reaction.message_id },
 					});
 
-					StructuredLogger.logSecurityEvent("Spam bot banned", {
-						userId: user.id,
-						username: user.username,
-						chatId: chat.id,
-						operation: "auto_ban",
-						reason: "spam_bio_detected",
-					});
-
-					logger.info("[AUTO_BAN]", {
+					logger.info("[AUTO_KICK]", {
 						userId: user.id,
 						username: user.username,
 						firstName: user.first_name,
 						chatId: chat.id,
-						reason: "spam_bio_detected",
+						reason: "spam_bio",
 						bio: bio?.substring(0, 100),
 					});
-				} catch (banError) {
-					logger.error("Failed to ban spam bot", {
+				} catch (kickError) {
+					logger.error("Failed to kick spam bot (bio)", {
 						userId: user.id,
 						chatId: chat.id,
-						error: banError,
+						error: kickError,
 					});
 				}
+				return; // Already handled
 			}
 		} catch (error) {
-			logger.error("Error checking user for spam", {
+			logger.error("Error checking user bio for spam", {
 				userId: user.id,
 				chatId: chat.id,
 				error,
 			});
+		}
+
+		// --- Detection method 2: Reaction velocity ---
+		const exceeded = checkReactionVelocity(user.id, chat.id);
+
+		if (exceeded) {
+			StructuredLogger.logSecurityEvent(
+				"Spam bot detected via reaction velocity",
+				{
+					userId: user.id,
+					username: user.username,
+					chatId: chat.id,
+					messageCount,
+					operation: "reaction_spam_velocity",
+				},
+			);
+
+			try {
+				await kickUser(ctx.telegram, chat.id, user.id);
+				kickedUsers.add(userChatKey);
+				reactionTracker.delete(userChatKey);
+
+				const kickMessage = getKickMessage(user);
+				await ctx.telegram.sendMessage(chat.id, kickMessage, {
+					reply_parameters: { message_id: reaction.message_id },
+				});
+
+				logger.info("[AUTO_KICK]", {
+					userId: user.id,
+					username: user.username,
+					firstName: user.first_name,
+					chatId: chat.id,
+					reason: "reaction_velocity",
+					messageCount,
+				});
+			} catch (kickError) {
+				logger.error("Failed to kick spam bot (velocity)", {
+					userId: user.id,
+					chatId: chat.id,
+					error: kickError,
+				});
+			}
 		}
 	});
 
