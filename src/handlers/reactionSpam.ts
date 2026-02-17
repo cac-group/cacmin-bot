@@ -69,16 +69,30 @@ const reactionTracker = new Map<string, number[]>();
  */
 const kickedUsers = new Set<string>();
 
-/**
- * Checks if a bio matches any spam patterns.
- *
- * @param bio - The user's bio text
- * @returns True if the bio matches spam patterns
- */
-function isSpamBio(bio: string | undefined): boolean {
-	if (!bio) return false;
+/** Profile info returned from Telegram's getChat for spam evaluation */
+interface UserProfile {
+	bio?: string;
+	personalChatTitle?: string;
+}
 
-	return SPAM_BIO_PATTERNS.some((pattern) => pattern.test(bio));
+/**
+ * Checks if any profile text matches spam patterns.
+ *
+ * @param profile - The user's profile info (bio and/or personal chat title)
+ * @returns The matched field name, or null if no match
+ */
+function detectSpamProfile(profile: UserProfile): string | null {
+	const fields: [string, string | undefined][] = [
+		["bio", profile.bio],
+		["personal_chat", profile.personalChatTitle],
+	];
+
+	for (const [field, value] of fields) {
+		if (value && SPAM_BIO_PATTERNS.some((pattern) => pattern.test(value))) {
+			return field;
+		}
+	}
+	return null;
 }
 
 /**
@@ -95,25 +109,31 @@ function getKickMessage(user: User): string {
 }
 
 /**
- * Fetches a user's bio by getting their private chat info.
+ * Fetches a user's profile info (bio and personal chat title) via getChat.
+ * The personal_chat field is a newer Telegram API addition not yet in @telegraf/types.
  *
  * @param telegram - Telegram API instance
- * @param userId - User ID to fetch bio for
- * @returns The user's bio or undefined if unavailable
+ * @param userId - User ID to fetch profile for
+ * @returns Profile info with bio and personal chat title
  */
-async function getUserBio(
+async function getUserProfile(
 	telegram: Telegraf<Context>["telegram"],
 	userId: number,
-): Promise<string | undefined> {
+): Promise<UserProfile> {
 	try {
-		const chat = (await telegram.getChat(userId)) as Chat.PrivateGetChat;
-		return chat.bio;
+		const chat = (await telegram.getChat(userId)) as Chat.PrivateGetChat & {
+			personal_chat?: { title?: string };
+		};
+		return {
+			bio: chat.bio,
+			personalChatTitle: chat.personal_chat?.title,
+		};
 	} catch (error) {
-		logger.info("[REACTION_BIO_FETCH_FAILED]", {
+		logger.info("[REACTION_PROFILE_FETCH_FAILED]", {
 			userId,
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return undefined;
+		return {};
 	}
 }
 
@@ -280,30 +300,29 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			messageCount,
 		});
 
-		// --- Detection method 1: Bio pattern matching ---
+		// --- Detection method 1: Profile pattern matching (bio + personal chat) ---
 		try {
-			const bio = await getUserBio(ctx.telegram, user.id);
+			const profile = await getUserProfile(ctx.telegram, user.id);
 
-			if (bio) {
-				logger.info("[REACTION_BIO]", {
-					userId: user.id,
-					username: user.username,
-					bio: bio.substring(0, 200),
-				});
-			} else {
-				logger.info("[REACTION_NO_BIO]", {
-					userId: user.id,
-					username: user.username,
-				});
-			}
+			logger.info("[REACTION_PROFILE]", {
+				userId: user.id,
+				username: user.username,
+				bio: profile.bio?.substring(0, 200) ?? null,
+				personalChat: profile.personalChatTitle ?? null,
+			});
 
-			if (isSpamBio(bio)) {
-				StructuredLogger.logSecurityEvent("Spam bot detected via bio pattern", {
+			const spamField = detectSpamProfile(profile);
+			if (spamField) {
+				const matchedValue =
+					spamField === "bio" ? profile.bio : profile.personalChatTitle;
+
+				StructuredLogger.logSecurityEvent("Spam bot detected via profile", {
 					userId: user.id,
 					username: user.username,
-					bio: bio?.substring(0, 200),
+					matchedField: spamField,
+					matchedValue: matchedValue?.substring(0, 200),
 					chatId: chat.id,
-					operation: "reaction_spam_bio",
+					operation: "reaction_spam_profile",
 				});
 
 				try {
@@ -321,11 +340,11 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						username: user.username,
 						firstName: user.first_name,
 						chatId: chat.id,
-						reason: "spam_bio",
-						bio: bio?.substring(0, 100),
+						reason: `spam_${spamField}`,
+						matchedValue: matchedValue?.substring(0, 100),
 					});
 				} catch (kickError) {
-					logger.error("Failed to kick spam bot (bio)", {
+					logger.error("Failed to kick spam bot (profile)", {
 						userId: user.id,
 						chatId: chat.id,
 						error: kickError,
@@ -334,7 +353,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				return; // Already handled
 			}
 		} catch (error) {
-			logger.error("Error checking user bio for spam", {
+			logger.error("Error checking user profile for spam", {
 				userId: user.id,
 				chatId: chat.id,
 				error,
