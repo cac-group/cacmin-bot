@@ -323,9 +323,7 @@ async function main() {
 				"message_reaction", // Required for reaction spam detection
 			],
 		});
-		logger.info(
-			"Bot started successfully (with message_reaction updates enabled)",
-		);
+		logger.info("Bot started successfully");
 		console.log(" CAC Admin Bot is running...");
 	} catch (error) {
 		logger.error("Failed to start bot", error);
