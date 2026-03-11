@@ -242,6 +242,21 @@ export const mainMenuKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
+ * Spam pattern field selection keyboard.
+ * Used in the interactive /addspampattern flow.
+ */
+export const spamPatternFieldKeyboard: InlineKeyboardMarkup = {
+	inline_keyboard: [
+		[
+			{ text: "Bio", callback_data: "spamfield_bio" },
+			{ text: "Channel Title", callback_data: "spamfield_channel" },
+		],
+		[{ text: "Both", callback_data: "spamfield_both" }],
+		[{ text: "Cancel", callback_data: "cancel" }],
+	],
+};
+
+/**
  * Restriction severity level keyboard.
  * Used in step 2 of the interactive /addrestriction flow.
  *

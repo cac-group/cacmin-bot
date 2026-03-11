@@ -13,6 +13,7 @@ import { execute, get } from "../database";
 import { scheduleDelete } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
+import { getDbSpamPatterns } from "./spamPatterns";
 
 /** Minimum messages a user must have sent before being exempt from spam checks */
 const MIN_MESSAGES_FOR_EXEMPTION = 10;
@@ -46,6 +47,8 @@ const SPAM_BIO_PATTERNS = [
 	/meet\s*single/i, // Dating spam
 	/sexy?\s*(girl|video|photo)/i, // Explicit content spam
 	/\uD83D\uDD1E/, // 18+ emoji
+	/bonus\s*\d+\s*\$/i, // "BONUS 1000$" scam channel spam
+	/elon\s*musk/i, // Elon Musk crypto scam channels
 ];
 
 /**
@@ -91,22 +94,54 @@ interface UserProfile {
 }
 
 /**
- * Checks if any profile text matches spam patterns.
+ * Checks if any profile text matches spam patterns (built-in or DB-managed).
  *
  * @param profile - The user's profile info (bio and/or personal chat title)
- * @returns The matched field name, or null if no match
+ * @returns Object with matched field and pattern info, or null if no match
  */
-function detectSpamProfile(profile: UserProfile): string | null {
+function detectSpamProfile(
+	profile: UserProfile,
+): { field: string; patternSource: string } | null {
 	const fields: [string, string | undefined][] = [
 		["bio", profile.bio],
 		["personal_chat", profile.personalChatTitle],
 	];
 
+	// Check built-in patterns (always match both fields)
 	for (const [field, value] of fields) {
 		if (value && SPAM_BIO_PATTERNS.some((pattern) => pattern.test(value))) {
-			return field;
+			return { field, patternSource: "builtin" };
 		}
 	}
+
+	// Check DB-managed patterns with field targeting
+	const dbPatterns = getDbSpamPatterns();
+	for (const dbPattern of dbPatterns) {
+		const fieldsToCheck: [string, string | undefined][] = [];
+		if (dbPattern.matchField === "bio" || dbPattern.matchField === "both") {
+			fieldsToCheck.push(["bio", profile.bio]);
+		}
+		if (dbPattern.matchField === "channel" || dbPattern.matchField === "both") {
+			fieldsToCheck.push(["personal_chat", profile.personalChatTitle]);
+		}
+
+		for (const [field, value] of fieldsToCheck) {
+			if (value) {
+				try {
+					dbPattern.compiled.regex.lastIndex = 0;
+					if (dbPattern.compiled.regex.test(value)) {
+						return {
+							field,
+							patternSource: `db#${dbPattern.id}:${dbPattern.raw}`,
+						};
+					}
+				} catch {
+					// Skip broken patterns
+				}
+			}
+		}
+	}
+
 	return null;
 }
 
@@ -391,16 +426,17 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				personalChat: profile.personalChatTitle ?? null,
 			});
 
-			const spamField = detectSpamProfile(profile);
-			if (spamField) {
+			const spamMatch = detectSpamProfile(profile);
+			if (spamMatch) {
 				const matchedValue =
-					spamField === "bio" ? profile.bio : profile.personalChatTitle;
+					spamMatch.field === "bio" ? profile.bio : profile.personalChatTitle;
 
 				StructuredLogger.logSecurityEvent("Spam bot detected via profile", {
 					userId: user.id,
 					username: user.username,
-					matchedField: spamField,
+					matchedField: spamMatch.field,
 					matchedValue: matchedValue?.substring(0, 200),
+					patternSource: spamMatch.patternSource,
 					chatId: chat.id,
 					operation: "reaction_spam_profile",
 				});
@@ -423,7 +459,8 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						username: user.username,
 						firstName: user.first_name,
 						chatId: chat.id,
-						reason: `spam_${spamField}`,
+						reason: `spam_${spamMatch.field}`,
+						patternSource: spamMatch.patternSource,
 						matchedValue: matchedValue?.substring(0, 100),
 					});
 				} catch (banError) {

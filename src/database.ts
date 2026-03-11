@@ -510,6 +510,18 @@ export const initDb = (): void => {
     );
   `);
 
+	// Spam profile pattern management table
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS spam_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pattern TEXT NOT NULL UNIQUE,
+      match_field TEXT NOT NULL DEFAULT 'both',
+      description TEXT,
+      added_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+  `);
+
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -557,6 +569,9 @@ export const initDb = (): void => {
     CREATE INDEX IF NOT EXISTS idx_duels_opponent ON duels(opponent_id);
     CREATE INDEX IF NOT EXISTS idx_duels_status ON duels(status);
     CREATE INDEX IF NOT EXISTS idx_duels_expires ON duels(expires_at);
+
+    -- Spam pattern indexes
+    CREATE INDEX IF NOT EXISTS idx_spam_patterns_field ON spam_patterns(match_field);
   `);
 
 	logger.info("Database schema initialized");

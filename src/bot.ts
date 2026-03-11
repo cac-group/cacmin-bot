@@ -35,6 +35,7 @@ import {
 import { registerReactionSpamHandler } from "./handlers/reactionSpam";
 import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
+import { registerSpamPatternHandlers } from "./handlers/spamPatterns";
 import { registerViolationHandlers } from "./handlers/violations";
 import { messageFilterMiddleware } from "./middleware/messageFilter";
 import { ChatIndexerService } from "./services/chatIndexerService";
@@ -168,6 +169,7 @@ async function main() {
 		registerGamblingCommands(bot); // Roll gambling game
 		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
+		registerSpamPatternHandlers(bot); // Spam profile pattern management
 		registerReactionSpamHandler(bot); // Reaction-based spam detection
 
 		// Session text handler for multi-step interactive flows
