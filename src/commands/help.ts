@@ -128,7 +128,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 
 	// Handle help category callbacks - specific categories only, exclude 'menu' and 'games'
 	bot.action(
-		/^help_(wallet|shared|user|giveaways|payments|elevated|admin|owner)$/,
+		/^help_(wallet|shared|user|giveaways|payments|elevated|admin|owner|spampatterns)$/,
 		async (ctx) => {
 			const category = ctx.match[1];
 			const userId = ctx.from?.id;
@@ -248,7 +248,10 @@ function buildHelpMenu(role: string): InlineKeyboardMarkup {
 	}
 
 	if (role === "owner") {
-		buttons.push([{ text: "Owner", callback_data: "help_owner" }]);
+		buttons.push([
+			{ text: "Spam Patterns", callback_data: "help_spampatterns" },
+			{ text: "Owner", callback_data: "help_owner" },
+		]);
 	}
 
 	return { inline_keyboard: buttons };
@@ -503,6 +506,38 @@ const helpContent: Record<string, FmtString> = {
 		"  Contribute JUNO from your balance to the game treasury. Helps fund game payouts like /roll wins.",
 	]),
 
+	spampatterns: fmt([
+		bold("Spam Pattern Management"),
+		"\n\n",
+		"Manage patterns matched against profiles of users who react to messages. Low-message users matching a pattern are permanently banned.\n\n",
+		bold("Profile Fields:"),
+		"\n",
+		bold("bio"),
+		" - The user's biography text\n",
+		bold("channel"),
+		" - The user's linked personal channel title\n",
+		bold("both"),
+		" (default) - Match against both fields\n\n",
+		"/addspampattern [pattern] [bio|channel|both]\n",
+		"  Add a spam profile pattern. No args for interactive mode.\n\n",
+		"/removespampattern <id>\n",
+		"  Remove a pattern by its ID.\n\n",
+		"/listspampatterns\n",
+		"  View all active custom patterns.\n\n",
+		"/testspampattern <pattern> <sample>\n",
+		"  Test a pattern against sample text without saving.\n\n",
+		"/spampatternhelp\n",
+		"  Detailed guide with examples.\n\n",
+		bold("Examples:"),
+		"\n",
+		code('/addspampattern "bonus" channel'),
+		'\n  Bans users with "BONUS" in their channel title\n\n',
+		code("/addspampattern /elon\\s*musk/i channel"),
+		'\n  Bans users with "Elon Musk" scam channels\n\n',
+		code('/addspampattern "18+" bio'),
+		'\n  Bans users with "18+" in their bio',
+	]),
+
 	owner: fmt([
 		bold("Owner Commands"),
 		"\n\n",
@@ -574,6 +609,7 @@ const categoryRoleRequirements: Record<string, string[]> = {
 	payments: ["pleb", "elevated", "admin", "owner"],
 	elevated: ["elevated", "admin", "owner"],
 	admin: ["admin", "owner"],
+	spampatterns: ["owner"],
 	owner: ["owner"],
 };
 

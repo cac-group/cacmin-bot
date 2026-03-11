@@ -35,6 +35,7 @@ import {
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
+import { addPattern, type SpamPatternField } from "./spamPatterns";
 
 interface Giveaway {
 	id: number;
@@ -149,6 +150,7 @@ const callbackHandlers: Array<{ prefix: string; handler: CallbackHandler }> = [
 	{ prefix: "confirm_", handler: handleConfirmationCallback },
 	{ prefix: "menu_", handler: handleMenuCallback },
 	{ prefix: "select_user_", handler: handleUserSelectionCallback },
+	{ prefix: "spamfield_", handler: handleSpamFieldCallback },
 ];
 
 /**
@@ -1178,6 +1180,8 @@ export async function handleSessionText(ctx: Context): Promise<boolean> {
 			case "list_remove_white":
 			case "list_remove_black":
 				return await processListSession(ctx, session, text);
+			case "add_spam_pattern":
+				return await processAddSpamPatternSession(ctx, session, text);
 			default:
 				return false;
 		}
@@ -1590,5 +1594,79 @@ async function processListSession(
 	});
 
 	clearSession(adminId);
+	return true;
+}
+
+/**
+ * Handles spam pattern field selection from the inline keyboard.
+ * Stores the selected field in session and prompts for the pattern text.
+ *
+ * @param ctx - Telegraf callback query context
+ * @param data - Callback data in format "spamfield_<field>"
+ * @param userId - ID of the user who clicked the button
+ */
+async function handleSpamFieldCallback(
+	ctx: Context,
+	data: string,
+	userId: number,
+): Promise<void> {
+	if (!verifyAdminRole(userId)) {
+		await ctx.editMessageText(
+			"Your privileges have been revoked. Action cancelled.",
+		);
+		return;
+	}
+
+	const field = data.replace("spamfield_", "") as SpamPatternField;
+	const fieldLabel =
+		field === "bio" ? "Bio" : field === "channel" ? "Channel Title" : "Both";
+
+	setSession(userId, "add_spam_pattern", 1, { field });
+
+	await ctx.editMessageText(
+		fmt`${bold(`Add Spam Pattern [${fieldLabel}]`)}
+
+Reply with the pattern to match against user profiles.
+
+${bold("Pattern formats:")}
+${code('"simple text"')} - case-insensitive substring
+${code("*wild*card*")} - wildcard matching
+${code("/regex/i")} - full regex
+
+${bold("Examples:")}
+${code("bonus 1000")} - matches "BONUS 1000$"
+${code("/elon\\s*musk/i")} - matches "Elon Musk"
+${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
+	);
+}
+
+/**
+ * Processes text input for the add_spam_pattern interactive session.
+ * Called when a user replies with a pattern after selecting a field.
+ *
+ * @param ctx - Telegraf context
+ * @param session - Current session data containing the selected field
+ * @param text - User's text input (the pattern)
+ * @returns True if handled
+ */
+async function processAddSpamPatternSession(
+	ctx: Context,
+	session: SessionData,
+	text: string,
+): Promise<boolean> {
+	const userId = ctx.from?.id;
+	if (!userId) return false;
+
+	if (!verifyAdminRole(userId)) {
+		await ctx.reply("Your privileges have been revoked. Action cancelled.");
+		clearSession(userId);
+		return true;
+	}
+
+	const field = session.data.field as SpamPatternField;
+	const pattern = text.trim();
+
+	clearSession(userId);
+	await addPattern(ctx, userId, pattern, field);
 	return true;
 }
