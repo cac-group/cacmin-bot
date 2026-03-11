@@ -242,10 +242,10 @@ export const mainMenuKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
- * Spam pattern field selection keyboard.
- * Used in the interactive /addspampattern flow.
+ * Spam react field selection keyboard.
+ * Used in the interactive /addspamreact flow.
  */
-export const spamPatternFieldKeyboard: InlineKeyboardMarkup = {
+export const spamReactFieldKeyboard: InlineKeyboardMarkup = {
 	inline_keyboard: [
 		[
 			{ text: "Bio", callback_data: "spamfield_bio" },

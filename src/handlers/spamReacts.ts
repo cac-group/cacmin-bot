@@ -1,20 +1,20 @@
 /**
- * Spam profile pattern management handlers for the CAC Admin Bot.
- * Provides commands for adding, removing, listing, and testing spam patterns
+ * Spam reaction pattern management handlers for the CAC Admin Bot.
+ * Provides commands for adding, removing, listing, and testing patterns
  * that are matched against user bios and personal channel titles during
  * reaction-based spam detection.
  *
  * Patterns are stored in the database and loaded with caching to avoid
  * repeated DB queries on every reaction event.
  *
- * @module handlers/spamPatterns
+ * @module handlers/spamReacts
  */
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { execute, get, query } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware";
-import { spamPatternFieldKeyboard } from "../utils/keyboards";
+import { spamReactFieldKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import {
 	type CompiledPattern,
@@ -22,32 +22,32 @@ import {
 	validatePattern,
 } from "../utils/safeRegex";
 
-/** Valid match field values for spam patterns */
-export type SpamPatternField = "bio" | "channel" | "both";
+/** Valid match field values for spam react patterns */
+export type SpamReactField = "bio" | "channel" | "both";
 
-/** Database row shape for a spam pattern */
-export interface SpamPatternRow {
+/** Database row shape for a spam react pattern */
+export interface SpamReactRow {
 	id: number;
 	pattern: string;
-	match_field: SpamPatternField;
+	match_field: SpamReactField;
 	description: string | null;
 	added_by: number | null;
 	created_at: number;
 }
 
-/** Compiled spam pattern with field targeting */
-export interface CompiledSpamPattern {
+/** Compiled spam react pattern with field targeting */
+export interface CompiledSpamReact {
 	id: number;
 	raw: string;
 	compiled: CompiledPattern;
-	matchField: SpamPatternField;
+	matchField: SpamReactField;
 	description: string | null;
 }
 
 // --- Pattern Cache ---
 
 /** Cached compiled patterns */
-let cachedPatterns: CompiledSpamPattern[] | null = null;
+let cachedPatterns: CompiledSpamReact[] | null = null;
 
 /** Timestamp of last cache refresh */
 let cacheTimestamp = 0;
@@ -56,32 +56,32 @@ let cacheTimestamp = 0;
 const CACHE_TTL_MS = 60_000;
 
 /**
- * Invalidates the spam pattern cache.
+ * Invalidates the spam react pattern cache.
  * Call after adding or removing patterns to ensure immediate effect.
  */
-export function invalidateSpamPatternCache(): void {
+export function invalidateSpamReactCache(): void {
 	cachedPatterns = null;
 	cacheTimestamp = 0;
 }
 
 /**
- * Returns compiled spam patterns from the database, with caching.
+ * Returns compiled spam react patterns from the database, with caching.
  * Patterns are refreshed every 60 seconds or when the cache is explicitly invalidated.
  *
- * @returns Array of compiled spam patterns
+ * @returns Array of compiled spam react patterns
  */
-export function getDbSpamPatterns(): CompiledSpamPattern[] {
+export function getDbSpamReacts(): CompiledSpamReact[] {
 	const now = Date.now();
 	if (cachedPatterns && now - cacheTimestamp < CACHE_TTL_MS) {
 		return cachedPatterns;
 	}
 
-	const rows = query<SpamPatternRow>(
+	const rows = query<SpamReactRow>(
 		"SELECT * FROM spam_patterns ORDER BY id",
 		[],
 	);
 
-	const compiled: CompiledSpamPattern[] = [];
+	const compiled: CompiledSpamReact[] = [];
 	for (const row of rows) {
 		try {
 			const pattern = compileSafeRegex(row.pattern);
@@ -93,7 +93,7 @@ export function getDbSpamPatterns(): CompiledSpamPattern[] {
 				description: row.description,
 			});
 		} catch (error) {
-			logger.error("Failed to compile DB spam pattern", {
+			logger.error("Failed to compile DB spam react pattern", {
 				patternId: row.id,
 				pattern: row.pattern,
 				error,
@@ -107,26 +107,26 @@ export function getDbSpamPatterns(): CompiledSpamPattern[] {
 }
 
 /**
- * Registers all spam pattern management commands with the bot.
+ * Registers all spam reaction pattern management commands with the bot.
  *
  * Commands:
- * - /addspampattern - Add a spam profile pattern (owner only)
- * - /removespampattern - Remove a pattern by ID (owner only)
- * - /listspampatterns - List all active patterns (admin or higher)
- * - /spampatternhelp - Detailed usage guide with examples
+ * - /addspamreact - Add a spam reaction pattern (owner only)
+ * - /removespamreact - Remove a pattern by ID (owner only)
+ * - /listspamreacts - List all active patterns (admin or higher)
+ * - /spamreacthelp - Detailed usage guide with examples
  *
  * @param bot - Telegraf bot instance
  */
-export function registerSpamPatternHandlers(bot: Telegraf<Context>): void {
+export function registerSpamReactHandlers(bot: Telegraf<Context>): void {
 	/**
-	 * Command: /addspampattern [pattern] [bio|channel|both]
+	 * Command: /addspamreact [pattern] [bio|channel|both]
 	 *
 	 * Interactive mode (no args): Shows field selection keyboard.
 	 * Command mode: Adds pattern directly.
 	 *
 	 * Permission: Owner only
 	 */
-	bot.command("addspampattern", ownerOnly, async (ctx) => {
+	bot.command("addspamreact", ownerOnly, async (ctx) => {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
@@ -135,7 +135,7 @@ export function registerSpamPatternHandlers(bot: Telegraf<Context>): void {
 		// No args -> interactive keyboard flow
 		if (!rawArgs.trim()) {
 			return ctx.reply(
-				fmt`${bold("Add Spam Profile Pattern")}
+				fmt`${bold("Add Spam Reaction Pattern")}
 
 Select which profile field this pattern should match against:
 
@@ -146,24 +146,24 @@ ${bold("Both")} - Match against both fields
 After selecting, you'll be prompted to enter the pattern.
 
 Or use the command directly:
-${code('/addspampattern "pattern" [bio|channel|both]')}
+${code('/addspamreact "pattern" [bio|channel|both]')}
 
-For detailed help: ${code("/spampatternhelp")}`,
+For detailed help: ${code("/spamreacthelp")}`,
 				{
-					reply_markup: spamPatternFieldKeyboard,
+					reply_markup: spamReactFieldKeyboard,
 				},
 			);
 		}
 
 		// Parse args: pattern (possibly quoted) followed by optional field
-		const { pattern, field, description } = parseSpamPatternArgs(rawArgs);
+		const { pattern, field, description } = parseSpamReactArgs(rawArgs);
 		if (!pattern) {
 			return ctx.reply(
 				fmt`Invalid syntax. Usage:
-${code('/addspampattern "pattern" [bio|channel|both]')}
-${code("/addspampattern /regex/i [bio|channel|both]")}
+${code('/addspamreact "pattern" [bio|channel|both]')}
+${code("/addspamreact /regex/i [bio|channel|both]")}
 
-For help: ${code("/spampatternhelp")}`,
+For help: ${code("/spamreacthelp")}`,
 			);
 		}
 
@@ -171,12 +171,12 @@ For help: ${code("/spampatternhelp")}`,
 	});
 
 	/**
-	 * Command: /removespampattern <id>
-	 * Removes a spam pattern by its ID.
+	 * Command: /removespamreact <id>
+	 * Removes a spam reaction pattern by its ID.
 	 *
 	 * Permission: Owner only
 	 */
-	bot.command("removespampattern", ownerOnly, async (ctx) => {
+	bot.command("removespamreact", ownerOnly, async (ctx) => {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
@@ -185,9 +185,9 @@ For help: ${code("/spampatternhelp")}`,
 
 		if (!idStr) {
 			return ctx.reply(
-				fmt`Usage: ${code("/removespampattern <id>")}
+				fmt`Usage: ${code("/removespamreact <id>")}
 
-Use ${code("/listspampatterns")} to see pattern IDs.`,
+Use ${code("/listspamreacts")} to see pattern IDs.`,
 			);
 		}
 
@@ -196,47 +196,47 @@ Use ${code("/listspampatterns")} to see pattern IDs.`,
 			return ctx.reply("Invalid pattern ID. Must be a number.");
 		}
 
-		const existing = get<SpamPatternRow>(
+		const existing = get<SpamReactRow>(
 			"SELECT * FROM spam_patterns WHERE id = ?",
 			[patternId],
 		);
 		if (!existing) {
-			return ctx.reply(`No spam pattern found with ID ${patternId}.`);
+			return ctx.reply(`No spam react pattern found with ID ${patternId}.`);
 		}
 
 		execute("DELETE FROM spam_patterns WHERE id = ?", [patternId]);
-		invalidateSpamPatternCache();
+		invalidateSpamReactCache();
 
-		StructuredLogger.logSecurityEvent("Spam pattern removed", {
+		StructuredLogger.logSecurityEvent("Spam react pattern removed", {
 			userId,
-			operation: "remove_spam_pattern",
+			operation: "remove_spam_react",
 			patternId,
 			pattern: existing.pattern,
 			matchField: existing.match_field,
 		});
 
 		await ctx.reply(
-			fmt`Spam pattern #${patternId} removed.
+			fmt`Spam react pattern #${patternId} removed.
 Pattern: ${code(existing.pattern)}
 Field: ${existing.match_field}`,
 		);
 	});
 
 	/**
-	 * Command: /listspampatterns
-	 * Lists all active spam profile patterns.
+	 * Command: /listspamreacts
+	 * Lists all active spam reaction patterns.
 	 *
 	 * Permission: Admin or higher
 	 */
-	bot.command("listspampatterns", adminOrHigher, async (ctx) => {
-		const rows = query<SpamPatternRow>(
+	bot.command("listspamreacts", adminOrHigher, async (ctx) => {
+		const rows = query<SpamReactRow>(
 			"SELECT * FROM spam_patterns ORDER BY id",
 			[],
 		);
 
 		if (rows.length === 0) {
 			return ctx.reply(
-				"No custom spam patterns configured. Only built-in patterns are active.",
+				"No custom spam react patterns configured. Only built-in patterns are active.",
 			);
 		}
 
@@ -247,28 +247,28 @@ Field: ${existing.match_field}`,
 		});
 
 		await ctx.reply(
-			fmt`${bold("Spam Profile Patterns")}
+			fmt`${bold("Spam Reaction Patterns")}
 
 ${lines.join("\n")}
 
 ${bold("Built-in patterns")} (always active):
 18+, secret place, onlyfans, adult content, private video, hot content, free nudes, dating site, sexy content, bonus scam, elon musk
 
-Use ${code("/removespampattern <id>")} to remove a pattern.`,
+Use ${code("/removespamreact <id>")} to remove a pattern.`,
 		);
 	});
 
 	/**
-	 * Command: /testspampattern <pattern> <sample_text>
+	 * Command: /testspamreact <pattern> <sample_text>
 	 * Tests a pattern against sample text without saving it.
 	 *
 	 * Permission: Owner only
 	 */
-	bot.command("testspampattern", ownerOnly, async (ctx) => {
+	bot.command("testspamreact", ownerOnly, async (ctx) => {
 		const rawArgs = ctx.message?.text.split(" ").slice(1).join(" ") || "";
 		if (!rawArgs.trim()) {
 			return ctx.reply(
-				fmt`Usage: ${code('/testspampattern "pattern" sample text here')}
+				fmt`Usage: ${code('/testspamreact "pattern" sample text here')}
 
 Tests whether a pattern would match the given sample text.`,
 			);
@@ -277,8 +277,8 @@ Tests whether a pattern would match the given sample text.`,
 		const { pattern, remainder } = parsePatternAndRemainder(rawArgs);
 		if (!pattern || !remainder) {
 			return ctx.reply(
-				fmt`Usage: ${code('/testspampattern "pattern" sample text here')}
-${code("/testspampattern /regex/i sample text here")}`,
+				fmt`Usage: ${code('/testspamreact "pattern" sample text here')}
+${code("/testspamreact /regex/i sample text here")}`,
 			);
 		}
 
@@ -305,16 +305,16 @@ Result: ${matches ? "MATCH" : "no match"}`,
 	});
 
 	/**
-	 * Command: /spampatternhelp
-	 * Displays detailed usage guide for spam pattern management.
+	 * Command: /spamreacthelp
+	 * Displays detailed usage guide for spam reaction pattern management.
 	 *
 	 * Permission: Admin or higher
 	 */
-	bot.command("spampatternhelp", adminOrHigher, async (ctx) => {
+	bot.command("spamreacthelp", adminOrHigher, async (ctx) => {
 		await ctx.reply(
-			fmt`${bold("Spam Profile Pattern Guide")}
+			fmt`${bold("Spam Reaction Pattern Guide")}
 
-Spam patterns are matched against the profiles of users who react to messages. If a low-message user's profile matches, they are permanently banned.
+Spam reaction patterns are matched against the profiles of users who react to messages. If a low-message user's profile matches, they are permanently banned.
 
 ${bold("Profile Fields:")}
 
@@ -329,48 +329,48 @@ ${bold("both")} (default) - Matches against both fields
 ${bold("Pattern Types:")}
 
 ${bold("Simple text")} (case-insensitive substring match):
-${code('/addspampattern "bonus" channel')}
+${code('/addspamreact "bonus" channel')}
 Matches: "BONUS 1000$", "Get your bonus now"
 
 ${bold("Wildcards")} (* = any chars, ? = single char):
-${code('/addspampattern "free*nudes" bio')}
+${code('/addspamreact "free*nudes" bio')}
 Matches: "free nudes", "free hot nudes"
 
 ${bold("Regex")} (/pattern/flags format):
-${code("/addspampattern /bonus\\s*\\d+\\s*\\$/i channel")}
+${code("/addspamreact /bonus\\s*\\d+\\s*\\$/i channel")}
 Matches: "BONUS 1000$", "bonus 500 $"
 
 ${bold("Examples:")}
 
 Block "crypto giveaway" scam channels:
-${code('/addspampattern "crypto giveaway" channel')}
+${code('/addspamreact "crypto giveaway" channel')}
 
 Block channels with dollar amounts:
-${code("/addspampattern /\\d+\\s*\\$/i channel")}
+${code("/addspamreact /\\d+\\s*\\$/i channel")}
 
 Block bio spam with adult content:
-${code("/addspampattern /cam\\s*girl/i bio")}
+${code("/addspamreact /cam\\s*girl/i bio")}
 
 Block "Elon Musk" scam channels:
-${code('/addspampattern "elon musk" channel')}
+${code('/addspamreact "elon musk" channel')}
 
 ${bold("Testing:")}
-${code('/testspampattern "bonus" BONUS 1000$')}
+${code('/testspamreact "bonus" BONUS 1000$')}
 Tests a pattern against sample text without saving.
 
 ${bold("Management:")}
-${code("/listspampatterns")} - View all patterns
-${code("/removespampattern <id>")} - Remove by ID`,
+${code("/listspamreacts")} - View all patterns
+${code("/removespamreact <id>")} - Remove by ID`,
 		);
 	});
 
-	logger.info("Spam pattern management handlers registered");
+	logger.info("Spam reaction pattern handlers registered");
 }
 
 // --- Internal helpers ---
 
 /**
- * Adds a spam pattern to the database after validation.
+ * Adds a spam reaction pattern to the database after validation.
  *
  * @param ctx - Telegraf context for replying
  * @param userId - ID of the user adding the pattern
@@ -382,7 +382,7 @@ export async function addPattern(
 	ctx: Context,
 	userId: number,
 	pattern: string,
-	field: SpamPatternField,
+	field: SpamReactField,
 	description?: string,
 ): Promise<void> {
 	// Validate the pattern
@@ -405,7 +405,7 @@ export async function addPattern(
 	}
 
 	// Check for duplicate
-	const existing = get<SpamPatternRow>(
+	const existing = get<SpamReactRow>(
 		"SELECT * FROM spam_patterns WHERE pattern = ?",
 		[sanitized],
 	);
@@ -421,16 +421,16 @@ export async function addPattern(
 		"INSERT INTO spam_patterns (pattern, match_field, description, added_by) VALUES (?, ?, ?, ?)",
 		[sanitized, field, description || null, userId],
 	);
-	invalidateSpamPatternCache();
+	invalidateSpamReactCache();
 
-	const inserted = get<SpamPatternRow>(
+	const inserted = get<SpamReactRow>(
 		"SELECT * FROM spam_patterns WHERE pattern = ?",
 		[sanitized],
 	);
 
-	StructuredLogger.logSecurityEvent("Spam pattern added", {
+	StructuredLogger.logSecurityEvent("Spam react pattern added", {
 		userId,
-		operation: "add_spam_pattern",
+		operation: "add_spam_react",
 		patternId: inserted?.id,
 		pattern: sanitized,
 		matchField: field,
@@ -438,7 +438,7 @@ export async function addPattern(
 	});
 
 	await ctx.reply(
-		fmt`Spam pattern added (#${inserted?.id || "?"}).
+		fmt`Spam react pattern added (#${inserted?.id || "?"}).
 Pattern: ${code(sanitized)}
 Field: ${field}${description ? `\nDescription: ${description}` : ""}
 
@@ -447,20 +447,20 @@ Bots matching this in their profile will be auto-banned on first reaction.`,
 }
 
 /**
- * Parses command arguments for /addspampattern.
+ * Parses command arguments for /addspamreact.
  * Supports quoted patterns and optional field/description.
  *
  * @param rawArgs - Raw argument string after the command
  * @returns Parsed pattern, field, and description
  */
-function parseSpamPatternArgs(rawArgs: string): {
+function parseSpamReactArgs(rawArgs: string): {
 	pattern: string | null;
-	field: SpamPatternField;
+	field: SpamReactField;
 	description?: string;
 } {
 	let pattern: string | null = null;
 	let remaining = rawArgs.trim();
-	let field: SpamPatternField = "both";
+	let field: SpamReactField = "both";
 
 	// Handle quoted pattern
 	if (remaining.startsWith('"')) {
@@ -497,7 +497,7 @@ function parseSpamPatternArgs(rawArgs: string): {
 	// Parse optional field
 	const parts = remaining.split(/\s+/);
 	if (parts[0] && ["bio", "channel", "both"].includes(parts[0])) {
-		field = parts[0] as SpamPatternField;
+		field = parts[0] as SpamReactField;
 		remaining = parts.slice(1).join(" ").trim();
 	}
 
@@ -509,7 +509,7 @@ function parseSpamPatternArgs(rawArgs: string): {
 }
 
 /**
- * Parses a pattern and remaining text from /testspampattern args.
+ * Parses a pattern and remaining text from /testspamreact args.
  *
  * @param rawArgs - Raw argument string
  * @returns Pattern and remainder text

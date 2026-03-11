@@ -35,7 +35,7 @@ import {
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
-import { addPattern, type SpamPatternField } from "./spamPatterns";
+import { addPattern, type SpamReactField } from "./spamReacts";
 
 interface Giveaway {
 	id: number;
@@ -1180,8 +1180,8 @@ export async function handleSessionText(ctx: Context): Promise<boolean> {
 			case "list_remove_white":
 			case "list_remove_black":
 				return await processListSession(ctx, session, text);
-			case "add_spam_pattern":
-				return await processAddSpamPatternSession(ctx, session, text);
+			case "add_spam_react":
+				return await processAddSpamReactSession(ctx, session, text);
 			default:
 				return false;
 		}
@@ -1598,7 +1598,7 @@ async function processListSession(
 }
 
 /**
- * Handles spam pattern field selection from the inline keyboard.
+ * Handles spam react field selection from the inline keyboard.
  * Stores the selected field in session and prompts for the pattern text.
  *
  * @param ctx - Telegraf callback query context
@@ -1617,14 +1617,14 @@ async function handleSpamFieldCallback(
 		return;
 	}
 
-	const field = data.replace("spamfield_", "") as SpamPatternField;
+	const field = data.replace("spamfield_", "") as SpamReactField;
 	const fieldLabel =
 		field === "bio" ? "Bio" : field === "channel" ? "Channel Title" : "Both";
 
-	setSession(userId, "add_spam_pattern", 1, { field });
+	setSession(userId, "add_spam_react", 1, { field });
 
 	await ctx.editMessageText(
-		fmt`${bold(`Add Spam Pattern [${fieldLabel}]`)}
+		fmt`${bold(`Add Spam Reaction Pattern [${fieldLabel}]`)}
 
 Reply with the pattern to match against user profiles.
 
@@ -1641,7 +1641,7 @@ ${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
 }
 
 /**
- * Processes text input for the add_spam_pattern interactive session.
+ * Processes text input for the add_spam_react interactive session.
  * Called when a user replies with a pattern after selecting a field.
  *
  * @param ctx - Telegraf context
@@ -1649,7 +1649,7 @@ ${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
  * @param text - User's text input (the pattern)
  * @returns True if handled
  */
-async function processAddSpamPatternSession(
+async function processAddSpamReactSession(
 	ctx: Context,
 	session: SessionData,
 	text: string,
@@ -1663,7 +1663,7 @@ async function processAddSpamPatternSession(
 		return true;
 	}
 
-	const field = session.data.field as SpamPatternField;
+	const field = session.data.field as SpamReactField;
 	const pattern = text.trim();
 
 	clearSession(userId);

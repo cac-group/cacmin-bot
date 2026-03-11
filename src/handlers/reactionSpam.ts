@@ -13,7 +13,7 @@ import { execute, get } from "../database";
 import { scheduleDelete } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
-import { getDbSpamPatterns } from "./spamPatterns";
+import { getDbSpamReacts } from "./spamReacts";
 
 /** Minimum messages a user must have sent before being exempt from spam checks */
 const MIN_MESSAGES_FOR_EXEMPTION = 10;
@@ -115,7 +115,7 @@ function detectSpamProfile(
 	}
 
 	// Check DB-managed patterns with field targeting
-	const dbPatterns = getDbSpamPatterns();
+	const dbPatterns = getDbSpamReacts();
 	for (const dbPattern of dbPatterns) {
 		const fieldsToCheck: [string, string | undefined][] = [];
 		if (dbPattern.matchField === "bio" || dbPattern.matchField === "both") {
