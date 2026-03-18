@@ -438,10 +438,10 @@ async function handleAutoJailCallback(
 Reply with the pattern to block. Examples:
 ${code('"fa99ot"')} - simple text match
 ${code('"spam*here"')} - wildcard match
-${code('/\\b(word1|word2)\\b/i')} - regex pattern
+${code("/\\b(word1|word2)\\b/i")} - regex pattern
 
 Multiple words can be combined with | in regex:
-${code('/\\b(fa99ot|fa990t)\\b/i')}`,
+${code("/\\b(fa99ot|fa990t)\\b/i")}`,
 		);
 		return;
 	}
@@ -1290,7 +1290,14 @@ async function processAddRestrictionSession(
 			return true;
 		}
 
-		const { targetId, severity, threshold, jailDuration, jailFine, autoJailSetting } = session.data;
+		const {
+			targetId,
+			severity,
+			threshold,
+			jailDuration,
+			jailFine,
+			autoJailSetting,
+		} = session.data;
 
 		// Strip surrounding quotes if present
 		let action = pattern;
