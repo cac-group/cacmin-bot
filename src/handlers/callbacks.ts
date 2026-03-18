@@ -35,7 +35,7 @@ import {
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
-import { addPattern, type SpamPatternField } from "./spamPatterns";
+import { addPattern, type SpamReactField } from "./spamReacts";
 
 interface Giveaway {
 	id: number;
@@ -295,6 +295,68 @@ ${bold("Select auto-jail settings:")}
 }
 
 /**
+ * Applies a restriction to a user and sends confirmation.
+ * Shared by the auto-jail callback (non-regex) and the regex pattern text handler.
+ */
+async function applyRestriction(
+	ctx: Context,
+	adminId: number,
+	targetId: number,
+	restrictionType: string,
+	action: string | undefined,
+	severity: "delete" | "mute" | "jail",
+	autoJailSetting: string,
+	threshold: number,
+	jailDuration: number,
+	jailFine: number,
+): Promise<void> {
+	addUserRestriction(
+		targetId,
+		restrictionType,
+		action,
+		undefined,
+		undefined,
+		severity,
+		threshold,
+		jailDuration,
+		jailFine,
+	);
+
+	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
+		adminId,
+		userId: targetId,
+		operation: "add_restriction",
+		restriction: restrictionType,
+		action,
+		severity,
+		autoJailSetting,
+		threshold,
+		jailDuration,
+		jailFine,
+	});
+
+	const targetDisplay = formatUserIdDisplay(targetId);
+	const autoJailText =
+		autoJailSetting === "disabled"
+			? "Auto-jail: Disabled"
+			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s), ${jailFine.toFixed(1)} JUNO fine)`;
+
+	await ctx.reply(
+		fmt`${bold("Restriction Applied")}
+
+Type: ${restrictionType}
+Target: ${targetDisplay}
+${action ? fmt`Pattern: ${code(action)}` : ""}
+Severity: ${severity}
+${autoJailText}
+
+Use ${code(`/listrestrictions ${targetId}`)} to view all restrictions.`,
+	);
+
+	clearSession(adminId);
+}
+
+/**
  * Handles auto-jail settings selection and applies the restriction.
  * This is the final step (step 3) of the interactive restriction creation flow.
  *
@@ -362,49 +424,41 @@ async function handleAutoJailCallback(
 			break;
 	}
 
-	// Apply the restriction
-	addUserRestriction(
+	// For regex_block, we need to ask for the pattern before applying
+	if (restrictionType === "regex_block") {
+		session.data.threshold = threshold;
+		session.data.jailDuration = jailDuration;
+		session.data.jailFine = jailFine;
+		session.data.autoJailSetting = autoJailSetting;
+		setSession(userId, "add_restriction", 4, session.data);
+
+		await ctx.editMessageText(
+			fmt`${bold("Regex Block Pattern")}
+
+Reply with the pattern to block. Examples:
+${code('"fa99ot"')} - simple text match
+${code('"spam*here"')} - wildcard match
+${code("/\\b(word1|word2)\\b/i")} - regex pattern
+
+Multiple words can be combined with | in regex:
+${code("/\\b(fa99ot|fa990t)\\b/i")}`,
+		);
+		return;
+	}
+
+	// Apply the restriction (non-regex types)
+	applyRestriction(
+		ctx,
+		userId,
 		targetId,
 		restrictionType,
 		undefined,
-		undefined,
-		undefined,
-		severity,
-		threshold,
-		jailDuration,
-		jailFine,
-	);
-
-	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
-		adminId: userId,
-		userId: targetId,
-		operation: "add_restriction",
-		restriction: restrictionType,
 		severity,
 		autoJailSetting,
 		threshold,
 		jailDuration,
 		jailFine,
-	});
-
-	const targetDisplay = formatUserIdDisplay(targetId);
-	const autoJailText =
-		autoJailSetting === "disabled"
-			? "Auto-jail: Disabled"
-			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s), ${jailFine.toFixed(1)} JUNO fine)`;
-
-	await ctx.editMessageText(
-		fmt`${bold("Restriction Applied")}
-
-Type: ${restrictionType}
-Target: ${targetDisplay}
-Severity: ${severity}
-${autoJailText}
-
-Use ${code(`/listrestrictions ${targetId}`)} to view all restrictions.`,
 	);
-
-	clearSession(userId);
 }
 
 /**
@@ -1180,8 +1234,8 @@ export async function handleSessionText(ctx: Context): Promise<boolean> {
 			case "list_remove_white":
 			case "list_remove_black":
 				return await processListSession(ctx, session, text);
-			case "add_spam_pattern":
-				return await processAddSpamPatternSession(ctx, session, text);
+			case "add_spam_react":
+				return await processAddSpamReactSession(ctx, session, text);
 			default:
 				return false;
 		}
@@ -1227,6 +1281,44 @@ async function processAddRestrictionSession(
 	}
 
 	const { restrictionType } = session.data;
+
+	// Step 4: Capture regex pattern for regex_block type
+	if (session.step === 4 && restrictionType === "regex_block") {
+		const pattern = text.trim();
+		if (!pattern) {
+			await ctx.reply("Please provide a non-empty pattern.");
+			return true;
+		}
+
+		const {
+			targetId,
+			severity,
+			threshold,
+			jailDuration,
+			jailFine,
+			autoJailSetting,
+		} = session.data;
+
+		// Strip surrounding quotes if present
+		let action = pattern;
+		if (action.startsWith('"') && action.endsWith('"')) {
+			action = action.slice(1, -1);
+		}
+
+		await applyRestriction(
+			ctx,
+			userId,
+			targetId,
+			restrictionType,
+			action,
+			severity,
+			autoJailSetting,
+			threshold,
+			jailDuration,
+			jailFine,
+		);
+		return true;
+	}
 
 	// Step 1: Resolve the target user from text input
 	const targetId = resolveUserId(text.trim());
@@ -1598,7 +1690,7 @@ async function processListSession(
 }
 
 /**
- * Handles spam pattern field selection from the inline keyboard.
+ * Handles spam react field selection from the inline keyboard.
  * Stores the selected field in session and prompts for the pattern text.
  *
  * @param ctx - Telegraf callback query context
@@ -1617,14 +1709,14 @@ async function handleSpamFieldCallback(
 		return;
 	}
 
-	const field = data.replace("spamfield_", "") as SpamPatternField;
+	const field = data.replace("spamfield_", "") as SpamReactField;
 	const fieldLabel =
 		field === "bio" ? "Bio" : field === "channel" ? "Channel Title" : "Both";
 
-	setSession(userId, "add_spam_pattern", 1, { field });
+	setSession(userId, "add_spam_react", 1, { field });
 
 	await ctx.editMessageText(
-		fmt`${bold(`Add Spam Pattern [${fieldLabel}]`)}
+		fmt`${bold(`Add Spam Reaction Pattern [${fieldLabel}]`)}
 
 Reply with the pattern to match against user profiles.
 
@@ -1641,7 +1733,7 @@ ${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
 }
 
 /**
- * Processes text input for the add_spam_pattern interactive session.
+ * Processes text input for the add_spam_react interactive session.
  * Called when a user replies with a pattern after selecting a field.
  *
  * @param ctx - Telegraf context
@@ -1649,7 +1741,7 @@ ${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
  * @param text - User's text input (the pattern)
  * @returns True if handled
  */
-async function processAddSpamPatternSession(
+async function processAddSpamReactSession(
 	ctx: Context,
 	session: SessionData,
 	text: string,
@@ -1663,7 +1755,7 @@ async function processAddSpamPatternSession(
 		return true;
 	}
 
-	const field = session.data.field as SpamPatternField;
+	const field = session.data.field as SpamReactField;
 	const pattern = text.trim();
 
 	clearSession(userId);
