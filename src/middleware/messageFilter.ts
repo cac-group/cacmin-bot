@@ -133,8 +133,14 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		) {
 			const cmd = msg.text.split(/[@\s]/)[0].slice(1).toLowerCase();
 			const blockedCommands = new Set([
-				"violations", "payfine", "payfines", "payallfines",
-				"verifypayment", "mystatus", "jails", "jailstats",
+				"violations",
+				"payfine",
+				"payfines",
+				"payallfines",
+				"verifypayment",
+				"mystatus",
+				"jails",
+				"jailstats",
 				"clearviolations",
 			]);
 			if (blockedCommands.has(cmd)) {
