@@ -11,6 +11,7 @@ import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { execute, get } from "../database";
 import { elevatedOrHigher } from "../middleware/index";
+import { ChatIndexerService } from "../services/chatIndexerService";
 import { JailService } from "../services/jailService";
 import { JunoService } from "../services/junoService";
 import {
@@ -18,6 +19,7 @@ import {
 	getUnpaidViolations,
 } from "../services/violationService";
 import type { User } from "../types";
+import { formatActiveTime } from "../utils/activeTime";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { escapeNumber } from "../utils/markdown";
@@ -360,6 +362,24 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			parts.push("To pay bail: /paybail\n\n");
 		} else {
 			parts.push("Not currently jailed\n\n");
+		}
+
+		// Show active time stats (match historical messages by display name)
+		const firstName = ctx.from?.first_name || "";
+		const lastName = ctx.from?.last_name || "";
+		const authorName = lastName ? `${firstName} ${lastName}` : firstName;
+		const activeStats = ChatIndexerService.getActiveTimeStats(userId, authorName);
+		if (activeStats) {
+			parts.push(bold("Activity"));
+			parts.push("\n");
+			parts.push(`Total active time: ${formatActiveTime(activeStats.totalSeconds)}\n`);
+			parts.push(`Last 7 days: ${formatActiveTime(activeStats.last7dSeconds)}\n`);
+			parts.push(`Last 30 days: ${formatActiveTime(activeStats.last30dSeconds)}\n`);
+			const dailyAvg = activeStats.trackedDays > 0
+				? Math.round(activeStats.last30dSeconds / Math.min(activeStats.trackedDays, 30))
+				: 0;
+			parts.push(`Daily avg (30d): ${formatActiveTime(dailyAvg)}\n`);
+			parts.push(`Messages tracked: ${activeStats.messageCount}\n\n`);
 		}
 
 		// Show unpaid violations

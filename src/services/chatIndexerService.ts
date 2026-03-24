@@ -19,6 +19,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import Database from "better-sqlite3";
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
+import { computeActiveTime } from "../utils/activeTime";
 import { logger } from "../utils/logger";
 
 /** Shape of a row in the explorer's messages table */
@@ -94,6 +95,19 @@ export class ChatIndexerService {
 					description TEXT
 				)
 			`);
+
+			// Add user_id column for active time tracking (safe to run repeatedly)
+			try {
+				ChatIndexerService.db.exec(
+					"ALTER TABLE messages ADD COLUMN user_id INTEGER",
+				);
+				logger.info("Added user_id column to indexer messages table");
+			} catch {
+				// Column already exists — expected after first run
+			}
+
+			// Backfill user_id on historical messages using known author<->user_id mappings
+			ChatIndexerService.backfillUserIds();
 
 			// Load existing topic patterns for keyword classification
 			ChatIndexerService.loadTopicPatterns();
@@ -179,8 +193,8 @@ export class ChatIndexerService {
 			ChatIndexerService.db
 				.prepare(`
 					INSERT INTO messages (id, author, timestamp, timestamp_unix, text, has_media,
-						media_type, media_path, reply_to_id, is_forwarded, forwarded_from, file_path, raw_html)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+						media_type, media_path, reply_to_id, is_forwarded, forwarded_from, file_path, raw_html, user_id)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				`)
 				.run(
 					messageId,
@@ -196,6 +210,7 @@ export class ChatIndexerService {
 					forwardedFrom,
 					"live", // sentinel for live messages
 					null, // no raw_html for live messages
+					ctx.from.id,
 				);
 
 			// Update author stats
@@ -702,6 +717,131 @@ export class ChatIndexerService {
 		lines.push("Message:", mainText.slice(0, 1000));
 		const joined = lines.join("\n").slice(0, MAX_CONTEXT_CHARS);
 		return joined || mainText.slice(0, MAX_CONTEXT_CHARS);
+	}
+
+	/**
+	 * Bulk backfills user_id on historical messages using known author<->user_id
+	 * mappings derived from messages that already have user_id set.
+	 * Runs once at startup. Only touches messages within the last 3 months.
+	 */
+	private static backfillUserIds(): void {
+		if (!ChatIndexerService.db) return;
+
+		try {
+			const threeMonthsAgo =
+				Math.floor(Date.now() / 1000) - 90 * 86400;
+
+			// Get known author<->user_id mappings from messages that already have user_id
+			const mappings = ChatIndexerService.db
+				.prepare(
+					`SELECT DISTINCT user_id, author FROM messages
+					 WHERE user_id IS NOT NULL AND author IS NOT NULL`,
+				)
+				.all() as { user_id: number; author: string }[];
+
+			if (mappings.length === 0) return;
+
+			const stmt = ChatIndexerService.db.prepare(
+				`UPDATE messages SET user_id = ?
+				 WHERE author = ? AND user_id IS NULL AND timestamp_unix >= ?`,
+			);
+
+			const backfill = ChatIndexerService.db.transaction(() => {
+				let total = 0;
+				for (const { user_id, author } of mappings) {
+					const result = stmt.run(user_id, author, threeMonthsAgo);
+					total += result.changes;
+				}
+				return total;
+			});
+
+			const updated = backfill();
+			if (updated > 0) {
+				logger.info("Backfilled user_id on historical messages", {
+					mappings: mappings.length,
+					updated,
+				});
+			}
+		} catch (error) {
+			logger.error("Failed to backfill user_ids", { error });
+		}
+	}
+
+	/**
+	 * Computes active time statistics for a user based on their indexed messages.
+	 * Matches by user_id (for new messages) and author name (for historical messages
+	 * that predate the user_id column). Also backfills user_id on matched rows.
+	 * Limits historical lookup to 3 months.
+	 *
+	 * @param userId - Telegram user ID
+	 * @param authorName - Display name to match historical messages (firstName + lastName)
+	 * @returns Active time stats or null if unavailable
+	 */
+	static getActiveTimeStats(
+		userId: number,
+		authorName?: string,
+	): {
+		totalSeconds: number;
+		last30dSeconds: number;
+		last7dSeconds: number;
+		messageCount: number;
+		trackedDays: number;
+	} | null {
+		if (!ChatIndexerService.enabled || !ChatIndexerService.db) return null;
+
+		try {
+			const now = Math.floor(Date.now() / 1000);
+			const threeMonthsAgo = now - 90 * 86400;
+
+			// Backfill user_id on historical messages matched by author name
+			if (authorName) {
+				ChatIndexerService.db
+					.prepare(
+						`UPDATE messages SET user_id = ?
+						 WHERE author = ? AND user_id IS NULL
+						 AND timestamp_unix >= ?`,
+					)
+					.run(userId, authorName, threeMonthsAgo);
+			}
+
+			// Query all messages for this user (by user_id, which now includes backfilled rows)
+			const allTimestamps = ChatIndexerService.db
+				.prepare(
+					`SELECT timestamp_unix FROM messages
+					 WHERE user_id = ? AND timestamp_unix >= ?
+					 ORDER BY timestamp_unix`,
+				)
+				.all(userId, threeMonthsAgo) as { timestamp_unix: number }[];
+
+			if (allTimestamps.length === 0) return null;
+
+			const allTs = allTimestamps.map((r) => r.timestamp_unix);
+			const thirtyDaysAgo = now - 30 * 86400;
+			const sevenDaysAgo = now - 7 * 86400;
+
+			const last30dTs = allTs.filter((ts) => ts >= thirtyDaysAgo);
+			const last7dTs = allTs.filter((ts) => ts >= sevenDaysAgo);
+
+			const firstTs = allTs[0];
+			const trackedDays = Math.max(
+				1,
+				Math.ceil((now - firstTs) / 86400),
+			);
+
+			return {
+				totalSeconds: computeActiveTime(allTs),
+				last30dSeconds: computeActiveTime(last30dTs),
+				last7dSeconds: computeActiveTime(last7dTs),
+				messageCount: allTs.length,
+				trackedDays,
+			};
+		} catch (error) {
+			logger.error("Failed to compute active time stats", {
+				userId,
+				error,
+			});
+			return null;
+		}
 	}
 
 	/**

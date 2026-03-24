@@ -56,7 +56,8 @@ function createExplorerSchema(db: Database.Database): void {
 			is_forwarded INTEGER DEFAULT 0,
 			forwarded_from TEXT,
 			file_path TEXT NOT NULL,
-			raw_html TEXT
+			raw_html TEXT,
+			user_id INTEGER
 		)
 	`);
 
