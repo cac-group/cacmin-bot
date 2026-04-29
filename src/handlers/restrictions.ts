@@ -16,6 +16,7 @@ import {
 } from "../services/userService";
 import { restrictionTypeKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
+import { normalizeRandomDeleteChance } from "../utils/randomDelete";
 import { isImmuneToModeration } from "../utils/roles";
 import { getRemainingArgs, resolveTargetUser } from "../utils/userResolver";
 
@@ -57,7 +58,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	 *
 	 * **Restriction Types:**
 	 * no_stickers, no_urls, no_media, no_photos, no_videos, no_documents,
-	 * no_gifs, no_voice, no_forwarding, regex_block
+	 * no_gifs, no_voice, no_forwarding, regex_block, random_delete
 	 *
 	 * **Severity Levels:**
 	 * - delete: Just delete the violating message (default)
@@ -75,6 +76,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	 * /addrestriction @alice no_photos
 	 * /addrestriction 123456 no_stickers - - mute
 	 * /addrestriction @bob regex_block "spam" - jail
+	 * /addrestriction @bob random_delete 25% - delete
 	 *
 	 * @example
 	 * // Reply-based - reply to user's message
@@ -102,6 +104,7 @@ ${bold("Restriction Types:")}
 • ${bold("No Voice")} - Block voice messages and video notes
 • ${bold("No Forwarding")} - Block forwarded messages
 • ${bold("Regex Block")} - Block messages matching text patterns
+• ${bold("Random Delete")} - Randomly delete longer text messages using a configurable chance
 
 ${bold("Severity Levels:")}
 • ${bold("delete")} (default) - Just delete the violating message
@@ -116,6 +119,7 @@ ${code("/addrestriction @alice no_photos")} (delete only)
 ${code("/addrestriction 123456 no_photos - - mute")} (mute 30min)
 ${code("/addrestriction @bob no_stickers - - delete 3")} (auto-jail after 3 violations)
 ${code('/addrestriction 123456 regex_block "spam" - jail')} (instant jail)
+${code("/addrestriction 123456 random_delete 25%")} (25% delete chance on longer text)
 
 Auto-escalation: After threshold violations (default 5) within 60 minutes, user gets auto-jailed for jailDuration (default 2880 min = 2 days) with jailFine (default 10 JUNO).
 
@@ -174,6 +178,15 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 					: undefined;
 			if (action?.startsWith('"') && action.endsWith('"')) {
 				action = action.slice(1, -1);
+			}
+			if (restriction === "random_delete") {
+				const normalizedChance = normalizeRandomDeleteChance(action);
+				if (!normalizedChance) {
+					return ctx.reply(
+						"Random delete chance must be between 0 and 100%. Examples: 10%, 25, 0.1, or default.",
+					);
+				}
+				action = normalizedChance;
 			}
 			const metadata: Record<string, any> | undefined = undefined;
 

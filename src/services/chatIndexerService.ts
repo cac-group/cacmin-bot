@@ -728,8 +728,7 @@ export class ChatIndexerService {
 		if (!ChatIndexerService.db) return;
 
 		try {
-			const threeMonthsAgo =
-				Math.floor(Date.now() / 1000) - 90 * 86400;
+			const threeMonthsAgo = Math.floor(Date.now() / 1000) - 90 * 86400;
 
 			// Get known author<->user_id mappings from messages that already have user_id
 			const mappings = ChatIndexerService.db
@@ -823,10 +822,7 @@ export class ChatIndexerService {
 			const last7dTs = allTs.filter((ts) => ts >= sevenDaysAgo);
 
 			const firstTs = allTs[0];
-			const trackedDays = Math.max(
-				1,
-				Math.ceil((now - firstTs) / 86400),
-			);
+			const trackedDays = Math.max(1, Math.ceil((now - firstTs) / 86400));
 
 			return {
 				totalSeconds: computeActiveTime(allTs),

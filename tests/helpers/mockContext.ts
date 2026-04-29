@@ -103,6 +103,7 @@ export function createMockContext(options: MockContextOptions = {}): Partial<Con
     answerCbQuery: answerCbQuerySpy,
     editMessageText: editMessageTextSpy,
     telegram: {
+      deleteMessage: deleteMessageSpy,
       restrictChatMember: restrictChatMemberSpy,
       banChatMember: banChatMemberSpy,
       unbanChatMember: unbanChatMemberSpy,

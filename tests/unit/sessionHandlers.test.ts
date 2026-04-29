@@ -10,6 +10,7 @@ import {
 	clearSession,
 	handleSessionText,
 } from "../../src/handlers/callbacks";
+import { addUserRestriction } from "../../src/services/userService";
 import {
 	createMockContext,
 	createAdminContext,
@@ -188,5 +189,59 @@ describe("Session handlers", () => {
 		ctx = createAdminContext({ userId, messageText: "@user abc" });
 		await handleSessionText(ctx as any);
 		expect(wasTextReplied(ctx, "Invalid duration")).toBe(true);
+	});
+
+	it("should apply random_delete restrictions from interactive step 4", async () => {
+		const userId = 222222222;
+		const addUserRestrictionMock = vi.mocked(addUserRestriction);
+
+		setSession(userId, "add_restriction", 4, {
+			restrictionType: "random_delete",
+			targetId: 555555555,
+			severity: "delete",
+			threshold: 5,
+			jailDuration: 2880,
+			jailFine: 10,
+			autoJailSetting: "default",
+		});
+
+		const ctx = createAdminContext({ userId, messageText: "25%" });
+		await handleSessionText(ctx as any);
+
+		expect(addUserRestrictionMock).toHaveBeenCalledWith(
+			555555555,
+			"random_delete",
+			"25%",
+			undefined,
+			undefined,
+			"delete",
+			5,
+			2880,
+			10,
+		);
+		expect(wasTextReplied(ctx, "Restriction Applied")).toBe(true);
+		expect(getSession(userId)).toBeNull();
+	});
+
+	it("should reject invalid random_delete chance input in interactive step 4", async () => {
+		const userId = 222222222;
+		const addUserRestrictionMock = vi.mocked(addUserRestriction);
+
+		setSession(userId, "add_restriction", 4, {
+			restrictionType: "random_delete",
+			targetId: 555555555,
+			severity: "delete",
+			threshold: 5,
+			jailDuration: 2880,
+			jailFine: 10,
+			autoJailSetting: "default",
+		});
+
+		const ctx = createAdminContext({ userId, messageText: "not-a-number" });
+		await handleSessionText(ctx as any);
+
+		expect(wasTextReplied(ctx, "Please provide a valid chance")).toBe(true);
+		expect(addUserRestrictionMock).not.toHaveBeenCalled();
+		expect(getSession(userId)).not.toBeNull();
 	});
 });

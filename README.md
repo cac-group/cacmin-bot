@@ -29,7 +29,7 @@ Cosmos Airdrops Chat administration bot built with [Telegraf](https://telegraf.j
 - Creators can cancel and reclaim unclaimed funds
 
 ### Content Moderation
-- **User Restrictions**: Block specific users from stickers, URLs, media, regex patterns
+- **User Restrictions**: Block specific users from stickers, URLs, media, regex patterns, or chance-based random deletes
 - **Global Restrictions**: Apply content rules to all non-elevated users
 - **Jail System**: Temporary mutes with configurable duration and bail payments
 - **Safe Regex**: Timeout-protected pattern matching prevents ReDoS attacks
@@ -109,7 +109,7 @@ Use `/help` in a DM with the bot for a comprehensive, role-based command referen
 - `/jail <user> <minutes>` - Temporarily mute user
 - `/unjail <user>` - Release user from jail
 - `/warn <user> <reason>` - Issue warning
-- `/addrestriction <user> <type>` - Add content restriction
+- `/addrestriction <user> <type>` - Add content restriction, including `random_delete` with a chance like `10%`
 - `/addblacklist <user>` - Add to blacklist
 - `/addwhitelist <user>` - Add to whitelist
 - `/regexhelp` - Regex pattern guide

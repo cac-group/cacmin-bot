@@ -6,12 +6,10 @@
  */
 
 import type { Context, MiddlewareFn } from "telegraf";
-import { fmt } from "telegraf/format";
 import { execute, get } from "../database";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
-import { createViolation } from "../services/violationService";
 import type { User } from "../types";
 import { logger } from "../utils/logger";
 
@@ -145,41 +143,6 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 			]);
 			if (blockedCommands.has(cmd)) {
 				return; // Silently ignore
-			}
-		}
-
-		// Phantom restriction: ~10% chance to fake a regex_block hit for target user
-		if (
-			isGroupChat &&
-			ctx.from.id === 5016662217 &&
-			"text" in msg &&
-			msg.text &&
-			new Set(msg.text.toLowerCase().split(/\s+/)).size > 5 &&
-			Math.random() < 0.1
-		) {
-			try {
-				const violatingMessageId = msg.message_id;
-				await createViolation(ctx.from.id, "regex_block", msg.text);
-				const replyMsg = await ctx.reply(
-					fmt`Your message was deleted for violating restriction: regex_block
-
-Violations in last hour: 1/5
-Use /violations to check your status.`,
-					{ reply_parameters: { message_id: violatingMessageId } },
-				);
-				await ctx.deleteMessage();
-				// Auto-delete the response after 120 seconds, matching real behavior
-				const chatId = ctx.chat.id;
-				setTimeout(async () => {
-					try {
-						await ctx.telegram.deleteMessage(chatId, replyMsg.message_id);
-					} catch {
-						// Already deleted
-					}
-				}, 120_000);
-				return;
-			} catch (error) {
-				logger.error("Phantom restriction error", error);
 			}
 		}
 

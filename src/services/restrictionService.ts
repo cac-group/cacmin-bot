@@ -5,6 +5,10 @@ import type { Message } from "telegraf/typings/core/types/typegram";
 import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
 import { logger } from "../utils/logger";
+import {
+	getRandomDeleteProbability,
+	RANDOM_DELETE_MIN_UNIQUE_WORDS,
+} from "../utils/randomDelete";
 import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
 import { JailService } from "./jailService";
 import { createViolation } from "./violationService";
@@ -59,6 +63,24 @@ const restrictionChecks: Record<string, RestrictionCheckFn> = {
 	no_gifs: (msg) => !!msg.animation,
 	no_voice: (msg) => !!(msg.voice || msg.video_note),
 	no_forwarding: (msg) => !!(msg.forward_from || msg.forward_from_chat),
+	random_delete: (msg, action) => {
+		if (!msg.text && !msg.caption) return false;
+
+		const text = (msg.text || msg.caption || "").trim();
+		const uniqueWords = new Set(
+			text
+				.toLowerCase()
+				.split(/\s+/)
+				.map((word: string) => word.trim())
+				.filter(Boolean),
+		).size;
+
+		if (uniqueWords < RANDOM_DELETE_MIN_UNIQUE_WORDS) {
+			return false;
+		}
+
+		return Math.random() < getRandomDeleteProbability(action);
+	},
 	muted: () => true, // All messages blocked if muted
 };
 

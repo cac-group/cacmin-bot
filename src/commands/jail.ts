@@ -368,16 +368,29 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		const firstName = ctx.from?.first_name || "";
 		const lastName = ctx.from?.last_name || "";
 		const authorName = lastName ? `${firstName} ${lastName}` : firstName;
-		const activeStats = ChatIndexerService.getActiveTimeStats(userId, authorName);
+		const activeStats = ChatIndexerService.getActiveTimeStats(
+			userId,
+			authorName,
+		);
 		if (activeStats) {
 			parts.push(bold("Activity"));
 			parts.push("\n");
-			parts.push(`Total active time: ${formatActiveTime(activeStats.totalSeconds)}\n`);
-			parts.push(`Last 7 days: ${formatActiveTime(activeStats.last7dSeconds)}\n`);
-			parts.push(`Last 30 days: ${formatActiveTime(activeStats.last30dSeconds)}\n`);
-			const dailyAvg = activeStats.trackedDays > 0
-				? Math.round(activeStats.last30dSeconds / Math.min(activeStats.trackedDays, 30))
-				: 0;
+			parts.push(
+				`Total active time: ${formatActiveTime(activeStats.totalSeconds)}\n`,
+			);
+			parts.push(
+				`Last 7 days: ${formatActiveTime(activeStats.last7dSeconds)}\n`,
+			);
+			parts.push(
+				`Last 30 days: ${formatActiveTime(activeStats.last30dSeconds)}\n`,
+			);
+			const dailyAvg =
+				activeStats.trackedDays > 0
+					? Math.round(
+							activeStats.last30dSeconds /
+								Math.min(activeStats.trackedDays, 30),
+						)
+					: 0;
 			parts.push(`Daily avg (30d): ${formatActiveTime(dailyAvg)}\n`);
 			parts.push(`Messages tracked: ${activeStats.messageCount}\n\n`);
 		}

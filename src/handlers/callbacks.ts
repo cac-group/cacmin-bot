@@ -33,6 +33,7 @@ import {
 	validateMenuInteraction,
 } from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
+import { normalizeRandomDeleteChance } from "../utils/randomDelete";
 import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 import { addPattern, type SpamReactField } from "./spamReacts";
@@ -340,13 +341,20 @@ async function applyRestriction(
 		autoJailSetting === "disabled"
 			? "Auto-jail: Disabled"
 			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s), ${jailFine.toFixed(1)} JUNO fine)`;
+	const actionText = action
+		? restrictionType === "regex_block"
+			? fmt`Pattern: ${code(action)}`
+			: restrictionType === "random_delete"
+				? fmt`Chance: ${code(action)}`
+				: fmt`Action: ${code(action)}`
+		: null;
 
 	await ctx.reply(
 		fmt`${bold("Restriction Applied")}
 
 Type: ${restrictionType}
 Target: ${targetDisplay}
-${action ? fmt`Pattern: ${code(action)}` : ""}
+${actionText || ""}
 Severity: ${severity}
 ${autoJailText}
 
@@ -424,16 +432,20 @@ async function handleAutoJailCallback(
 			break;
 	}
 
-	// For regex_block, we need to ask for the pattern before applying
-	if (restrictionType === "regex_block") {
+	// Some restriction types need extra input before they can be applied.
+	if (
+		restrictionType === "regex_block" ||
+		restrictionType === "random_delete"
+	) {
 		session.data.threshold = threshold;
 		session.data.jailDuration = jailDuration;
 		session.data.jailFine = jailFine;
 		session.data.autoJailSetting = autoJailSetting;
 		setSession(userId, "add_restriction", 4, session.data);
 
-		await ctx.editMessageText(
-			fmt`${bold("Regex Block Pattern")}
+		if (restrictionType === "regex_block") {
+			await ctx.editMessageText(
+				fmt`${bold("Regex Block Pattern")}
 
 Reply with the pattern to block. Examples:
 ${code('"fa99ot"')} - simple text match
@@ -442,6 +454,20 @@ ${code("/\\b(word1|word2)\\b/i")} - regex pattern
 
 Multiple words can be combined with | in regex:
 ${code("/\\b(fa99ot|fa990t)\\b/i")}`,
+			);
+			return;
+		}
+
+		await ctx.editMessageText(
+			fmt`${bold("Random Delete Chance")}
+
+Reply with the delete chance for longer text messages.
+
+Accepted formats:
+${code("10%")} - ten percent chance
+${code("25")} - twenty-five percent chance
+${code("0.1")} - ten percent chance
+${code("default")} - use the standard ${code("10%")} chance`,
 		);
 		return;
 	}
@@ -1282,14 +1308,8 @@ async function processAddRestrictionSession(
 
 	const { restrictionType } = session.data;
 
-	// Step 4: Capture regex pattern for regex_block type
-	if (session.step === 4 && restrictionType === "regex_block") {
-		const pattern = text.trim();
-		if (!pattern) {
-			await ctx.reply("Please provide a non-empty pattern.");
-			return true;
-		}
-
+	// Step 4: Capture extra restriction configuration for types that need it.
+	if (session.step === 4) {
 		const {
 			targetId,
 			severity,
@@ -1299,25 +1319,57 @@ async function processAddRestrictionSession(
 			autoJailSetting,
 		} = session.data;
 
-		// Strip surrounding quotes if present
-		let action = pattern;
-		if (action.startsWith('"') && action.endsWith('"')) {
-			action = action.slice(1, -1);
+		if (restrictionType === "regex_block") {
+			const pattern = text.trim();
+			if (!pattern) {
+				await ctx.reply("Please provide a non-empty pattern.");
+				return true;
+			}
+
+			// Strip surrounding quotes if present
+			let action = pattern;
+			if (action.startsWith('"') && action.endsWith('"')) {
+				action = action.slice(1, -1);
+			}
+
+			await applyRestriction(
+				ctx,
+				userId,
+				targetId,
+				restrictionType,
+				action,
+				severity,
+				autoJailSetting,
+				threshold,
+				jailDuration,
+				jailFine,
+			);
+			return true;
 		}
 
-		await applyRestriction(
-			ctx,
-			userId,
-			targetId,
-			restrictionType,
-			action,
-			severity,
-			autoJailSetting,
-			threshold,
-			jailDuration,
-			jailFine,
-		);
-		return true;
+		if (restrictionType === "random_delete") {
+			const normalizedChance = normalizeRandomDeleteChance(text.trim());
+			if (!normalizedChance) {
+				await ctx.reply(
+					"Please provide a valid chance between 0 and 100%. Examples: 10%, 25, 0.1, or default.",
+				);
+				return true;
+			}
+
+			await applyRestriction(
+				ctx,
+				userId,
+				targetId,
+				restrictionType,
+				normalizedChance,
+				severity,
+				autoJailSetting,
+				threshold,
+				jailDuration,
+				jailFine,
+			);
+			return true;
+		}
 	}
 
 	// Step 1: Resolve the target user from text input
