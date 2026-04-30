@@ -176,8 +176,8 @@ export const addUserRestriction = (
 export const removeUserRestriction = (
 	userId: number,
 	restriction: string,
-): void => {
-	execute(
+): number => {
+	const result = execute(
 		"DELETE FROM user_restrictions WHERE user_id = ? AND restriction = ?",
 		[userId, restriction],
 	);
@@ -187,6 +187,22 @@ export const removeUserRestriction = (
 		operation: "remove_restriction",
 		restrictedAction: restriction,
 	});
+
+	return result.changes;
+};
+
+/** Remove every restriction for a user and return the number of rows cleared */
+export const removeAllUserRestrictions = (userId: number): number => {
+	const result = execute("DELETE FROM user_restrictions WHERE user_id = ?", [
+		userId,
+	]);
+
+	StructuredLogger.logSecurityEvent("All user restrictions removed", {
+		userId,
+		operation: "remove_all_restrictions",
+	});
+
+	return result.changes;
 };
 
 /**

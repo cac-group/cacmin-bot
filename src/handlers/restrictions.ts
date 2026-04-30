@@ -12,6 +12,7 @@ import { adminOrHigher, elevatedOrHigher } from "../middleware";
 import {
 	addUserRestriction,
 	getUserRestrictions,
+	removeAllUserRestrictions,
 	removeUserRestriction,
 } from "../services/userService";
 import { restrictionTypeKeyboard } from "../utils/keyboards";
@@ -27,6 +28,7 @@ import { getRemainingArgs, resolveTargetUser } from "../utils/userResolver";
  * Commands registered:
  * - /addrestriction - Add a restriction to a user
  * - /removerestriction - Remove a restriction from a user
+ * - /clearrestrictions - Remove all restrictions from a user
  * - /listrestrictions - List all restrictions for a user
  *
  * @param bot - The Telegraf bot instance
@@ -250,56 +252,92 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	});
 
 	/**
-	 * Command handler for /removerestriction.
-	 * Removes a specific restriction from a user.
+	 * Command handler for /removerestriction and /clearrestrictions.
+	 * Removes a specific restriction from a user, or clears them all.
 	 *
 	 * Permission: Elevated or higher
 	 *
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /removerestriction <userId> <restriction>
+	 * Usage: /removerestriction <userId> [restriction]
+	 * Usage: /clearrestrictions <userId>
 	 * Example: /removerestriction 123456 no_stickers
+	 * Example: /removerestriction 123456
+	 * Example: /clearrestrictions 123456
 	 */
-	bot.command("removerestriction", elevatedOrHigher, async (ctx) => {
+	const handleRestrictionRemoval = async (ctx: Context) => {
 		const adminId = ctx.from?.id;
-		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const commandText =
+			ctx.message && "text" in ctx.message ? ctx.message.text : "";
+		const args = commandText.split(" ").slice(1) || [];
+		const commandName =
+			commandText.split(/\s+/)[0]?.toLowerCase() || "/removerestriction";
 
 		const target = resolveTargetUser(ctx, args);
 		if (!target) {
 			return ctx.reply(
-				"Usage: /removerestriction <@username|userId> <restriction> or reply to a user's message",
+				"Usage: /removerestriction <@username|userId> [restriction] or /clearrestrictions <@username|userId> or reply to a user's message",
 			);
 		}
 
 		const remainingArgs = getRemainingArgs(args, target);
 		const [restriction] = remainingArgs;
-
-		if (!restriction) {
-			return ctx.reply("Please specify the restriction type to remove.");
-		}
+		const removeAllRequested =
+			commandName === "/clearrestrictions" ||
+			!restriction ||
+			restriction.toLowerCase() === "all";
 
 		try {
-			removeUserRestriction(target.userId, restriction);
+			if (removeAllRequested) {
+				const removedCount = removeAllUserRestrictions(target.userId);
+				StructuredLogger.logSecurityEvent(
+					"All restrictions removed from user",
+					{
+						adminId,
+						userId: target.userId,
+						operation: "remove_all_restrictions",
+						count: removedCount.toString(),
+					},
+				);
+				await ctx.reply(
+					fmt`Removed ${removedCount} restriction(s) for @${target.username} (${target.userId}).`,
+				);
+				return;
+			}
+
+			const removedCount = removeUserRestriction(target.userId, restriction);
 			StructuredLogger.logSecurityEvent("Restriction removed from user", {
 				adminId,
 				userId: target.userId,
 				operation: "remove_restriction",
 				restriction,
+				count: removedCount.toString(),
 			});
 			await ctx.reply(
-				fmt`Restriction '${restriction}' removed for @${target.username} (${target.userId}).`,
+				removedCount > 0
+					? fmt`Restriction '${restriction}' removed for @${target.username} (${target.userId}).`
+					: fmt`No '${restriction}' restriction found for @${target.username} (${target.userId}).`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
 				adminId,
 				userId: target.userId,
-				operation: "remove_restriction",
-				restriction,
+				operation: removeAllRequested
+					? "remove_all_restrictions"
+					: "remove_restriction",
+				restriction: restriction || "all",
 			});
-			await ctx.reply("An error occurred while removing the restriction.");
+			await ctx.reply(
+				removeAllRequested
+					? "An error occurred while removing all restrictions."
+					: "An error occurred while removing the restriction.",
+			);
 		}
-	});
+	};
+
+	bot.command("removerestriction", elevatedOrHigher, handleRestrictionRemoval);
+	bot.command("clearrestrictions", elevatedOrHigher, handleRestrictionRemoval);
 
 	/**
 	 * Command handler for /listrestrictions.

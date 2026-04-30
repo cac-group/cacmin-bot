@@ -110,6 +110,8 @@ Use `/help` in a DM with the bot for a comprehensive, role-based command referen
 - `/unjail <user>` - Release user from jail
 - `/warn <user> <reason>` - Issue warning
 - `/addrestriction <user> <type>` - Add content restriction, including `random_delete` with a chance like `10%`
+- `/removerestriction <user> [type]` - Remove one restriction, or omit `[type]` to remove all
+- `/clearrestrictions <user>` - Remove all restrictions from a user
 - `/addblacklist <user>` - Add to blacklist
 - `/addwhitelist <user>` - Add to whitelist
 - `/regexhelp` - Regex pattern guide

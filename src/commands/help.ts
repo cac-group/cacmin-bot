@@ -452,8 +452,10 @@ const helpContent: Record<string, FmtString> = {
 		"  View all users with admin or owner roles.\n\n",
 		"/listrestrictions <user>\n",
 		"  View all active restrictions for a user.\n\n",
-		"/removerestriction <user> <type>\n",
-		"  Remove a specific content restriction from a user.",
+		"/removerestriction <user> [type]\n",
+		"  Remove one restriction, or omit [type] to remove them all.\n\n",
+		"/clearrestrictions <user>\n",
+		"  Remove all content restrictions from a user.",
 	]),
 
 	admin: fmt([
