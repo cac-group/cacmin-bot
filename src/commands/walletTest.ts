@@ -236,7 +236,7 @@ This was a dry run - no actual withdrawal`,
 	bot.command("testverify", ownerOnly, async (ctx) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 		if (args.length < 1) {
-			return ctx.reply("Usage: /testverify <txHash>");
+			return ctx.reply("Usage: /testverify <txhash>");
 		}
 
 		const txHash = args[0];

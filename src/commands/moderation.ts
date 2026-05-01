@@ -413,7 +413,7 @@ Please follow the group rules.`,
 	 * Clear all violations and reset warning count for a user.
 	 *
 	 * Permission: Owner only (enforced by ownerOnly middleware)
-	 * Syntax: /clearviolations <userId>
+	 * Syntax: /clearviolations <@username|userId>
 	 *
 	 * @example
 	 * User: /clearviolations 123456

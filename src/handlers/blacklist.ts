@@ -77,8 +77,8 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /addwhitelist <userId>
-	 * Example: /addwhitelist 123456789
+	 * Usage: /addwhitelist <@username|userId>
+	 * Example: /addwhitelist @alice
 	 */
 	bot.command("addwhitelist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
@@ -118,8 +118,8 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /removewhitelist <userId>
-	 * Example: /removewhitelist 123456789
+	 * Usage: /removewhitelist <@username|userId>
+	 * Example: /removewhitelist @alice
 	 */
 	bot.command("removewhitelist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
@@ -194,8 +194,8 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /addblacklist <userId>
-	 * Example: /addblacklist 123456789
+	 * Usage: /addblacklist <@username|userId>
+	 * Example: /addblacklist @alice
 	 */
 	bot.command("addblacklist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
@@ -242,8 +242,8 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /removeblacklist <userId>
-	 * Example: /removeblacklist 123456789
+	 * Usage: /removeblacklist <@username|userId>
+	 * Example: /removeblacklist @alice
 	 */
 	bot.command("removeblacklist", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;

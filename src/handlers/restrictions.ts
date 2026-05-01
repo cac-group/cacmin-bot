@@ -56,7 +56,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	 *
 	 * 2. **Command-line mode** (with arguments):
 	 *    Full control via command arguments:
-	 *    `/addrestriction <user> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]`
+	 *    `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]`
 	 *
 	 * **Restriction Types:**
 	 * no_stickers, no_urls, no_media, no_photos, no_videos, no_documents,
@@ -260,11 +260,11 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /removerestriction <userId> [restriction]
-	 * Usage: /clearrestrictions <userId>
-	 * Example: /removerestriction 123456 no_stickers
-	 * Example: /removerestriction 123456
-	 * Example: /clearrestrictions 123456
+	 * Usage: /removerestriction <@username|userId> [restriction]
+	 * Usage: /clearrestrictions <@username|userId>
+	 * Example: /removerestriction @alice no_stickers
+	 * Example: /removerestriction @alice
+	 * Example: /clearrestrictions @alice
 	 */
 	const handleRestrictionRemoval = async (ctx: Context) => {
 		const adminId = ctx.from?.id;
@@ -348,8 +348,8 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /listrestrictions <userId>
-	 * Example: /listrestrictions 123456
+	 * Usage: /listrestrictions <@username|userId>
+	 * Example: /listrestrictions @alice
 	 */
 	bot.command("listrestrictions", elevatedOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;

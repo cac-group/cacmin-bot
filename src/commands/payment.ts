@@ -247,7 +247,7 @@ Error: ${result.error || "Unknown error"}`);
 	 *      `juno1...`
 	 *
 	 *      After payment, send:
-	 *      /verifypayment 1 <transaction_hash>
+	 *      /verifypayment 1 <txhash>
 	 */
 	bot.command("payfine", async (ctx) => {
 		const userId = ctx.from?.id;
@@ -284,7 +284,7 @@ Payment address:
 ${code(config.botTreasuryAddress || "N/A")}
 
 After payment, send:
-/verifypayment <violationId> <txHash>`,
+/verifypayment <violationId> <txhash>`,
 			);
 		}
 
@@ -313,7 +313,7 @@ Send exactly ${violation.bailAmount.toFixed(2)} JUNO to:
 ${code(config.botTreasuryAddress || "N/A")}
 
 After payment, send:
-/verifypayment ${violation.id} <transaction_hash>`,
+/verifypayment ${violation.id} <txhash>`,
 		);
 	});
 
@@ -322,7 +322,7 @@ After payment, send:
 	 * Verify an on-chain payment for a specific violation.
 	 *
 	 * Permission: Any user
-	 * Syntax: /verifypayment <violationId> <txHash>
+	 * Syntax: /verifypayment <violationId> <txhash>
 	 *
 	 * @example
 	 * User: /verifypayment 1 ABC123DEF456...
@@ -334,7 +334,7 @@ After payment, send:
 
 		const args = ctx.message?.text.split(" ").slice(1);
 		if (!args || args.length < 2) {
-			return ctx.reply("Usage: /verifypayment <violationId> <txHash>");
+			return ctx.reply("Usage: /verifypayment <violationId> <txhash>");
 		}
 
 		const [violationIdStr, txHash] = args;

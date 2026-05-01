@@ -15,6 +15,11 @@ import { UnifiedWalletService } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { resolveUserId } from "../utils/userResolver";
 
+function splitCommandArgs(text: string): string[] {
+	const matches = text.match(/"[^"]*"|'[^']*'|\S+/g) || [];
+	return matches.map((arg) => arg.replace(/^["']|["']$/g, ""));
+}
+
 /**
  * Registers all shared account commands
  */
@@ -44,7 +49,7 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 		if (!userId) return;
 
 		const text = (ctx.message as any)?.text || "";
-		const args = text.split(" ").slice(1);
+		const args = splitCommandArgs(text).slice(1);
 
 		if (args.length < 2) {
 			await ctx.reply(
@@ -54,12 +59,9 @@ async function handleCreateShared(ctx: Context): Promise<void> {
 		}
 
 		const name = args[0];
-		const displayName = args[1].replace(/^["']|["']$/g, ""); // Remove quotes
+		const displayName = args[1];
 		const description =
-			args
-				.slice(2)
-				.join(" ")
-				.replace(/^["']|["']$/g, "") || `Shared account ${displayName}`;
+			args.slice(2).join(" ") || `Shared account ${displayName}`;
 
 		await ctx.reply("Creating shared account...");
 

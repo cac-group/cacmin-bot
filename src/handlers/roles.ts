@@ -92,7 +92,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /grantowner <username> or /grantowner <userId> or reply to a message with /grantowner
+	 * Usage: /grantowner <@username|userId> or reply to a message with /grantowner
 	 * Example: /grantowner @alice
 	 * Example: /grantowner 123456789
 	 */
@@ -103,7 +103,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 
 		if (!target) {
 			return ctx.reply(
-				"Usage: /grantowner <username|userId> or reply to a user's message with /grantowner",
+				"Usage: /grantowner <@username|userId> or reply to a user's message with /grantowner",
 			);
 		}
 
@@ -147,7 +147,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /elevate <username> or /elevate <userId> or reply to a message with /elevate
+	 * Usage: /elevate <@username|userId> or reply to a message with /elevate
 	 * Example: /elevate @bob
 	 * Example: /elevate 987654321
 	 */
@@ -160,7 +160,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 
 		if (!target) {
 			return ctx.reply(
-				"Usage: /elevate <username|userId> or reply to a user's message with /elevate",
+				"Usage: /elevate <@username|userId> or reply to a user's message with /elevate",
 			);
 		}
 
@@ -209,7 +209,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /makeadmin <username> or /makeadmin <userId> or reply to a message with /makeadmin
+	 * Usage: /makeadmin <@username|userId> or reply to a message with /makeadmin
 	 * Example: /makeadmin @charlie
 	 * Example: /makeadmin 555444333
 	 */
@@ -220,7 +220,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 
 		if (!target) {
 			return ctx.reply(
-				"Usage: /makeadmin <username|userId> or reply to a user's message with /makeadmin",
+				"Usage: /makeadmin <@username|userId> or reply to a user's message with /makeadmin",
 			);
 		}
 
@@ -263,7 +263,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 	 * @param ctx - Telegraf context
 	 *
 	 * @example
-	 * Usage: /revoke <username> or /revoke <userId> or reply to a message with /revoke
+	 * Usage: /revoke <@username|userId> or reply to a message with /revoke
 	 * Example: /revoke @bob
 	 * Example: /revoke 987654321
 	 */
@@ -281,7 +281,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 
 		if (!target) {
 			return ctx.reply(
-				"Usage: /revoke <username|userId> or reply to a user's message with /revoke",
+				"Usage: /revoke <@username|userId> or reply to a user's message with /revoke",
 			);
 		}
 

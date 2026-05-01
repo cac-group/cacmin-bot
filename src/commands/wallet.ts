@@ -25,6 +25,38 @@ import {
 import { adminOrHigher, ownerOnly } from "../middleware/index";
 import { financialLockCheck } from "../middleware/lockCheck";
 
+export function buildWalletHelpText(userId: string) {
+	return fmt`${bold("Wallet Commands")}
+
+${bold("Basic Commands:")}
+/balance (or /bal) - Check your internal wallet balance
+/deposit - Get deposit instructions with your required memo
+/verifydeposit <txhash> - Verify and credit a deposit by hash
+/withdraw <amount> <address> - Withdraw to an external wallet
+/send <amount> <recipient> (or /transfer) - Send to @username, user ID, or juno1... address
+/transactions [@user|userId] (or /history) - View your recent transactions; owners can target another user
+/checkdeposit <txhash> (or /checktx) - Check whether a deposit was already processed
+/unclaimeddeposits - View deposits that arrived with a missing or invalid memo
+
+${bold("Treasury Commands:")}
+/fundtreasury <amount> - Move funds from your balance into the game treasury
+/fundtreasury deposit - Get external deposit instructions for the game treasury
+/treasurybalance (or /gamebalance) - Check the game treasury balance (admin+)
+/contributetreasury <amount> - Contribute to the treasury from your balance (admin+)
+/withdrawtreasury <amount> - Withdraw treasury funds back to your balance (owner only)
+
+${bold("Owner Diagnostics (owner only):")}
+/walletstats - View system wallet statistics (owner only)
+/reconcile - Check internal ledger vs on-chain balance (owner only)
+/adjustbalance <amount> <debit|credit> [reason] - Correct ledger discrepancies (owner only)
+
+${bold("Important:")}
+- Always include your user ID (${userId}) as memo when depositing
+- Withdrawals are locked to prevent double-spending
+- Internal transfers are instant and free
+- External transfers incur network fees`;
+}
+
 /**
  * Registers all wallet-related commands with the bot.
  *
@@ -127,8 +159,8 @@ export function registerWalletCommands(bot: Telegraf<Context>): void {
 	 * Check status of a specific deposit by transaction hash.
 	 *
 	 * Permission: Any user
-	 * Syntax: /checkdeposit <tx_hash>
-	 *         /checktx <tx_hash>
+	 * Syntax: /checkdeposit <txhash>
+	 *         /checktx <txhash>
 	 */
 	bot.command("checkdeposit", handleCheckDeposit);
 	bot.command("checktx", handleCheckDeposit); // Alias
@@ -142,34 +174,7 @@ export function registerWalletCommands(bot: Telegraf<Context>): void {
 	 */
 	bot.command("wallethelp", async (ctx) => {
 		const userId = ctx.from?.id ? ctx.from.id.toString() : "unknown";
-		await ctx.reply(
-			fmt`${bold("Wallet Commands")}
-
-${bold("Basic Commands:")}
-/balance - Check your balance
-/deposit - Get deposit instructions
-/withdraw <amount> <address> - Withdraw to external wallet
-/send <amount> <recipient> - Send to user or wallet
-/transactions - View transaction history
-/checkdeposit <tx_hash> - Check a specific deposit
-
-${bold("Send Recipients:")}
-- @username - Send to another user
-- User ID - Send to user by ID
-- juno1... - Send to external wallet
-
-${bold("Owner Commands:")}
-/walletstats - System statistics
-/giveaway <@user|id> <amount> - Send giveaway to user
-/reconcile - Check internal ledger vs on-chain balance
-/adjustbalance <amt> <debit|credit> - Fix ledger discrepancies
-
-${bold("Important:")}
-- Always include your user ID (${userId}) as memo when depositing
-- Withdrawals are locked to prevent double-spending
-- Internal transfers are instant and free
-- External transfers incur network fees`,
-		);
+		await ctx.reply(buildWalletHelpText(userId));
 	});
 
 	/**

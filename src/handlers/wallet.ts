@@ -498,7 +498,7 @@ Error: ${result.error || "Unknown error"}`,
  *
  * @example
  * Usage: /transactions (view your own transactions)
- * Usage: /transactions <userId> (owners only - view specific user's transactions)
+ * Usage: /transactions <@username|userId> (owners only - view specific user's transactions)
  */
 export async function handleTransactions(ctx: Context): Promise<void> {
 	try {

@@ -94,7 +94,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 	 * Verify and credit a deposit by providing the transaction hash.
 	 *
 	 * Permission: Any user
-	 * Syntax: /verifydeposit <transaction_hash>
+	 * Syntax: /verifydeposit <txhash>
 	 *
 	 * @example
 	 * User: /verifydeposit ABC123DEF456...
@@ -114,7 +114,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				fmt`${bold("Usage")}: /verifydeposit <transaction_hash>\n\nProvide the transaction hash of your deposit to verify and credit it.`,
+				fmt`${bold("Usage")}: /verifydeposit <txhash>\n\nProvide the transaction hash of your deposit to verify and credit it.`,
 			);
 		}
 
@@ -322,7 +322,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 	 * Manually assign an unclaimed deposit to a user (admin only).
 	 *
 	 * Permission: Admin or owner
-	 * Syntax: /claimdeposit <transaction_hash> <user_id>
+	 * Syntax: /claimdeposit <txhash> <userId|@username>
 	 *
 	 * @example
 	 * User: /claimdeposit ABC123... 123456
@@ -351,7 +351,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 2) {
 			return ctx.reply(
-				fmt`${bold("Usage")}: /claimdeposit <transaction_hash> <user_id|@username>\n\nAssign an unclaimed deposit to a user.`,
+				fmt`${bold("Usage")}: /claimdeposit <txhash> <userId|@username>\n\nAssign an unclaimed deposit to a user.`,
 			);
 		}
 
@@ -403,7 +403,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 	 * Manually process a pending deposit transaction (admin only).
 	 *
 	 * Permission: Admin or owner
-	 * Syntax: /processdeposit <transaction_hash>
+	 * Syntax: /processdeposit <txhash>
 	 *
 	 * @example
 	 * User: /processdeposit ABC123...
@@ -431,7 +431,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				fmt`Usage: /processdeposit <transaction_hash>\n\nManually process a pending deposit. The deposit must have a valid user ID in the memo.`,
+				fmt`Usage: /processdeposit <txhash>\n\nManually process a pending deposit. The deposit must have a valid user ID in the memo.`,
 			);
 		}
 

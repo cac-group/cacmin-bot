@@ -303,7 +303,8 @@ If you're unsure about a pattern:
 1. Test with a temporary restriction first
 2. Check `/listrestrictions <userId>` to see active restrictions
 3. Use `/removerestriction <userId> regex_block` to remove if needed
-4. Start simple (use wildcards) before trying complex regex
+4. Use `/clearrestrictions <userId>` or omit the type in `/removerestriction <userId>` if you need to wipe every restriction from that user
+5. Start simple (use wildcards) before trying complex regex
 
 ## Security Notes
 

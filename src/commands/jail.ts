@@ -86,7 +86,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 * View comprehensive jail system statistics or specific user jail info.
 	 *
 	 * Permission: Elevated users or higher (enforced by elevatedOrHigher middleware)
-	 * Syntax: /jailstats [username|userId]
+	 * Syntax: /jailstats [@username|userId]
 	 *
 	 * Displays:
 	 * - Without argument: Currently active jails with time remaining and bail amounts
@@ -300,7 +300,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		parts.push(`Auto-Releases: ${totalAutoReleases}\n`);
 		parts.push(`Manual Releases: ${totalManualReleases}\n\n`);
 		parts.push(
-			"Use /jailstats <username> to view a specific user's jail history",
+			"Use /jailstats <@username|userId> to view a specific user's jail history",
 		);
 
 		const msg = await ctx.reply(fmt(parts));
@@ -429,7 +429,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *         Bail: 3.50 JUNO
 	 *         Pay: /paybailfor 123456
 	 *
-	 *      Anyone can pay bail for any user using /paybailfor <userId>
+	 *      Anyone can pay bail for any user using /paybailfor <@username|userId>
 	 */
 	bot.command("jails", async (ctx) => {
 		const activeJails = JailService.getActiveJails();
@@ -456,7 +456,9 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			parts.push(`   Pay: /paybailfor ${jail.id}\n\n`);
 		}
 
-		parts.push("Anyone can pay bail for any user using /paybailfor <userId>");
+		parts.push(
+			"Anyone can pay bail for any user using /paybailfor <@username|userId>",
+		);
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
@@ -480,7 +482,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      `juno1...`
 	 *
 	 *      After payment, send:
-	 *      /verifybail <transaction_hash>
+	 *      /verifybail <txhash>
 	 */
 	bot.command("paybail", async (ctx) => {
 		const userId = ctx.from?.id;
@@ -516,7 +518,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
 		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
 		parts.push("After payment, send:\n");
-		parts.push("/verifybail <transaction_hash>\n\n");
+		parts.push("/verifybail <txhash>\n\n");
 		parts.push("Payment will release you from jail immediately!");
 
 		const msg = await ctx.reply(fmt(parts));
@@ -541,7 +543,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      `juno1...`
 	 *
 	 *      After payment, send:
-	 *      /verifybailfor 123456 <transaction_hash>
+	 *      /verifybailfor 123456 <txhash>
 	 */
 	bot.command("paybailfor", async (ctx) => {
 		const payerId = ctx.from?.id;
@@ -593,7 +595,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
 		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
 		parts.push("After payment, send:\n");
-		parts.push(`/verifybailfor ${targetUserId} <transaction_hash>\n\n`);
+		parts.push(`/verifybailfor ${targetUserId} <txhash>\n\n`);
 		parts.push("Payment will release them from jail immediately!");
 
 		const msg = await ctx.reply(fmt(parts));
@@ -605,7 +607,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 * Verify your bail payment and get released from jail.
 	 *
 	 * Permission: Any user
-	 * Syntax: /verifybail <txHash>
+	 * Syntax: /verifybail <txhash>
 	 *
 	 * @example
 	 * User: /verifybail ABC123DEF456...
@@ -620,7 +622,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		const txHash = ctx.message?.text.split(" ")[1];
 		if (!txHash) {
-			const msg = await ctx.reply("Usage: /verifybail <txHash>");
+			const msg = await ctx.reply("Usage: /verifybail <txhash>");
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
@@ -730,7 +732,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 * Verify bail payment made for another user.
 	 *
 	 * Permission: Any user
-	 * Syntax: /verifybailfor <userId> <txHash>
+	 * Syntax: /verifybailfor <@username|userId> <txhash>
 	 *
 	 * @example
 	 * User: /verifybailfor 123456 ABC123DEF456...
@@ -749,7 +751,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!target) {
 			const msg = await ctx.reply(
-				"Usage: /verifybailfor <@username|userId> <txHash> or reply to a user's message with /verifybailfor <txHash>",
+				"Usage: /verifybailfor <@username|userId> <txhash> or reply to a user's message with /verifybailfor <txhash>",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
@@ -760,7 +762,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!txHash) {
 			const msg = await ctx.reply(
-				"Usage: /verifybailfor <@username|userId> <txHash> or reply with /verifybailfor <txHash>",
+				"Usage: /verifybailfor <@username|userId> <txhash> or reply with /verifybailfor <txhash>",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;

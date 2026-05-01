@@ -108,8 +108,9 @@ function duelCancelKeyboard(duelId: number) {
  * Registers all duel-related commands and callback handlers with the bot.
  *
  * Commands registered:
- * - /duel <@user> <amount> - Challenge another user to a duel
+ * - /duel <@username|userId> <amount> - Challenge another user to a duel
  * - /duelstats - View your duel statistics
+ * - /duelhistory [limit] - View your recent completed duels
  * - /duelcancel - Cancel your pending duel challenge
  *
  * @param bot - Telegraf bot instance
@@ -147,7 +148,7 @@ The loser can face additional penalties:
 - Jail, mute, or restrictions
 - Duration varies by penalty type
 
-${bold("Usage:")} ${code("/duel @username <amount>")}
+${bold("Usage:")} ${code("/duel <@username|userId> <amount>")}
 ${bold("Example:")} ${code("/duel @alice 5")}
 
 Limits: ${MIN_WAGER} - ${MAX_WAGER} JUNO
@@ -307,6 +308,66 @@ Total won: ${code(AmountPrecision.format(stats.totalWon))} JUNO
 Net profit: ${code(profitStr)} JUNO
 
 Current balance: ${code(AmountPrecision.format(balance))} JUNO${recentText}`,
+		);
+	});
+
+	/**
+	 * Command: /duelhistory
+	 * View recent completed duel history for the caller.
+	 */
+	bot.command("duelhistory", async (ctx) => {
+		const userId = ctx.from?.id;
+		if (!userId) return;
+
+		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const requestedLimit = parseInt(args[0] || "10", 10);
+		const limit = Number.isNaN(requestedLimit)
+			? 10
+			: Math.max(1, Math.min(requestedLimit, 20));
+
+		const recentDuels = DuelService.getRecentDuels(userId, limit);
+		if (recentDuels.length === 0) {
+			return ctx.reply("You do not have any completed duels yet.");
+		}
+
+		const historyLines = recentDuels.map((duel, index) => {
+			const won = duel.winnerId === userId;
+			const opponent =
+				duel.challengerId === userId ? duel.opponentId : duel.challengerId;
+			const net = won
+				? `+${AmountPrecision.format(duel.wagerAmount)}`
+				: `-${AmountPrecision.format(duel.wagerAmount)}`;
+			const resolvedAt = duel.resolvedAt || duel.createdAt;
+			const penalty =
+				duel.loserConsequence === "none"
+					? ""
+					: `\nLoser penalty: ${CONSEQUENCE_NAMES[duel.loserConsequence]}${
+							duel.consequenceDuration ? ` (${duel.consequenceDuration}m)` : ""
+						}`;
+			const rolls =
+				duel.rollChallenger && duel.rollOpponent
+					? `\nRolls: You ${
+							userId === duel.challengerId
+								? duel.rollChallenger
+								: duel.rollOpponent
+						} vs Opponent ${
+							userId === duel.challengerId
+								? duel.rollOpponent
+								: duel.rollChallenger
+						}`
+					: "";
+
+			return `${index + 1}. ${won ? "Win" : "Loss"} vs ${formatUserIdDisplay(opponent)}
+Date: ${new Date(resolvedAt * 1000).toLocaleString()}
+Net: ${net} JUNO on ${AmountPrecision.format(duel.wagerAmount)} JUNO wager${rolls}${penalty}`;
+		});
+
+		await ctx.reply(
+			fmt`${bold("Your Duel History")}
+
+Showing ${historyLines.length} completed duel(s).
+
+${historyLines.join("\n\n")}`,
 		);
 	});
 

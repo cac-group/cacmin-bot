@@ -92,42 +92,134 @@ sudo journalctl -u cacmin-bot -f
 
 ## Commands
 
-Use `/help` in a DM with the bot for a comprehensive, role-based command reference.
+Use `/help` in a DM with the bot for the interactive, role-based reference. The list below is the full current slash-command surface.
 
-### Wallet (All Users)
-- `/balance` - View your balance
-- `/deposit` - Get deposit address and memo
-- `/send <user> <amount>` - Internal transfer
-- `/withdraw <address> <amount>` - Withdraw to external wallet
-- `/transactions` - View transaction history
+### Core Help
+- `/help` - Open the DM help menu
+- `/wallethelp` - Show detailed wallet and treasury help
 
-### Giveaways (All Users)
-- `/giveaway <amount>` - Create open giveaway (funded from your balance)
-- `/cancelgiveaway <id>` - Cancel your giveaway (unclaimed funds returned)
+### Wallet and Deposits (All Users unless noted)
+- `/balance` or `/bal` - View your internal JUNO balance
+- `/deposit` - Get your deposit address and required memo
+- `/verifydeposit <txhash>` - Verify and credit a deposit by transaction hash
+- `/withdraw <amount> <junoAddress>` - Withdraw JUNO to an external wallet
+- `/send <amount> <recipient>` or `/transfer <amount> <recipient>` - Send to `@username`, user ID, or `juno1...` address
+- `/transactions [@user|userId]` or `/history [@user|userId]` - View your recent transactions; owners can target another user
+- `/checkdeposit <txhash>` or `/checktx <txhash>` - Check whether a deposit was already processed
+- `/unclaimeddeposits` - View the current UNCLAIMED deposit pool and recent invalid-memo deposits
+- `/fundtreasury <amount>` - Move funds from your balance into the game treasury
+- `/fundtreasury deposit` - Get external deposit instructions for the game treasury
+- `/treasurybalance` or `/gamebalance` - View the game treasury balance (`admin+`)
+- `/contributetreasury <amount>` - Contribute to the treasury from your balance (`admin+`)
+- `/withdrawtreasury <amount>` - Withdraw treasury funds back to your balance (`owner`)
 
-### Moderation (Admin+)
-- `/jail <user> <minutes>` - Temporarily mute user
-- `/unjail <user>` - Release user from jail
-- `/warn <user> <reason>` - Issue warning
-- `/addrestriction <user> <type>` - Add content restriction, including `random_delete` with a chance like `10%`
-- `/removerestriction <user> [type]` - Remove one restriction, or omit `[type]` to remove all
-- `/clearrestrictions <user>` - Remove all restrictions from a user
-- `/addblacklist <user>` - Add to blacklist
-- `/addwhitelist <user>` - Add to whitelist
-- `/regexhelp` - Regex pattern guide
+### Shared Accounts
+- `/createshared <name> <display_name> [description]` - Create a shared account; quote multi-word display names or descriptions (`elevated+`)
+- `/listshared` - List all shared accounts (`elevated+`)
+- `/myshared` - List the shared accounts you can access
+- `/sharedbalance <account>` - View a shared account balance
+- `/sharedinfo <account>` - View account metadata and member permissions
+- `/sharedsend <account> <@username|user_id> <amount> [description]` - Send from a shared account to another bot user
+- `/shareddeposit <account> <amount>` - Move funds from your balance into a shared account
+- `/sharedhistory <account> [limit]` - View shared-account transaction history
+- `/grantaccess <account_name> <@username|user_id> <level> [spend_limit]` - Grant shared-account access
+- `/revokeaccess <account_name> <@username|user_id>` - Remove shared-account access
+- `/updateaccess <account_name> <@username|user_id> <level> [spend_limit]` - Change a member's access level
+- `/deleteshared <account>` - Delete an empty shared account
 
-### Treasury (Owner Only)
-- `/botbalance` - On-chain wallet balance
-- `/treasury` - Treasury and ledger overview
-- `/walletstats` - Detailed reconciliation stats
-- `/reconcile` - Force balance reconciliation
-- `/processdeposit` - Manually process unclaimed deposit
+### User Status and Visibility
+- `/mystatus` - View your role, warnings, jail state, and restrictions
+- `/jails` - View currently jailed users
+- `/violations` - View your violation history
+- `/viewwhitelist` - View whitelisted users
+- `/viewblacklist` - View blacklisted users
+- `/viewactions` - View active global restrictions
+- `/listadmins` - View all elevated, admin, and owner users (`elevated+`)
+- `/jailstats [@user|userId]` - View active jail info or a specific user's jail history (`elevated+`)
 
-### Role Management (Owner)
-- `/setowner <user>` - Transfer ownership
-- `/makeadmin <user>` - Promote to admin
-- `/elevate <user>` - Promote to elevated
-- `/revoke <user>` - Remove role
+### Stickers
+- `/cac` - Send the first sticker from the CACGifs pack
+- `/sendsticker [name]` - Send a named sticker from the pack
+- `/getsticker` - Reply to a sticker to get its `file_id`
+
+### Giveaways and Games
+- `/giveaway <amount>` - Create an open giveaway funded from your balance
+- `/cancelgiveaway [id]` - Cancel one of your active giveaways
+- `/roll <amount>` - Play the roll game
+- `/rollstats` - View your roll-game statistics
+- `/rollodds` - View roll-game rules and probabilities
+- `/duel <@username|userId> <amount>` - Challenge another user to a wagered duel
+- `/duelstats` - View your duel stats
+- `/duelhistory [limit]` - View your recent completed duels
+- `/duelcancel` - Cancel your pending outgoing duel
+
+### Payments, Bail, and Verification
+- `/payfines` - View all unpaid fines in DM
+- `/payallfines` - Pay all unpaid fines from your internal wallet in DM
+- `/payfine [violationId]` - List unpaid fines, or show payment instructions for one fine
+- `/verifypayment <violationId> <txhash>` - Verify an on-chain fine payment
+- `/paybail` - Pay your own bail from wallet balance
+- `/paybailfor <@username|userId>` - Pay another user's bail from your wallet
+- `/verifybail <txhash>` - Verify your on-chain bail payment
+- `/verifybailfor <@username|userId> <txhash>` - Verify an on-chain bail payment made for another user
+
+### Moderation and Restrictions
+- `/jail <@username|userId> <minutes>` or `/silence <@username|userId> <minutes>` - Jail a user for a fixed duration (`admin+`)
+- `/unjail <@username|userId>` or `/unsilence <@username|userId>` - Release a jailed user (`admin+`)
+- `/warn <@username|userId> <reason>` - Issue a warning and violation (`admin+`)
+- `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]` - Add a user restriction (`admin+`)
+- `/listrestrictions <@username|userId>` - View a user's restrictions (`elevated+`)
+- `/removerestriction <@username|userId> [type]` - Remove one restriction, or omit `[type]` to remove them all (`elevated+`)
+- `/clearrestrictions <@username|userId>` - Remove all restrictions from a user (`elevated+`)
+- `/regexhelp` - Show regex restriction examples (`admin+`)
+- `/addaction <restriction> [restrictedAction]` - Add a global restriction (`admin+`)
+- `/removeaction <restriction>` - Remove a global restriction (`admin+`)
+- `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
+- `/addblacklist <@username|userId>` and `/removeblacklist <@username|userId>` - Manage blacklist entries (`admin+`)
+
+### Deposit Recovery and Treasury Ops
+- `/claimdeposit <txhash> <userId|@username>` - Assign an unclaimed deposit to a user (`admin+`)
+- `/processdeposit <txhash>` - Manually process a deposit that already has a valid memo (`admin+`)
+- `/botbalance` - View the bot's on-chain wallet balance (`owner`)
+- `/treasury` - View treasury and ledger status (`owner`)
+- `/walletstats` - View wallet and reconciliation stats (`owner`)
+- `/reconcile` - Force a reconciliation check (`owner`)
+- `/adjustbalance <amount> <debit|credit> [reason]` - Correct internal ledger drift (`owner`)
+
+### Roles and Ownership
+- `/setowner` - Register yourself as owner if your Telegram ID is already configured in `OWNER_ID/OWNER_IDs`
+- `/grantowner <@username|userId>` - Grant owner privileges to another user (`owner`)
+- `/makeadmin <@username|userId>` - Promote a user to admin (`owner`)
+- `/elevate <@username|userId>` - Promote a user to elevated (`admin+`)
+- `/revoke <@username|userId>` - Demote an elevated or admin user (`admin+`)
+
+### Fines and Custom Punishments
+- `/setfine <type> <amount_usd> [description]` - Configure a violation fine (`owner`)
+- `/listfines` - View fine configuration (`owner`)
+- `/initfines` - Seed default fine configuration (`owner`)
+- `/customjail <@username|userId> <minutes> <juno_amount> <reason>` - Jail a user with a custom fine (`owner`)
+- `/junoprice` - View the current JUNO price (`owner`)
+- `/clearviolations <@username|userId>` - Clear all violations for a user (`owner`)
+- `/stats` - View overall bot statistics (`owner`)
+
+### Spam-Reaction Pattern Controls
+- `/listspamreacts` - View active custom spam-reaction patterns plus built-ins (`admin+`)
+- `/spamreacthelp` - Show the spam-reaction field and pattern guide (`admin+`)
+- `/addspamreact [pattern] [bio|channel|both]` - Add a custom spam-reaction pattern (`owner`)
+- `/removespamreact <id>` - Remove a custom spam-reaction pattern (`owner`)
+- `/testspamreact <pattern> <sample>` - Test a spam-reaction pattern without saving it (`owner`)
+
+### Wallet Test Commands (`owner`)
+- `/testbalance` - Check your balance and the bot treasury balance
+- `/testdeposit` - Show the raw deposit address and memo generated for you
+- `/testtransfer <toUserId> <amount>` - Run a direct internal transfer test
+- `/testfine [amount]` - Run a fine-payment test
+- `/testwithdraw <address> <amount>` - Run a dry-run withdrawal validation
+- `/testverify <txhash>` - Test on-chain transaction verification
+- `/testwalletstats` - Dump diagnostic wallet and reconciliation stats
+- `/testsimulatedeposit [userId] [amount]` - Simulate a deposit directly in the ledger
+- `/testhistory` - Show a short transaction-history sample
+- `/testfullflow` - Run the end-to-end wallet-flow test sequence
 
 ## Architecture
 
