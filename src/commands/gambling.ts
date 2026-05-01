@@ -512,13 +512,12 @@ Use ${code("/deposit")} to add funds.`,
 				);
 			}
 
-			// Record as gambling transaction type (update the transaction we just created)
-			execute(
-				`UPDATE transactions SET transaction_type = ?
-				WHERE (from_user_id = ? OR to_user_id = ?)
-				AND created_at = (SELECT MAX(created_at) FROM transactions WHERE from_user_id = ? OR to_user_id = ?)`,
-				[TransactionType.GAMBLING, userId, userId, userId, userId],
-			);
+			if (txResult.transactionId) {
+				execute("UPDATE transactions SET transaction_type = ? WHERE id = ?", [
+					TransactionType.GAMBLING,
+					txResult.transactionId,
+				]);
+			}
 
 			// Delete previous roll messages (user command + bot response) for this user
 			const chatId = ctx.chat?.id;

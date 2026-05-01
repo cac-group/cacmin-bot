@@ -11,8 +11,9 @@ import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { JailService } from "./jailService";
-import { LedgerService, TransactionType } from "./ledgerService";
+import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
+import { getDuelEscrowId } from "./unifiedWalletService";
 import { addUserRestriction } from "./userService";
 
 // Duel timeout in seconds (5 minutes)
@@ -186,6 +187,42 @@ export class DuelService {
 		return row ? rowToDuel(row) : undefined;
 	}
 
+	private static async ensureDuelEscrowAccount(
+		duelId: number,
+	): Promise<number> {
+		const escrowId = getDuelEscrowId(duelId);
+		const { createUser, userExists } = await import("./userService");
+
+		if (!userExists(escrowId)) {
+			createUser(escrowId, `DUEL_ESCROW_${duelId}`, "system", "duel");
+		}
+
+		await LedgerService.ensureUserBalance(escrowId);
+		return escrowId;
+	}
+
+	private static async refundChallengerFromEscrow(
+		duel: Duel,
+		description: string,
+	): Promise<{ success: boolean; error?: string }> {
+		const escrowId = getDuelEscrowId(duel.id);
+		const refundResult = await LedgerService.transferBetweenUsers(
+			escrowId,
+			duel.challengerId,
+			duel.wagerAmount,
+			description,
+		);
+
+		if (!refundResult.success) {
+			return {
+				success: false,
+				error: refundResult.error || "Failed to refund duel escrow",
+			};
+		}
+
+		return { success: true };
+	}
+
 	/**
 	 * Create a new duel challenge
 	 */
@@ -232,43 +269,75 @@ export class DuelService {
 			return { success: false, error: "Insufficient balance to create duel" };
 		}
 
-		// Use default duration if not specified
-		const duration =
-			consequenceDuration || DEFAULT_CONSEQUENCE_DURATIONS[consequence];
-		const expiresAt = Math.floor(Date.now() / 1000) + DUEL_TIMEOUT_SECONDS;
-
-		// Convert wager to micro-units for DB storage
-		const wagerMicro = AmountPrecision.toDbMicro(wagerAmount);
-
-		const result = execute(
-			`INSERT INTO duels (
-				challenger_id, opponent_id, wager_amount, loser_consequence,
-				consequence_duration, chat_id, expires_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			[
-				challengerId,
-				opponentId,
-				wagerMicro,
-				consequence,
-				duration,
-				chatId,
-				expiresAt,
-			],
+		const challengerLock = await TransactionLockService.acquireLock(
+			challengerId,
+			"duel_create",
+			wagerAmount,
 		);
+		if (!challengerLock) {
+			return {
+				success: false,
+				error: "You have a pending transaction",
+			};
+		}
 
-		const duelId = result.lastInsertRowid as number;
-		const duel = DuelService.getDuel(duelId);
+		try {
+			// Use default duration if not specified
+			const duration =
+				consequenceDuration || DEFAULT_CONSEQUENCE_DURATIONS[consequence];
+			const expiresAt = Math.floor(Date.now() / 1000) + DUEL_TIMEOUT_SECONDS;
 
-		StructuredLogger.logTransaction("Duel created", {
-			userId: challengerId,
-			operation: "duel_create",
-			duelId: duelId.toString(),
-			opponentId: opponentId.toString(),
-			wagerAmount: wagerAmount.toString(),
-			consequence,
-		});
+			// Convert wager to micro-units for DB storage
+			const wagerMicro = AmountPrecision.toDbMicro(wagerAmount);
 
-		return { success: true, duel };
+			const result = execute(
+				`INSERT INTO duels (
+					challenger_id, opponent_id, wager_amount, loser_consequence,
+					consequence_duration, chat_id, expires_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				[
+					challengerId,
+					opponentId,
+					wagerMicro,
+					consequence,
+					duration,
+					chatId,
+					expiresAt,
+				],
+			);
+
+			const duelId = result.lastInsertRowid as number;
+			const escrowId = await DuelService.ensureDuelEscrowAccount(duelId);
+			const escrowFunding = await LedgerService.transferBetweenUsers(
+				challengerId,
+				escrowId,
+				wagerAmount,
+				`Duel #${duelId} challenger escrow funding`,
+			);
+
+			if (!escrowFunding.success) {
+				execute("DELETE FROM duels WHERE id = ?", [duelId]);
+				return {
+					success: false,
+					error: escrowFunding.error || "Failed to reserve duel wager",
+				};
+			}
+
+			const duel = DuelService.getDuel(duelId);
+
+			StructuredLogger.logTransaction("Duel created", {
+				userId: challengerId,
+				operation: "duel_create",
+				duelId: duelId.toString(),
+				opponentId: opponentId.toString(),
+				wagerAmount: wagerAmount.toString(),
+				consequence,
+			});
+
+			return { success: true, duel };
+		} finally {
+			await TransactionLockService.releaseLock(challengerId);
+		}
 	}
 
 	/**
@@ -284,10 +353,10 @@ export class DuelService {
 	/**
 	 * Cancel a pending duel (by challenger)
 	 */
-	static cancelDuel(
+	static async cancelDuel(
 		duelId: number,
 		userId: number,
-	): { success: boolean; error?: string } {
+	): Promise<{ success: boolean; error?: string }> {
 		const duel = DuelService.getDuel(duelId);
 		if (!duel) {
 			return { success: false, error: "Duel not found" };
@@ -300,6 +369,14 @@ export class DuelService {
 		}
 		if (duel.status !== "pending") {
 			return { success: false, error: "This duel is no longer pending" };
+		}
+
+		const refundResult = await DuelService.refundChallengerFromEscrow(
+			duel,
+			`Duel #${duel.id} cancelled - challenger refund`,
+		);
+		if (!refundResult.success) {
+			return refundResult;
 		}
 
 		execute(
@@ -319,10 +396,10 @@ export class DuelService {
 	/**
 	 * Reject a pending duel (by opponent)
 	 */
-	static rejectDuel(
+	static async rejectDuel(
 		duelId: number,
 		userId: number,
-	): { success: boolean; error?: string } {
+	): Promise<{ success: boolean; error?: string }> {
 		const duel = DuelService.getDuel(duelId);
 		if (!duel) {
 			return { success: false, error: "Duel not found" };
@@ -335,6 +412,14 @@ export class DuelService {
 		}
 		if (duel.status !== "pending") {
 			return { success: false, error: "This duel is no longer pending" };
+		}
+
+		const refundResult = await DuelService.refundChallengerFromEscrow(
+			duel,
+			`Duel #${duel.id} rejected - challenger refund`,
+		);
+		if (!refundResult.success) {
+			return refundResult;
 		}
 
 		execute(
@@ -388,51 +473,61 @@ export class DuelService {
 			return { success: false, error: "This duel is no longer pending" };
 		}
 
-		// Check opponent balance
-		const opponentBalance = await LedgerService.getUserBalance(userId);
-		if (!AmountPrecision.isGreaterOrEqual(opponentBalance, duel.wagerAmount)) {
-			return { success: false, error: "Insufficient balance to accept duel" };
-		}
-
-		// Re-check challenger balance
-		const challengerBalance = await LedgerService.getUserBalance(
-			duel.challengerId,
-		);
-		if (
-			!AmountPrecision.isGreaterOrEqual(challengerBalance, duel.wagerAmount)
-		) {
-			// Cancel the duel since challenger no longer has funds
-			execute(
-				`UPDATE duels SET status = 'cancelled', resolved_at = ? WHERE id = ?`,
-				[Math.floor(Date.now() / 1000), duelId],
-			);
-			return {
-				success: false,
-				error: "Challenger no longer has sufficient funds - duel cancelled",
-			};
-		}
-
-		// Acquire locks for both users
-		const challengerLock = await TransactionLockService.acquireLock(
-			duel.challengerId,
-			"duel",
-			duel.wagerAmount,
-		);
-		if (!challengerLock) {
-			return { success: false, error: "Challenger has a pending transaction" };
-		}
-
 		const opponentLock = await TransactionLockService.acquireLock(
 			userId,
-			"duel",
+			"duel_accept",
 			duel.wagerAmount,
 		);
 		if (!opponentLock) {
-			await TransactionLockService.releaseLock(duel.challengerId);
 			return { success: false, error: "You have a pending transaction" };
 		}
 
+		let escrowId: number | null = null;
+		let opponentWagerEscrowed = false;
+
 		try {
+			// Check opponent balance while their account is locked.
+			const opponentBalance = await LedgerService.getUserBalance(userId);
+			if (
+				!AmountPrecision.isGreaterOrEqual(opponentBalance, duel.wagerAmount)
+			) {
+				return {
+					success: false,
+					error: "Insufficient balance to accept duel",
+				};
+			}
+
+			const claimedDuel = execute(
+				`UPDATE duels SET status = 'accepted'
+				WHERE id = ? AND status = 'pending'`,
+				[duelId],
+			);
+			if (claimedDuel.changes === 0) {
+				return { success: false, error: "This duel is no longer pending" };
+			}
+
+			escrowId = await DuelService.ensureDuelEscrowAccount(duel.id);
+			const opponentEscrowResult = await LedgerService.transferBetweenUsers(
+				userId,
+				escrowId,
+				duel.wagerAmount,
+				`Duel #${duel.id} opponent escrow funding`,
+			);
+
+			if (!opponentEscrowResult.success) {
+				execute(
+					`UPDATE duels SET status = 'pending' WHERE id = ? AND status = 'accepted'`,
+					[duelId],
+				);
+				return {
+					success: false,
+					error:
+						opponentEscrowResult.error ||
+						"Failed to reserve funds for duel acceptance",
+				};
+			}
+			opponentWagerEscrowed = true;
+
 			// Generate rolls for both users
 			const now = Math.floor(Date.now() / 1000);
 			const challengerResult = generateRollFn(
@@ -457,25 +552,17 @@ export class DuelService {
 				loserId = duel.challengerId;
 			}
 
-			// Transfer wager from loser to winner
-			const txResult = await LedgerService.transferBetweenUsers(
-				loserId,
+			const potAmount = AmountPrecision.multiply(duel.wagerAmount, 2);
+			const payoutResult = await LedgerService.transferBetweenUsers(
+				escrowId,
 				winnerId,
-				duel.wagerAmount,
-				`Duel #${duel.id} - ${loserId === duel.challengerId ? "challenger" : "opponent"} lost`,
+				potAmount,
+				`Duel #${duel.id} payout`,
 			);
 
-			if (!txResult.success) {
-				throw new Error(txResult.error || "Transfer failed");
+			if (!payoutResult.success) {
+				throw new Error(payoutResult.error || "Duel payout failed");
 			}
-
-			// Update transaction type to gambling
-			execute(
-				`UPDATE transactions SET transaction_type = ?
-				WHERE (from_user_id = ? OR to_user_id = ?)
-				AND created_at = (SELECT MAX(created_at) FROM transactions WHERE from_user_id = ? OR to_user_id = ?)`,
-				[TransactionType.GAMBLING, loserId, winnerId, loserId, winnerId],
-			);
 
 			// Update duel record
 			execute(
@@ -512,10 +599,6 @@ export class DuelService {
 				);
 			}
 
-			// Release locks
-			await TransactionLockService.releaseLock(duel.challengerId);
-			await TransactionLockService.releaseLock(userId);
-
 			StructuredLogger.logTransaction("Duel completed", {
 				userId: winnerId,
 				operation: "duel_complete",
@@ -534,9 +617,48 @@ export class DuelService {
 				opponentRoll: opponentResult.rollNumber,
 			};
 		} catch (error) {
-			// Release locks on error
-			await TransactionLockService.releaseLock(duel.challengerId);
-			await TransactionLockService.releaseLock(userId);
+			if (opponentWagerEscrowed && escrowId !== null) {
+				try {
+					const challengerRollback = await LedgerService.transferBetweenUsers(
+						escrowId,
+						duel.challengerId,
+						duel.wagerAmount,
+						`Duel #${duel.id} rollback - challenger refund`,
+					);
+					const opponentRollback = await LedgerService.transferBetweenUsers(
+						escrowId,
+						duel.opponentId,
+						duel.wagerAmount,
+						`Duel #${duel.id} rollback - opponent refund`,
+					);
+
+					if (challengerRollback.success && opponentRollback.success) {
+						execute(
+							`UPDATE duels SET status = 'cancelled', resolved_at = ? WHERE id = ?`,
+							[Math.floor(Date.now() / 1000), duelId],
+						);
+					} else {
+						logger.error("Duel rollback left escrow partially unresolved", {
+							duelId,
+							challengerRollbackError: challengerRollback.error,
+							opponentRollbackError: opponentRollback.error,
+						});
+					}
+				} catch (rollbackError) {
+					logger.error("Failed to rollback duel escrow after duel error", {
+						duelId,
+						error:
+							rollbackError instanceof Error
+								? rollbackError.message
+								: String(rollbackError),
+					});
+				}
+			} else {
+				execute(
+					`UPDATE duels SET status = 'pending' WHERE id = ? AND status = 'accepted'`,
+					[duelId],
+				);
+			}
 
 			logger.error("Duel execution failed", {
 				duelId,
@@ -544,6 +666,8 @@ export class DuelService {
 			});
 
 			return { success: false, error: "Duel execution failed" };
+		} finally {
+			await TransactionLockService.releaseLock(userId);
 		}
 	}
 
@@ -661,18 +785,40 @@ export class DuelService {
 	 */
 	static async cleanExpiredDuels(): Promise<number> {
 		const now = Math.floor(Date.now() / 1000);
-
-		const result = execute(
-			`UPDATE duels SET status = 'expired', resolved_at = ?
+		const expiredDuels = query<DuelRow>(
+			`SELECT * FROM duels
 			WHERE status = 'pending' AND expires_at <= ?`,
-			[now, now],
-		);
+			[now],
+		).map(rowToDuel);
 
-		if (result.changes > 0) {
-			logger.info("Expired duels cleaned up", { count: result.changes });
+		let expiredCount = 0;
+
+		for (const duel of expiredDuels) {
+			const refundResult = await DuelService.refundChallengerFromEscrow(
+				duel,
+				`Duel #${duel.id} expired - challenger refund`,
+			);
+
+			if (!refundResult.success) {
+				logger.error("Failed to refund expired duel escrow", {
+					duelId: duel.id,
+					error: refundResult.error,
+				});
+				continue;
+			}
+
+			execute(
+				`UPDATE duels SET status = 'expired', resolved_at = ? WHERE id = ?`,
+				[now, duel.id],
+			);
+			expiredCount++;
 		}
 
-		return result.changes;
+		if (expiredCount > 0) {
+			logger.info("Expired duels cleaned up", { count: expiredCount });
+		}
+
+		return expiredCount;
 	}
 
 	/**

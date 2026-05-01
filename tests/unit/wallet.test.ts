@@ -34,6 +34,7 @@ vi.mock("../../src/services/unifiedWalletService", () => ({
 		transferToUser: vi.fn(),
 		sendToUsername: vi.fn(),
 	},
+	getWithdrawalNetworkFee: vi.fn(() => 0.00975),
 }));
 
 vi.mock("../../src/services/ledgerService", () => ({
