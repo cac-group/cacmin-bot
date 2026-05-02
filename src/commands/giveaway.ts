@@ -10,11 +10,11 @@ import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { execute, get, query } from "../database";
 import { ownerOnly } from "../middleware/index";
+import { JunoService } from "../services/junoService";
 import { LedgerService } from "../services/ledgerService";
 import {
 	getGiveawayEscrowId,
 	SYSTEM_USER_IDS,
-	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
@@ -81,9 +81,9 @@ export function registerGiveawayCommands(bot: Telegraf<Context>): void {
 	 */
 	bot.command("botbalance", ownerOnly, async (ctx) => {
 		try {
-			const balance = await UnifiedWalletService.getBotBalance();
+			const balance = await JunoService.getBalance();
 
-			if (!balance) {
+			if (balance === null) {
 				return ctx.reply("Unable to fetch wallet balance.");
 			}
 
@@ -446,8 +446,8 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 	 */
 	bot.command("treasury", ownerOnly, async (ctx) => {
 		try {
-			// On-chain treasury balance
-			const treasuryBalance = await UnifiedWalletService.getBotBalance();
+			// On-chain treasury wallet balance
+			const treasuryBalance = await JunoService.getBalance();
 			const treasuryAddress = config.botTreasuryAddress;
 
 			// Internal ledger statistics (DB stores micro-units, convert to JUNO)
@@ -479,7 +479,7 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 			const msg = await ctx.reply(
 				fmt`${bold("Bot Wallet Status")}
 
-${bold("On-Chain Balance:")} ${treasuryBalance?.toFixed(6) || "0"} JUNO
+${bold("On-Chain Balance:")} ${treasuryBalance === null ? "Unavailable (balance query failed)" : `${treasuryBalance.toFixed(6)} JUNO`}
 ${code(treasuryAddress || "")}
 
 ${bold("Internal Ledger:")}

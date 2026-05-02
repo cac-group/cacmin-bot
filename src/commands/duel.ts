@@ -139,6 +139,7 @@ Challenge another user to a 1v1 roll-off. Highest roll wins!
 
 ${bold("Rules:")}
 - Both players wager the same amount
+- Your wager is reserved immediately
 - Each player rolls a 9-digit number
 - Highest roll wins the pot
 - Ties go to the challenger
@@ -384,7 +385,7 @@ ${historyLines.join("\n\n")}`,
 			return ctx.reply("You don't have any pending duel challenges.");
 		}
 
-		const result = DuelService.cancelDuel(duel.id, userId);
+		const result = await DuelService.cancelDuel(duel.id, userId);
 		if (!result.success) {
 			return ctx.reply(result.error || "Failed to cancel duel.");
 		}
@@ -494,6 +495,9 @@ ${bold(formatUserIdDisplay(userId))} challenges ${bold(formatUserIdDisplay(oppon
 ${bold("Wager:")} ${code(AmountPrecision.format(wagerAmount))} JUNO each
 ${bold("Loser Penalty:")} ${consequenceName}${durationText ? ` (${durationText})` : ""}
 
+${bold(formatUserIdDisplay(userId))}'s wager is already reserved.
+Your wager is only reserved if you accept.
+
 Both players roll a 9-digit number.
 ${bold("Highest roll wins!")}
 (Ties go to challenger)
@@ -569,7 +573,7 @@ ${bold(formatUserIdDisplay(duel.challengerId))} rolled: ${code(result.challenger
 ${bold(formatUserIdDisplay(duel.opponentId))} rolled: ${code(result.opponentRoll || "???")}
 
 ${bold("Winner:")} ${formatUserIdDisplay(duel.winnerId || 0)}
-${bold("Prize:")} ${code(AmountPrecision.format(duel.wagerAmount))} JUNO${consequenceText}`,
+${bold("Net Winnings:")} ${code(AmountPrecision.format(duel.wagerAmount))} JUNO${consequenceText}`,
 		);
 
 		// Notify the challenger if they weren't the one who clicked
@@ -598,7 +602,7 @@ You ${challengerWon ? "won" : "lost"} ${AmountPrecision.format(duel.wagerAmount)
 
 		const duelId = parseInt(ctx.match[1], 10);
 
-		const result = DuelService.rejectDuel(duelId, userId);
+		const result = await DuelService.rejectDuel(duelId, userId);
 		if (!result.success) {
 			await ctx.answerCbQuery(result.error || "Failed to reject duel.");
 			return;
@@ -636,7 +640,7 @@ No funds were exchanged.`,
 
 		const duelId = parseInt(ctx.match[1], 10);
 
-		const result = DuelService.cancelDuel(duelId, userId);
+		const result = await DuelService.cancelDuel(duelId, userId);
 		if (!result.success) {
 			await ctx.answerCbQuery(result.error || "Failed to cancel duel.");
 			return;

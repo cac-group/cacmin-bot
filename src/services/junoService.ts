@@ -4,8 +4,8 @@ import { config } from "../config";
 import { logger, StructuredLogger } from "../utils/logger";
 
 export class JunoService {
-	private static rpcEndpoint =
-		config.junoRpcUrl || "https://rpc.juno.basementnodes.ca";
+	private static apiEndpoint =
+		config.junoApiUrl || "https://api.juno.basementnodes.ca";
 
 	/** Verify payment tx sent to treasury with expected amount (0.01 JUNO tolerance) */
 	static async verifyPayment(
@@ -108,21 +108,22 @@ export class JunoService {
 	}
 
 	/** Query bot treasury balance in JUNO */
-	static async getBalance(): Promise<number> {
+	static async getBalance(): Promise<number | null> {
 		if (!config.botTreasuryAddress) {
-			return 0;
+			return null;
 		}
 
 		try {
 			const response = await fetch(
-				`${JunoService.rpcEndpoint}/cosmos/bank/v1beta1/balances/${config.botTreasuryAddress}`,
+				`${JunoService.apiEndpoint}/cosmos/bank/v1beta1/balances/${config.botTreasuryAddress}`,
 			);
 
 			if (!response.ok) {
 				StructuredLogger.logError("Failed to query balance", {
 					operation: "get_balance",
+					status: response.status.toString(),
 				});
-				return 0;
+				return null;
 			}
 
 			const data = (await response.json()) as any;
@@ -133,7 +134,7 @@ export class JunoService {
 			StructuredLogger.logError(error as Error, {
 				operation: "get_balance",
 			});
-			return 0;
+			return null;
 		}
 	}
 }

@@ -20,6 +20,7 @@ import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { LedgerService } from "../services/ledgerService";
 import {
+	getWithdrawalNetworkFee,
 	SYSTEM_USER_IDS,
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
@@ -175,24 +176,28 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 
 		const text = (ctx.message as any)?.text || "";
 		const args = text.split(" ").slice(1);
+		const networkFee = getWithdrawalNetworkFee();
 
 		if (args.length < 2) {
 			await ctx.reply(
 				fmt`${bold("Invalid format")}
 
 Usage: ${code("/withdraw <amount> <juno_address>")}
-Example: ${code("/withdraw 10 juno1xxxxx...")}`,
+Example: ${code("/withdraw 10 juno1xxxxx...")}
+
+Current network fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}`,
 			);
 			return;
 		}
 
-		const amount = parseFloat(args[0]);
-		const address = args[1];
-
-		if (Number.isNaN(amount) || amount <= 0) {
+		let amount: number;
+		try {
+			amount = AmountPrecision.parseUserInput(args[0]);
+		} catch {
 			await ctx.reply(" Invalid amount. Please enter a positive number.");
 			return;
 		}
+		const address = args[1];
 
 		if (!address.startsWith("juno1")) {
 			await ctx.reply(
@@ -203,11 +208,14 @@ Example: ${code("/withdraw 10 juno1xxxxx...")}`,
 
 		// Check balance first
 		const balance = await UnifiedWalletService.getBalance(userId);
-		if (balance < amount) {
+		const totalRequired = AmountPrecision.add(amount, networkFee);
+		if (!AmountPrecision.isGreaterOrEqual(balance, totalRequired)) {
 			await ctx.reply(
 				fmt`${bold("Oh no, looks like you're broke!")}
 
-Requested: ${code(`${amount} JUNO`)}
+Requested: ${code(`${AmountPrecision.format(amount)} JUNO`)}
+Network fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
+Total required: ${code(`${AmountPrecision.format(totalRequired)} JUNO`)}
 Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 			);
 			return;
@@ -237,6 +245,7 @@ Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 					? fmt`${bold("Withdrawal Successful")}
 
 Amount: ${code(`${amount} JUNO`)}
+Network Fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
 To: ${code(address)}
 New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}
 
@@ -244,6 +253,7 @@ Transaction: ${code(result.txHash)}`
 					: fmt`${bold("Withdrawal Successful")}
 
 Amount: ${code(`${amount} JUNO`)}
+Network Fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
 To: ${code(address)}
 New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
 			);
@@ -562,6 +572,9 @@ export async function handleTransactions(ctx: Context): Promise<void> {
 					break;
 				case "withdrawal":
 					description = `-${amount} JUNO (Withdrawal)`;
+					break;
+				case "fee":
+					description = `-${amount} JUNO (Fee)`;
 					break;
 				case "transfer":
 					if (tx.from_user_id === targetUserId) {

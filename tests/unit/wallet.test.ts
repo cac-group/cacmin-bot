@@ -34,6 +34,7 @@ vi.mock("../../src/services/unifiedWalletService", () => ({
 		transferToUser: vi.fn(),
 		sendToUsername: vi.fn(),
 	},
+	getWithdrawalNetworkFee: vi.fn(() => 0.00975),
 }));
 
 vi.mock("../../src/services/ledgerService", () => ({
@@ -94,10 +95,20 @@ describe("Wallet Commands", () => {
 		(UnifiedWalletService.processWithdrawal as any).mockResolvedValue({
 			success: true,
 			txHash: "ABC123",
-			newBalance: 90,
+			newBalance: 89.99025,
 		});
 		await walletHandlers.handleWithdraw(ctx as any);
-		expect(UnifiedWalletService.processWithdrawal).toHaveBeenCalled();
+		expect(UnifiedWalletService.processWithdrawal).toHaveBeenCalledWith(
+			444444444,
+			"juno1validaddress123456789012345678901234567890",
+			10,
+		);
+		const withdrawReply = getAllReplies(ctx).at(-1) || "";
+		expect(withdrawReply).toContain("Withdrawal Successful");
+		expect(withdrawReply).toContain("Network Fee");
+		expect(withdrawReply).toContain("0.009750 JUNO");
+		expect(withdrawReply).toContain("89.990250 JUNO");
+		expect(withdrawReply).toContain("ABC123");
 
 		// Invalid amount
 		vi.clearAllMocks();

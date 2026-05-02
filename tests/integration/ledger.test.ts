@@ -182,6 +182,27 @@ describe("Ledger Integration", () => {
 		expect(total).toBe(1500);
 	});
 
+	it("should debit network fees from the user without touching other balances", async () => {
+		await LedgerService.processDeposit(1001, 100, "TX1", "juno1addr");
+		await LedgerService.processDeposit(1002, 50, "TX2", "juno1addr");
+
+		const feeResult = await LedgerService.processFee(
+			1001,
+			0.00975,
+			"Withdrawal network fee",
+		);
+
+		expect(feeResult.success).toBe(true);
+		expect(await LedgerService.getUserBalance(1001)).toBe(99.99025);
+		expect(await LedgerService.getUserBalance(1002)).toBe(50);
+		expect(await LedgerService.getTotalUserBalance()).toBe(149.99025);
+
+		const transactions = (await LedgerService.getUserTransactions(1001)) as any[];
+		expect(
+			transactions.some((tx) => tx.transaction_type === TransactionType.FEE),
+		).toBe(true);
+	});
+
 	it("should prevent concurrent operations with transaction locks", async () => {
 		// First lock succeeds
 		const first = await TransactionLockService.acquireLock(1001, "withdrawal");

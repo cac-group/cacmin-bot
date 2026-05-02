@@ -7,6 +7,7 @@ import { AmountPrecision } from "../utils/precision";
 export enum TransactionType {
 	DEPOSIT = "deposit",
 	WITHDRAWAL = "withdrawal",
+	FEE = "fee",
 	TRANSFER = "transfer",
 	FINE = "fine",
 	BAIL = "bail",
@@ -338,6 +339,77 @@ export class LedgerService {
 	}
 
 	/**
+	 * Charge a user a ledger-only fee such as an on-chain network fee.
+	 * @param amount - Amount in JUNO
+	 */
+	static async processFee(
+		userId: number,
+		amount: JunoAmount,
+		description?: string,
+	): Promise<{ success: boolean; newBalance: JunoAmount; error?: string }> {
+		let currentMicro = 0;
+		let newMicro = 0;
+		let balanceUpdated = false;
+
+		try {
+			const amountMicro = AmountPrecision.toDbMicro(amount);
+			currentMicro = await LedgerService.getUserBalanceMicro(userId);
+
+			if (currentMicro < amountMicro) {
+				return {
+					success: false,
+					newBalance: AmountPrecision.fromDbMicro(currentMicro),
+					error: "Insufficient balance",
+				};
+			}
+
+			newMicro = AmountPrecision.subtractMicro(currentMicro, amountMicro);
+
+			await LedgerService.updateBalanceMicro(userId, newMicro);
+			balanceUpdated = true;
+
+			await LedgerService.recordTransactionMicro({
+				transactionType: TransactionType.FEE,
+				fromUserId: userId,
+				amount: amountMicro,
+				balanceAfter: newMicro,
+				description: description || "Network fee",
+				status: TransactionStatus.COMPLETED,
+			});
+
+			const newBalance = AmountPrecision.fromDbMicro(newMicro);
+
+			logger.info("Fee processed", {
+				userId,
+				amount,
+				amountMicro,
+				newBalance,
+			});
+
+			return { success: true, newBalance };
+		} catch (error) {
+			if (balanceUpdated) {
+				try {
+					await LedgerService.updateBalanceMicro(userId, currentMicro);
+				} catch (rollbackError) {
+					logger.error("Failed to rollback fee balance update", {
+						userId,
+						amount,
+						rollbackError,
+					});
+				}
+			}
+
+			logger.error("Failed to process fee", { userId, amount, error });
+			return {
+				success: false,
+				newBalance: await LedgerService.getUserBalance(userId),
+				error: error instanceof Error ? error.message : "Unknown error",
+			};
+		}
+	}
+
+	/**
 	 * Transfer tokens between users (internal ledger only)
 	 * @param amount - Amount in JUNO
 	 */
@@ -350,6 +422,7 @@ export class LedgerService {
 		success: boolean;
 		fromBalance: JunoAmount;
 		toBalance: JunoAmount;
+		transactionId?: number;
 		error?: string;
 	}> {
 		try {
@@ -383,7 +456,7 @@ export class LedgerService {
 			await LedgerService.updateBalanceMicro(toUserId, newToMicro);
 
 			// Record transaction (micro-units)
-			await LedgerService.recordTransactionMicro({
+			const transactionId = await LedgerService.recordTransactionMicro({
 				transactionType: TransactionType.TRANSFER,
 				fromUserId,
 				toUserId,
@@ -410,6 +483,7 @@ export class LedgerService {
 				success: true,
 				fromBalance: newFromBalance,
 				toBalance: newToBalance,
+				transactionId,
 			};
 		} catch (error) {
 			logger.error("Failed to process transfer", {

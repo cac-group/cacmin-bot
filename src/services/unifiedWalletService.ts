@@ -17,11 +17,28 @@ export const SYSTEM_USER_IDS = {
 	// Giveaway escrow accounts use IDs: -1000 - giveawayId
 	// e.g., giveaway 1 = -1001, giveaway 2 = -1002, etc.
 	GIVEAWAY_ESCROW_BASE: -1000,
+	// Duel escrow accounts use IDs: -1000000 - duelId
+	DUEL_ESCROW_BASE: -1_000_000,
 };
 
 /** Get escrow user ID for a specific giveaway */
 export function getGiveawayEscrowId(giveawayId: number): number {
 	return SYSTEM_USER_IDS.GIVEAWAY_ESCROW_BASE - giveawayId;
+}
+
+/** Get escrow user ID for a specific duel */
+export function getDuelEscrowId(duelId: number): number {
+	return SYSTEM_USER_IDS.DUEL_ESCROW_BASE - duelId;
+}
+
+const WITHDRAWAL_GAS_PRICE = "0.075ujuno";
+const WITHDRAWAL_GAS_LIMIT = 130000;
+const WITHDRAWAL_FEE_UJUNO = Math.ceil(WITHDRAWAL_GAS_LIMIT * 0.075);
+const WITHDRAWAL_NETWORK_FEE =
+	AmountPrecision.fromDbMicro(WITHDRAWAL_FEE_UJUNO);
+
+export function getWithdrawalNetworkFee(): number {
+	return WITHDRAWAL_NETWORK_FEE;
 }
 
 interface User {
@@ -785,15 +802,26 @@ export class UnifiedWalletService {
 			};
 		}
 
+		const balanceMicro = await LedgerService.getUserBalanceMicro(userId);
+		const validatedAmountMicro = AmountPrecision.toDbMicro(validatedAmount);
+		const withdrawalFee = getWithdrawalNetworkFee();
+		const requiredBalanceMicro = AmountPrecision.addMicro(
+			validatedAmountMicro,
+			WITHDRAWAL_FEE_UJUNO,
+		);
+
 		// Check balance before acquiring lock
-		const balance = await LedgerService.getUserBalance(userId);
-		if (!AmountPrecision.isGreaterOrEqual(balance, validatedAmount)) {
+		if (balanceMicro < requiredBalanceMicro) {
+			const balance = AmountPrecision.fromDbMicro(balanceMicro);
+			const requiredBalance = AmountPrecision.fromDbMicro(requiredBalanceMicro);
 			return {
 				success: false,
-				error: `Insufficient balance. You have ${AmountPrecision.format(balance)} JUNO`,
+				error: `Insufficient balance. You need ${AmountPrecision.format(requiredBalance)} JUNO including the ${AmountPrecision.format(withdrawalFee)} JUNO network fee.`,
 				newBalance: balance,
 			};
 		}
+
+		const balance = AmountPrecision.fromDbMicro(balanceMicro);
 
 		// Acquire secure withdrawal lock
 		const lockResult = await TransactionLockService.lockWithdrawal(
@@ -811,6 +839,8 @@ export class UnifiedWalletService {
 		}
 
 		try {
+			const totalDebit = AmountPrecision.add(validatedAmount, withdrawalFee);
+
 			// Create pending withdrawal in ledger (deducts from balance)
 			const withdrawalResult = await LedgerService.processWithdrawal(
 				userId,
@@ -831,12 +861,33 @@ export class UnifiedWalletService {
 				};
 			}
 
+			const feeResult = await LedgerService.processFee(
+				userId,
+				withdrawalFee,
+				`Network fee for withdrawal to ${toAddress}`,
+			);
+
+			if (!feeResult.success) {
+				await LedgerService.processGiveaway(
+					userId,
+					validatedAmount,
+					"Withdrawal refund - fee charge failed",
+				);
+				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
+
+				return {
+					success: false,
+					error: feeResult.error || "Failed to charge withdrawal fee",
+					newBalance: await LedgerService.getUserBalance(userId),
+				};
+			}
+
 			// Execute on-chain transaction
 			if (!UnifiedWalletService.wallet) {
 				// Refund if we can't sign
 				await LedgerService.processGiveaway(
 					userId,
-					validatedAmount,
+					totalDebit,
 					"Withdrawal refund - signing unavailable",
 				);
 				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
@@ -851,7 +902,7 @@ export class UnifiedWalletService {
 			const client = await SigningStargateClient.connectWithSigner(
 				UnifiedWalletService.rpcEndpoint,
 				UnifiedWalletService.wallet,
-				{ gasPrice: GasPrice.fromString("0.075ujuno") },
+				{ gasPrice: GasPrice.fromString(WITHDRAWAL_GAS_PRICE) },
 			);
 
 			const [account] = await UnifiedWalletService.wallet.getAccounts();
@@ -863,7 +914,15 @@ export class UnifiedWalletService {
 					account.address,
 					toAddress,
 					[{ denom: "ujuno", amount: amountInUjuno.toString() }],
-					"auto",
+					{
+						amount: [
+							{
+								denom: "ujuno",
+								amount: WITHDRAWAL_FEE_UJUNO.toString(),
+							},
+						],
+						gas: WITHDRAWAL_GAS_LIMIT.toString(),
+					},
 					`Withdrawal for user ${userId}`,
 				);
 			} catch (txError) {
@@ -872,7 +931,7 @@ export class UnifiedWalletService {
 
 				await LedgerService.processGiveaway(
 					userId,
-					amount,
+					totalDebit,
 					"Withdrawal refund - transaction failed",
 				);
 				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
@@ -893,10 +952,11 @@ export class UnifiedWalletService {
 
 			// Verify transaction status
 			if (result.code !== 0) {
-				// Transaction failed on-chain - refund and release lock
+				// Transaction failed on-chain after broadcast. The network fee is still
+				// consumed, so refund only the transfer amount.
 				await LedgerService.processGiveaway(
 					userId,
-					amount,
+					validatedAmount,
 					"Withdrawal refund - transaction rejected",
 				);
 				await TransactionLockService.releaseWithdrawalLock(
@@ -921,29 +981,6 @@ export class UnifiedWalletService {
 				);
 			}
 
-			// Record gas fee in ledger to keep internal total accurate.
-			// The actual fee charged on-chain is based on gasWanted (the gas limit),
-			// not gasUsed (gas consumed). Use integer math via AmountPrecision.
-			if (result.gasWanted) {
-				const gasWantedNum = Number(result.gasWanted);
-				const gasFeeUjuno = Math.ceil(gasWantedNum * 0.075);
-				const gasFeeJuno = AmountPrecision.fromDbMicro(gasFeeUjuno);
-				if (gasFeeJuno > 0.000001) {
-					await LedgerService.processAdjustment(
-						SYSTEM_USER_IDS.BOT_TREASURY,
-						-gasFeeJuno,
-						`Gas fee for withdrawal ${result.transactionHash.slice(0, 16)}...`,
-					);
-					logger.info("Gas fee recorded in ledger", {
-						userId,
-						txHash: result.transactionHash,
-						gasWanted: gasWantedNum,
-						gasFeeUjuno,
-						gasFeeJuno,
-					});
-				}
-			}
-
 			// Attempt to verify and release lock
 			const releaseResult = await TransactionLockService.releaseWithdrawalLock(
 				userId,
@@ -964,6 +1001,7 @@ export class UnifiedWalletService {
 				userId,
 				toAddress,
 				amount,
+				withdrawalFee,
 				txHash: result.transactionHash,
 				lockReleased: releaseResult.released,
 			});
@@ -971,7 +1009,7 @@ export class UnifiedWalletService {
 			return {
 				success: true,
 				txHash: result.transactionHash,
-				newBalance: withdrawalResult.newBalance,
+				newBalance: feeResult.newBalance,
 			};
 		} catch (error) {
 			// Unexpected error - ensure lock is released and user is refunded
@@ -980,7 +1018,7 @@ export class UnifiedWalletService {
 			try {
 				await LedgerService.processGiveaway(
 					userId,
-					amount,
+					AmountPrecision.add(validatedAmount, withdrawalFee),
 					"Withdrawal refund - system error",
 				);
 			} catch (refundError) {
