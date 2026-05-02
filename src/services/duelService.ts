@@ -614,6 +614,7 @@ export class DuelService {
 
 		let escrowId: number | null = null;
 		let opponentWagerEscrowed = false;
+		let payoutCompleted = false;
 
 		try {
 			// Check opponent balance while their account is locked.
@@ -720,53 +721,96 @@ export class DuelService {
 			if (!payoutResult.success) {
 				throw new Error(payoutResult.error || "Duel payout failed");
 			}
+			payoutCompleted = true;
+
+			const resolvedAt = now;
+			const completedDuel: Duel = {
+				...duel,
+				status: "completed",
+				winnerId,
+				loserId,
+				rollChallenger: challengerResult.rollNumber,
+				rollOpponent: opponentResult.rollNumber,
+				rollIdChallenger: challengerResult.rollId,
+				rollIdOpponent: opponentResult.rollId,
+				resolvedAt,
+			};
 
 			// Update duel record
-			execute(
-				`UPDATE duels SET
-					status = 'completed',
-					winner_id = ?,
-					loser_id = ?,
-					roll_challenger = ?,
-					roll_opponent = ?,
-					roll_id_challenger = ?,
-					roll_id_opponent = ?,
-					resolved_at = ?
-				WHERE id = ?`,
-				[
-					winnerId,
-					loserId,
-					challengerResult.rollNumber,
-					opponentResult.rollNumber,
-					challengerResult.rollId,
-					opponentResult.rollId,
-					now,
+			try {
+				execute(
+					`UPDATE duels SET
+						status = 'completed',
+						winner_id = ?,
+						loser_id = ?,
+						roll_challenger = ?,
+						roll_opponent = ?,
+						roll_id_challenger = ?,
+						roll_id_opponent = ?,
+						resolved_at = ?
+					WHERE id = ?`,
+					[
+						winnerId,
+						loserId,
+						challengerResult.rollNumber,
+						opponentResult.rollNumber,
+						challengerResult.rollId,
+						opponentResult.rollId,
+						resolvedAt,
+						duelId,
+					],
+				);
+			} catch (error) {
+				logger.error("Failed to persist duel completion after payout", {
 					duelId,
-				],
-			);
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return {
+					success: true,
+					duel: completedDuel,
+					challengerRoll: challengerResult.rollNumber,
+					opponentRoll: opponentResult.rollNumber,
+				};
+			}
 
 			// Apply consequence to loser if any
 			if (duel.loserConsequence !== "none") {
-				await DuelService.applyConsequence(
-					loserId,
-					duel.loserConsequence,
-					duel.consequenceDuration ||
-						DEFAULT_CONSEQUENCE_DURATIONS[duel.loserConsequence],
-					duel.chatId,
-				);
+				try {
+					await DuelService.applyConsequence(
+						loserId,
+						duel.loserConsequence,
+						duel.consequenceDuration ||
+							DEFAULT_CONSEQUENCE_DURATIONS[duel.loserConsequence],
+						duel.chatId,
+					);
+				} catch (error) {
+					logger.error("Failed to apply duel consequence after payout", {
+						duelId,
+						loserId,
+						consequence: duel.loserConsequence,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
 			}
 
-			StructuredLogger.logTransaction("Duel completed", {
-				userId: winnerId,
-				operation: "duel_complete",
-				duelId: duelId.toString(),
-				winnerId: winnerId.toString(),
-				loserId: loserId.toString(),
-				wagerAmount: duel.wagerAmount.toString(),
-				consequence: duel.loserConsequence,
-			});
+			try {
+				StructuredLogger.logTransaction("Duel completed", {
+					userId: winnerId,
+					operation: "duel_complete",
+					duelId: duelId.toString(),
+					winnerId: winnerId.toString(),
+					loserId: loserId.toString(),
+					wagerAmount: duel.wagerAmount.toString(),
+					consequence: duel.loserConsequence,
+				});
+			} catch (error) {
+				logger.error("Failed to log duel completion", {
+					duelId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
 
-			const updatedDuel = DuelService.getDuel(duelId);
+			const updatedDuel = DuelService.getDuel(duelId) || completedDuel;
 			return {
 				success: true,
 				duel: updatedDuel,
@@ -774,7 +818,7 @@ export class DuelService {
 				opponentRoll: opponentResult.rollNumber,
 			};
 		} catch (error) {
-			if (opponentWagerEscrowed && escrowId !== null) {
+			if (!payoutCompleted && opponentWagerEscrowed && escrowId !== null) {
 				try {
 					const challengerRollback = await LedgerService.transferBetweenUsers(
 						escrowId,
@@ -810,7 +854,7 @@ export class DuelService {
 								: String(rollbackError),
 					});
 				}
-			} else {
+			} else if (!payoutCompleted) {
 				execute(
 					`UPDATE duels SET status = 'pending' WHERE id = ? AND status = 'accepted'`,
 					[duelId],

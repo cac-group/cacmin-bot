@@ -323,6 +323,46 @@ describe("DuelService integration", () => {
 		expect(await LedgerService.getUserBalance(escrowId)).toBe(0);
 	});
 
+	it("keeps the duel settled when a consequence fails after payout", async () => {
+		const createResult = await DuelService.createDuel(
+			1001,
+			1002,
+			6,
+			123,
+			"no_media",
+		);
+		const duelId = createResult.duel?.id || 0;
+		const escrowId = getDuelEscrowId(duelId);
+		const consequenceSpy = vi
+			.spyOn(DuelService as never, "applyConsequence" as never)
+			.mockRejectedValueOnce(new Error("Simulated consequence failure"));
+
+		const acceptResult = await DuelService.acceptAndExecuteDuel(
+			duelId,
+			1002,
+			(_, rollUserId) =>
+				rollUserId === 1001
+					? {
+							rollNumber: "999999999",
+							rollId: 1,
+							verificationHash: "winner",
+						}
+					: {
+							rollNumber: "111111111",
+							rollId: 2,
+							verificationHash: "loser",
+						},
+		);
+
+		consequenceSpy.mockRestore();
+
+		expect(acceptResult.success).toBe(true);
+		expect(DuelService.getDuel(duelId)?.status).toBe("completed");
+		expect(await LedgerService.getUserBalance(1001)).toBe(106);
+		expect(await LedgerService.getUserBalance(1002)).toBe(94);
+		expect(await LedgerService.getUserBalance(escrowId)).toBe(0);
+	});
+
 	it("rolls back both escrowed wagers if payout fails after the opponent accepts", async () => {
 		const createResult = await DuelService.createDuel(
 			1001,
