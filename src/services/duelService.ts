@@ -294,6 +294,79 @@ export class DuelService {
 		);
 	}
 
+	private static persistCompletedDuel(
+		duelId: number,
+		{
+			winnerId,
+			loserId,
+			challengerRoll,
+			opponentRoll,
+			challengerRollId,
+			opponentRollId,
+			resolvedAt,
+		}: {
+			winnerId: number;
+			loserId: number;
+			challengerRoll: string;
+			opponentRoll: string;
+			challengerRollId: number;
+			opponentRollId: number;
+			resolvedAt: number;
+		},
+	): boolean {
+		try {
+			execute(
+				`UPDATE duels SET
+					status = 'completed',
+					winner_id = ?,
+					loser_id = ?,
+					roll_challenger = ?,
+					roll_opponent = ?,
+					roll_id_challenger = ?,
+					roll_id_opponent = ?,
+					resolved_at = ?
+				WHERE id = ?`,
+				[
+					winnerId,
+					loserId,
+					challengerRoll,
+					opponentRoll,
+					challengerRollId,
+					opponentRollId,
+					resolvedAt,
+					duelId,
+				],
+			);
+			return true;
+		} catch (error) {
+			logger.error("Failed full duel completion persist after payout", {
+				duelId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+
+		try {
+			execute(
+				`UPDATE duels SET
+					status = 'completed',
+					winner_id = ?,
+					loser_id = ?,
+					roll_challenger = ?,
+					roll_opponent = ?,
+					resolved_at = ?
+				WHERE id = ?`,
+				[winnerId, loserId, challengerRoll, opponentRoll, resolvedAt, duelId],
+			);
+			return true;
+		} catch (error) {
+			logger.error("Failed fallback duel completion persist after payout", {
+				duelId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return false;
+		}
+	}
+
 	private static async ensureChallengerEscrowForAcceptedDuel(
 		duel: Duel,
 	): Promise<{ success: boolean; escrowId?: number; error?: string }> {
@@ -736,37 +809,20 @@ export class DuelService {
 				resolvedAt,
 			};
 
-			// Update duel record
-			try {
-				execute(
-					`UPDATE duels SET
-						status = 'completed',
-						winner_id = ?,
-						loser_id = ?,
-						roll_challenger = ?,
-						roll_opponent = ?,
-						roll_id_challenger = ?,
-						roll_id_opponent = ?,
-						resolved_at = ?
-					WHERE id = ?`,
-					[
-						winnerId,
-						loserId,
-						challengerResult.rollNumber,
-						opponentResult.rollNumber,
-						challengerResult.rollId,
-						opponentResult.rollId,
-						resolvedAt,
-						duelId,
-					],
-				);
-			} catch (error) {
-				logger.error("Failed to persist duel completion after payout", {
-					duelId,
-					error: error instanceof Error ? error.message : String(error),
-				});
+			if (
+				!DuelService.persistCompletedDuel(duelId, {
+					winnerId,
+					loserId,
+					challengerRoll: challengerResult.rollNumber,
+					opponentRoll: opponentResult.rollNumber,
+					challengerRollId: challengerResult.rollId,
+					opponentRollId: opponentResult.rollId,
+					resolvedAt,
+				})
+			) {
 				return {
-					success: true,
+					success: false,
+					error: "Duel payout completed but failed to persist duel result",
 					duel: completedDuel,
 					challengerRoll: challengerResult.rollNumber,
 					opponentRoll: opponentResult.rollNumber,
