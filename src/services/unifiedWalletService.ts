@@ -1601,6 +1601,8 @@ export class UnifiedWalletService {
 		internalTotal: number;
 		onChainTotal: number;
 		difference: number;
+		onChainAvailable: boolean;
+		error?: string;
 	}> {
 		return await LedgerService.reconcileBalances();
 	}

@@ -221,4 +221,48 @@ describe("Ledger Integration", () => {
 		const third = await TransactionLockService.acquireLock(1001, "withdrawal");
 		expect(third).toBe(true);
 	});
+
+	it("should map transaction lock rows when releasing withdrawal locks", async () => {
+		dbHelpers.execute(
+			`INSERT INTO transaction_locks
+				(user_id, lock_type, amount, target_address, tx_hash, locked_at, status)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			[
+				1001,
+				"withdrawal",
+				1.25,
+				"juno1recipient",
+				"TX-WITHDRAWAL",
+				Math.floor(Date.now() / 1000),
+				"processing",
+			],
+		);
+
+		const result = await TransactionLockService.releaseWithdrawalLock(
+			1001,
+			"TX-WITHDRAWAL",
+			true,
+		);
+
+		expect(result.released).toBe(true);
+		expect(await TransactionLockService.hasLock(1001)).toBe(false);
+	});
+
+	it("should verify withdrawal ledger rows using microJUNO amounts", async () => {
+		await LedgerService.processDeposit(1001, 10, "TX-DEPOSIT", "juno1addr");
+		await LedgerService.processWithdrawal(
+			1001,
+			1.25,
+			"juno1recipient",
+			"TX-WITHDRAWAL",
+		);
+
+		const verified = await (TransactionLockService as any).verifyLedgerUpdate(
+			1001,
+			1.25,
+			"withdrawal",
+		);
+
+		expect(verified).toBe(true);
+	});
 });

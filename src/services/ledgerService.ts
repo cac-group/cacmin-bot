@@ -49,6 +49,15 @@ interface Transaction {
 	metadata?: string;
 }
 
+export interface ReconciliationResult {
+	internalTotal: number;
+	onChainTotal: number;
+	difference: number;
+	matched: boolean;
+	onChainAvailable: boolean;
+	error?: string;
+}
+
 export class LedgerService {
 	private static botTreasuryAddress: string;
 	private static userFundsAddress: string;
@@ -805,17 +814,13 @@ export class LedgerService {
 	/**
 	 * Reconcile internal ledger with on-chain balances
 	 */
-	static async reconcileBalances(): Promise<{
-		internalTotal: number;
-		onChainTotal: number;
-		difference: number;
-		matched: boolean;
-	}> {
+	static async reconcileBalances(): Promise<ReconciliationResult> {
 		// Work in microJUNO (integers) to avoid floating-point precision errors
 		const internalMicro = LedgerService.getTotalUserBalanceMicro();
 
 		// Get on-chain balance as raw ujuno integer
-		let onChainMicro = 0;
+		let onChainMicro: number | null = null;
+		let onChainError: string | undefined;
 		const address = LedgerService.botTreasuryAddress;
 		if (address) {
 			try {
@@ -827,18 +832,26 @@ export class LedgerService {
 					const junoBalance = data.balances?.find(
 						(b: any) => b.denom === "ujuno",
 					);
-					if (junoBalance) {
+					if (junoBalance?.amount !== undefined) {
 						onChainMicro = Math.round(Number(junoBalance.amount));
+					} else {
+						onChainMicro = 0;
 					}
 				} else {
+					onChainError = `HTTP ${response.status}`;
 					logger.error(
 						"Failed to query treasury wallet balance for reconciliation",
 						{
 							address,
+							status: response.status,
 						},
 					);
 				}
 			} catch (error) {
+				onChainError =
+					error instanceof Error
+						? error.message
+						: "Unknown balance query error";
 				logger.error(
 					"Error querying treasury wallet balance for reconciliation",
 					{
@@ -846,14 +859,18 @@ export class LedgerService {
 					},
 				);
 			}
+		} else {
+			onChainError = "Treasury wallet address not configured";
 		}
 
 		// Integer subtraction - no floating-point noise
-		const differenceMicro = Math.abs(internalMicro - onChainMicro);
-		const matched = differenceMicro === 0;
+		const onChainAvailable = onChainMicro !== null;
+		const comparisonOnChainMicro = onChainMicro ?? internalMicro;
+		const differenceMicro = Math.abs(internalMicro - comparisonOnChainMicro);
+		const matched = onChainAvailable && differenceMicro === 0;
 
 		const internalTotal = AmountPrecision.fromDbMicro(internalMicro);
-		const onChainTotal = AmountPrecision.fromDbMicro(onChainMicro);
+		const onChainTotal = AmountPrecision.fromDbMicro(comparisonOnChainMicro);
 		const difference = AmountPrecision.fromDbMicro(differenceMicro);
 
 		logger.info("Balance reconciliation", {
@@ -861,6 +878,8 @@ export class LedgerService {
 			onChainTotal,
 			difference,
 			matched,
+			onChainAvailable,
+			error: onChainError,
 		});
 
 		return {
@@ -868,6 +887,8 @@ export class LedgerService {
 			onChainTotal,
 			difference,
 			matched,
+			onChainAvailable,
+			error: onChainError,
 		};
 	}
 
@@ -876,15 +897,18 @@ export class LedgerService {
 	 * Note: Only logs warnings, does not send admin alerts to avoid spam
 	 * Admins should use /reconcile or /walletstats commands to manually check
 	 */
-	static async reconcileAndAlert(): Promise<{
-		internalTotal: number;
-		onChainTotal: number;
-		difference: number;
-		matched: boolean;
-	}> {
+	static async reconcileAndAlert(): Promise<ReconciliationResult> {
 		const result = await LedgerService.reconcileBalances();
 
-		if (!result.matched && result.difference > 0.01) {
+		if (!result.onChainAvailable) {
+			logger.warn(
+				"Balance reconciliation skipped: on-chain balance unavailable",
+				{
+					internalTotal: result.internalTotal,
+					error: result.error,
+				},
+			);
+		} else if (!result.matched && result.difference > 0.01) {
 			logger.warn("Balance mismatch detected during periodic reconciliation", {
 				internalTotal: result.internalTotal,
 				onChainTotal: result.onChainTotal,

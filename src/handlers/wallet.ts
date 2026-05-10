@@ -692,9 +692,9 @@ Total Balance (Internal): ${code(`${ledgerStats.totalBalance.toFixed(6)} JUNO`)}
 
 ${bold("Reconciliation:")}
 Internal Total: ${code(`${reconciliation.internalTotal.toFixed(6)} JUNO`)}
-On-chain Total: ${code(`${reconciliation.onChainTotal.toFixed(6)} JUNO`)}
-Difference: ${code(`${reconciliation.difference.toFixed(6)} JUNO`)}
-Status: ${reconciliation.matched ? "Balanced" : "Mismatch"}`,
+On-chain Total: ${code(reconciliation.onChainAvailable ? `${reconciliation.onChainTotal.toFixed(6)} JUNO` : "Unavailable")}
+Difference: ${code(reconciliation.onChainAvailable ? `${reconciliation.difference.toFixed(6)} JUNO` : "Unavailable")}
+Status: ${reconciliation.onChainAvailable ? (reconciliation.matched ? "Balanced" : "Mismatch") : "Unable to verify"}`,
 		);
 		autoDeleteInGroup(ctx, msg.message_id);
 
@@ -926,7 +926,19 @@ export async function handleReconcile(ctx: Context): Promise<void> {
 		const { LedgerService } = await import("../services/ledgerService");
 		const result = await LedgerService.reconcileAndAlert();
 
-		if (!result.matched) {
+		if (!result.onChainAvailable) {
+			await ctx.reply(
+				fmt`${bold("Balance Reconciliation Results")}
+
+Internal Ledger Total: ${code(`${result.internalTotal.toFixed(6)} JUNO`)}
+On-Chain Balance: ${code("Unavailable")}
+
+Status: Unable to verify
+
+The on-chain balance query failed, so no correction should be applied from this result.
+${result.error ? `\nError: ${code(result.error)}` : ""}`,
+			);
+		} else if (!result.matched) {
 			const direction =
 				result.internalTotal > result.onChainTotal ? "debit" : "credit";
 			const correctionAmount = result.difference.toFixed(6);
@@ -979,7 +991,7 @@ Status: Balanced`,
 			matched: result.matched.toString(),
 		});
 
-		if (!result.matched) {
+		if (result.onChainAvailable && !result.matched) {
 			StructuredLogger.logSecurityEvent("Balance mismatch detected", {
 				userId: ctx.from?.id,
 				operation: "reconcile_balances",
@@ -1061,6 +1073,16 @@ Run ${code("/reconcile")} first to see the current discrepancy.`,
 		const { LedgerService } = await import("../services/ledgerService");
 		const beforeState = await LedgerService.reconcileBalances();
 
+		if (!beforeState.onChainAvailable) {
+			await ctx.reply(
+				fmt`${bold("Unable to Verify Balance")}
+
+The on-chain balance query failed, so no manual ledger adjustment was applied.
+${beforeState.error ? `\nError: ${code(beforeState.error)}` : ""}`,
+			);
+			return;
+		}
+
 		// Import SYSTEM_USER_IDS
 		const { SYSTEM_USER_IDS } = await import(
 			"../services/unifiedWalletService"
@@ -1102,15 +1124,15 @@ ${bold("Treasury Balance:")} ${result.newBalance.toFixed(6)} JUNO
 
 ${bold("Before:")}
 Internal: ${beforeState.internalTotal.toFixed(6)} JUNO
-On-chain: ${beforeState.onChainTotal.toFixed(6)} JUNO
-Difference: ${beforeState.difference.toFixed(6)} JUNO
+On-chain: ${beforeState.onChainAvailable ? `${beforeState.onChainTotal.toFixed(6)} JUNO` : "Unavailable"}
+Difference: ${beforeState.onChainAvailable ? `${beforeState.difference.toFixed(6)} JUNO` : "Unavailable"}
 
 ${bold("After:")}
 Internal: ${afterState.internalTotal.toFixed(6)} JUNO
-On-chain: ${afterState.onChainTotal.toFixed(6)} JUNO
-Difference: ${afterState.difference.toFixed(6)} JUNO
+On-chain: ${afterState.onChainAvailable ? `${afterState.onChainTotal.toFixed(6)} JUNO` : "Unavailable"}
+Difference: ${afterState.onChainAvailable ? `${afterState.difference.toFixed(6)} JUNO` : "Unavailable"}
 
-Status: ${afterState.matched ? "BALANCED" : "Still mismatched"}`,
+Status: ${afterState.onChainAvailable ? (afterState.matched ? "BALANCED" : "Still mismatched") : "Unable to verify"}`,
 		);
 
 		StructuredLogger.logTransaction("Manual ledger adjustment", {

@@ -265,19 +265,21 @@ export class TransactionLockService {
 		amount: number,
 		type: "withdrawal" | "deposit",
 	): Promise<boolean> {
+		const amountMicro = AmountPrecision.toDbMicro(amount);
+
 		// Check recent transactions in the ledger
 		const recentTx = query<any>(
 			`SELECT * FROM transactions
        WHERE ${type === "withdrawal" ? "from_user_id" : "to_user_id"} = ?
        AND transaction_type = ?
-       AND ABS(amount - ?) < 0.000001
+       AND amount = ?
        AND created_at > ?
        ORDER BY created_at DESC
        LIMIT 1`,
 			[
 				userId,
 				type,
-				amount,
+				amountMicro,
 				Math.floor(Date.now() / 1000) - 300, // Last 5 minutes
 			],
 		);
@@ -440,20 +442,29 @@ export class TransactionLockService {
 	 * Get active lock for a user
 	 */
 	static async getActiveLock(userId: number): Promise<TransactionLock | null> {
-		const lock = get<any>("SELECT * FROM transaction_locks WHERE user_id = ?", [
+		const row = get<any>("SELECT * FROM transaction_locks WHERE user_id = ?", [
 			userId,
 		]);
 
-		if (!lock) return null;
+		if (!row) return null;
 
-		// Parse metadata if it exists
-		if (lock.metadata) {
+		let metadata = row.metadata;
+		if (metadata) {
 			try {
-				lock.metadata = JSON.parse(lock.metadata);
+				metadata = JSON.parse(metadata);
 			} catch {}
 		}
 
-		return lock;
+		return {
+			userId: row.user_id,
+			lockType: row.lock_type,
+			amount: row.amount,
+			txHash: row.tx_hash || undefined,
+			targetAddress: row.target_address || undefined,
+			metadata,
+			lockedAt: row.locked_at,
+			status: row.status,
+		};
 	}
 
 	/**
