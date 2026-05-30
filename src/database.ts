@@ -572,6 +572,20 @@ export const initDb = (): void => {
 
     -- Spam pattern indexes
     CREATE INDEX IF NOT EXISTS idx_spam_patterns_field ON spam_patterns(match_field);
+
+    CREATE INDEX IF NOT EXISTS idx_identity_block_patterns_field ON identity_block_patterns(match_field);
+  `);
+
+	// Identity block pattern management table
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS identity_block_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pattern TEXT NOT NULL UNIQUE,
+      match_field TEXT NOT NULL DEFAULT 'both',
+      description TEXT,
+      added_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
   `);
 
 	logger.info("Database schema initialized");
