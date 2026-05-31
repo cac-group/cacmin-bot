@@ -25,22 +25,22 @@ fi
 echo -e "${GREEN}=== CAC Admin Bot Installation ===${NC}\n"
 
 export PATH="/usr/local/bin:/usr/bin:/bin:/opt/bun/bin:/home/cacmin-bot/.bun/bin:$PATH"
+BUN_BIN="/opt/bun/bin/bun"
 
-# Check if Bun is installed; bootstrap it into /opt/bun when needed.
-if ! command -v bun &> /dev/null; then
-    echo -e "${YELLOW}Bun is not installed; installing to /opt/bun...${NC}"
-    if ! command -v curl &> /dev/null; then
-        echo -e "${RED}Error: curl is required to install Bun${NC}"
-        echo "Install it with: sudo apt-get install -y curl"
-        exit 1
-    fi
-    BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
+# Check if managed Bun is installed; bootstrap it into /opt/bun when needed.
+if [ ! -x "$BUN_BIN" ]; then
+	echo -e "${YELLOW}Bun is not installed at $BUN_BIN; installing to /opt/bun...${NC}"
+	if ! command -v curl &> /dev/null; then
+		echo -e "${RED}Error: curl is required to install Bun${NC}"
+		echo "Install it with: sudo apt-get install -y curl"
+		exit 1
+	fi
+	BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
 fi
 
-BUN_BIN="$(command -v bun)"
 chmod -R a+rX /opt/bun
 chmod a+rx "$BUN_BIN"
-echo "Bun version: $(bun --version)"
+echo "Bun version: $("$BUN_BIN" --version)"
 echo "Bun binary: $BUN_BIN"
 echo ""
 

@@ -33,6 +33,7 @@ echo -e "${GREEN}=== CAC Admin Bot Auto-Update ===${NC}\n"
 
 # Check for required commands and prefer system/user-installed versions
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/bun/bin:/home/cacmin-bot/.bun/bin:$PATH"
+BUN_BIN="/opt/bun/bin/bun"
 
 for cmd in curl jq tar; do
     if ! command -v $cmd &> /dev/null; then
@@ -42,12 +43,11 @@ for cmd in curl jq tar; do
     fi
 done
 
-if ! command -v bun &> /dev/null; then
-    echo -e "${YELLOW}Bun is not installed; installing to /opt/bun...${NC}"
-    BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
+if [ ! -x "$BUN_BIN" ]; then
+	echo -e "${YELLOW}Bun is not installed at $BUN_BIN; installing to /opt/bun...${NC}"
+	BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
 fi
 
-BUN_BIN="$(command -v bun)"
 chmod -R a+rX /opt/bun
 chmod a+rx "$BUN_BIN"
 
