@@ -16,9 +16,9 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import Database from "better-sqlite3";
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
+import { Database, type SqliteDatabase } from "../sqlite";
 import { computeActiveTime } from "../utils/activeTime";
 import { logger } from "../utils/logger";
 
@@ -53,7 +53,7 @@ const MAX_CONTEXT_CHARS = 2000;
  * Follows the static-method service pattern used throughout cacmin-bot.
  */
 export class ChatIndexerService {
-	private static db: Database.Database | null = null;
+	private static db: SqliteDatabase | null = null;
 	private static bot: Telegraf<Context> | null = null;
 	private static topicPatterns: TopicPattern[] = [];
 	private static embedInterval: ReturnType<typeof setInterval> | null = null;
@@ -83,8 +83,8 @@ export class ChatIndexerService {
 			}
 
 			ChatIndexerService.db = new Database(config.indexerDbPath);
-			ChatIndexerService.db.pragma("journal_mode = WAL");
-			ChatIndexerService.db.pragma("synchronous = NORMAL");
+			ChatIndexerService.db.exec("PRAGMA journal_mode = WAL");
+			ChatIndexerService.db.exec("PRAGMA synchronous = NORMAL");
 			ChatIndexerService.bot = bot;
 			ChatIndexerService.enabled = true;
 

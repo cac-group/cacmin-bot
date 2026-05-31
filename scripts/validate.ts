@@ -75,7 +75,7 @@ if (fs.existsSync(dbPath)) {
   console.log(`   Last modified: ${stats.mtime.toISOString()}`);
 } else {
   console.log('  Database file: missing');
-  console.log('   Run: yarn setup-db');
+  console.log('   Run: bun run setup-db');
 }
 
 // Check build files (skip if this is a post-build validation)
@@ -86,7 +86,7 @@ if (!isPostBuildValidation) {
     console.log(' Bot build: exists');
   } else {
     console.log(' Bot build: missing');
-    console.log('   Run: yarn build');
+    console.log('   Run: bun run build');
     hasErrors = true;
   }
 } else {
@@ -105,7 +105,7 @@ if (fs.existsSync('./node_modules')) {
   console.log(' Dependencies: installed');
 
   const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-  const requiredDeps = ['telegraf', 'better-sqlite3', 'dotenv'];
+  const requiredDeps = ['telegraf', 'dotenv'];
 
   for (const dep of requiredDeps) {
     const depPath = path.join('./node_modules', dep);
@@ -118,7 +118,7 @@ if (fs.existsSync('./node_modules')) {
   }
 } else {
   console.log(' Dependencies: not installed');
-  console.log('   Run: yarn install');
+  console.log('   Run: bun install');
   hasErrors = true;
 }
 
@@ -143,7 +143,7 @@ if (hasErrors) {
 } else {
   console.log(' Validation PASSED - Ready to start!');
   console.log('\nStart the bot with:');
-  console.log('  yarn dev     (development mode)');
-  console.log('  yarn start   (production mode)');
+  console.log('  bun run dev     (development mode)');
+  console.log('  bun run start   (production mode)');
   process.exit(0);
 }

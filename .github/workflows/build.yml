@@ -20,11 +20,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -36,10 +31,10 @@ jobs:
       - name: Build TypeScript
         run: bun run build
 
-      - name: Install production dependencies (with Node 22 native modules)
+      - name: Install production dependencies
         run: |
           rm -rf node_modules
-          npm install --omit=dev
+          bun install --production --frozen-lockfile
 
       - name: Create release archive
         run: |
@@ -47,7 +42,7 @@ jobs:
           chmod +x auto-update.sh
           # Version file is always a unix timestamp for reliable comparison in auto-update.sh
           date +%s > version.txt
-          tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json cacmin-bot.service cacmin-bot-update.service cacmin-bot-update.timer install.sh auto-update.sh version.txt
+          tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json bun.lock cacmin-bot.service cacmin-bot-update.service cacmin-bot-update.timer install.sh auto-update.sh version.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { Database } from "../../src/sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,9 +38,9 @@ const TEST_DB_PATH = join(TEST_DIR, "test-indexer.db");
 /**
  * Creates the explorer-compatible schema in a test DB.
  */
-function createExplorerSchema(db: Database.Database): void {
-	db.pragma("journal_mode = WAL");
-	db.pragma("synchronous = NORMAL");
+function createExplorerSchema(db: Database): void {
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("PRAGMA synchronous = NORMAL");
 
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS messages (
@@ -125,7 +125,7 @@ function createExplorerSchema(db: Database.Database): void {
 }
 
 describe("ChatIndexerService", () => {
-	let db: Database.Database;
+	let db: Database;
 
 	beforeEach(() => {
 		if (!existsSync(TEST_DIR)) {

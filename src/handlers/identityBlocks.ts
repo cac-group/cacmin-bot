@@ -1,6 +1,6 @@
 /**
  * Identity block handlers for banning users whose visible Telegram identity matches spam patterns.
- * Matches first name, last name, full display name, or username on joins, messages, and profile-change updates.
+ * Matches first name, last name, full display name, or username on joins, messages, and chat-member updates.
  *
  * @module handlers/identityBlocks
  */
@@ -112,7 +112,10 @@ export function detectBlockedIdentity(user: User): IdentityMatch | null {
 		["username", "username", username ? `@${username}` : undefined],
 	];
 
-	for (const pattern of [...BUILTIN_IDENTITY_PATTERNS, ...getDbIdentityBlocks()]) {
+	for (const pattern of [
+		...BUILTIN_IDENTITY_PATTERNS,
+		...getDbIdentityBlocks(),
+	]) {
 		for (const [fieldType, fieldName, value] of fields) {
 			if (!value) continue;
 			if (pattern.matchField !== "both" && pattern.matchField !== fieldType) {
@@ -156,10 +159,10 @@ export async function banIfBlockedIdentity(
 	try {
 		await telegram.banChatMember(chatId, user.id);
 
-		execute("DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?", [
-			user.id,
-			chatId,
-		]);
+		execute(
+			"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
+			[user.id, chatId],
+		);
 
 		StructuredLogger.logSecurityEvent("User auto-banned via identity block", {
 			userId: user.id,
@@ -194,6 +197,58 @@ export async function banIfBlockedIdentity(
 		});
 		return false;
 	}
+}
+
+export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
+	bot.on("message", async (ctx, next) => {
+		const chatId = ctx.chat?.id;
+		const msg = ctx.message;
+
+		if (!chatId || !msg || ctx.chat?.type === "private") {
+			return next();
+		}
+
+		if ("new_chat_members" in msg && msg.new_chat_members) {
+			for (const member of msg.new_chat_members) {
+				await banIfBlockedIdentity(ctx.telegram, chatId, member, "join");
+			}
+			return next();
+		}
+
+		if (ctx.from) {
+			const banned = await banIfBlockedIdentity(
+				ctx.telegram,
+				chatId,
+				ctx.from,
+				"message",
+			);
+
+			if (banned) {
+				try {
+					await ctx.deleteMessage();
+				} catch {
+					// Message may already be gone or bot may not have delete rights.
+				}
+				return;
+			}
+		}
+
+		return next();
+	});
+
+	bot.on("chat_member", async (ctx) => {
+		const update = ctx.chatMember;
+		if (!update || update.chat.type === "private") return;
+
+		await banIfBlockedIdentity(
+			ctx.telegram,
+			update.chat.id,
+			update.new_chat_member.user,
+			"chat_member",
+		);
+	});
+
+	logger.info("Identity block moderation registered");
 }
 
 export function registerIdentityBlockHandlers(bot: Telegraf<Context>): void {
@@ -319,7 +374,7 @@ Result: ${matches ? "MATCH" : "no match"}`,
 		await ctx.reply(
 			fmt`${bold("Identity Block Guide")}
 
-Identity block patterns are matched against first name, last name, full display name, and username. Matching non-admin users are banned on join, message, or profile-change updates.
+Identity block patterns are matched against first name, last name, full display name, and username. Matching non-admin users are banned on join, message, or chat-member updates.
 
 ${bold("Fields")}
 ${bold("name")} - first name, last name, or full display name
@@ -328,8 +383,8 @@ ${bold("both")} - default; checks all identity fields
 
 ${bold("Examples")}
 ${code('/addidentityblock "spam name" name')}
-${code('/addidentityblock /chi\\.?ld\\s*po\\.?rn\\s*gds81/i both')}
-${code('/testidentityblock /chi\\.?ld\\s*po\\.?rn\\s*gds81/i CHI.LD PO.RN GDS81')}
+${code("/addidentityblock /chi\\.?ld\\s*po\\.?rn\\s*gds81/i both")}
+${code("/testidentityblock /chi\\.?ld\\s*po\\.?rn\\s*gds81/i CHI.LD PO.RN GDS81")}
 
 ${bold("Management")}
 ${code("/listidentityblocks")} - View active patterns
@@ -337,55 +392,7 @@ ${code("/removeidentityblock <id>")} - Remove a custom pattern`,
 		);
 	});
 
-	bot.on("message", async (ctx, next) => {
-		const chatId = ctx.chat?.id;
-		const msg = ctx.message;
-
-		if (!chatId || !msg || ctx.chat?.type === "private") {
-			return next();
-		}
-
-		if ("new_chat_members" in msg && msg.new_chat_members) {
-			for (const member of msg.new_chat_members) {
-				await banIfBlockedIdentity(ctx.telegram, chatId, member, "join");
-			}
-			return next();
-		}
-
-		if (ctx.from) {
-			const banned = await banIfBlockedIdentity(
-				ctx.telegram,
-				chatId,
-				ctx.from,
-				"message",
-			);
-
-			if (banned) {
-				try {
-					await ctx.deleteMessage();
-				} catch {
-					// Message may already be gone or bot may not have delete rights.
-				}
-				return;
-			}
-		}
-
-		return next();
-	});
-
-	bot.on("chat_member", async (ctx) => {
-		const update = ctx.chatMember;
-		if (!update || update.chat.type === "private") return;
-
-		await banIfBlockedIdentity(
-			ctx.telegram,
-			update.chat.id,
-			update.new_chat_member.user,
-			"chat_member",
-		);
-	});
-
-	logger.info("Identity block handlers registered");
+	logger.info("Identity block pattern handlers registered");
 }
 
 async function addIdentityBlockPattern(
@@ -451,7 +458,7 @@ async function addIdentityBlockPattern(
 Pattern: ${code(sanitized)}
 Field: ${field}${description ? `\nDescription: ${description}` : ""}
 
-Matching users will be banned on join, message, or profile-change updates.`,
+Matching users will be banned on join, message, or chat-member updates.`,
 	);
 }
 

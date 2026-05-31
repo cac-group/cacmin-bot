@@ -1,6 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/database", () => ({
+	execute: vi.fn(),
+	get: vi.fn(),
+	query: vi.fn(),
+}));
+
+vi.mock("../../src/services/userService", () => ({
+	ensureUserExists: vi.fn(),
+}));
+
 import { helpContent } from "../../src/commands/help";
 import { buildWalletHelpText } from "../../src/commands/wallet";
 
@@ -143,6 +154,9 @@ describe("help documentation coverage", () => {
 		expect(helpContent.owner.text).toContain(
 			"/customjail <@username|userId> <minutes> <juno_amount> <reason>",
 		);
+		expect(helpContent.owner.text).toContain(
+			"/addidentityblock <pattern> [name|username|both]",
+		);
 		expect(readmeCommands).toContain(
 			"`/setfine <type> <amount_usd> [description]`",
 		);
@@ -165,6 +179,9 @@ describe("help documentation coverage", () => {
 		);
 		expect(readmeCommands).toContain(
 			"`/customjail <@username|userId> <minutes> <juno_amount> <reason>`",
+		);
+		expect(readmeCommands).toContain(
+			"`/addidentityblock <pattern> [name|username|both]`",
 		);
 	});
 });

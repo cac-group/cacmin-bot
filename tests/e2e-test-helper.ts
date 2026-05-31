@@ -5,7 +5,7 @@
  * Run with: npx ts-node tests/e2e-test-helper.ts
  */
 
-import Database from 'better-sqlite3';
+import { Database } from '../src/sqlite';
 import { join } from 'path';
 
 const DB_PATH = join(__dirname, '..', 'data', 'bot.db');
@@ -56,7 +56,7 @@ interface TransactionLock {
 }
 
 class TestHelper {
-  private db: Database.Database;
+  private db: Database;
 
   constructor() {
     this.db = new Database(DB_PATH, { readonly: true });

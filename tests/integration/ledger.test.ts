@@ -4,14 +4,14 @@
  */
 
 import { vi, describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import Database from "better-sqlite3";
+import { Database } from "../../src/sqlite";
 import { join } from "path";
 import { existsSync, unlinkSync, mkdirSync } from "fs";
 import { LedgerService, TransactionType } from "../../src/services/ledgerService";
 import { TransactionLockService } from "../../src/services/transactionLock";
 
 const INTEGRATION_DB_PATH = join(__dirname, "../test-data/integration-ledger.db");
-let db: Database.Database;
+let db: Database;
 
 const dbHelpers = {
 	query: <T>(sql: string, params: unknown[] = []): T[] =>

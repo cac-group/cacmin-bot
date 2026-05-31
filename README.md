@@ -44,12 +44,12 @@ Cosmos Airdrops Chat administration bot built with [Telegraf](https://telegraf.j
 
 ```bash
 git clone <repo-url> && cd cacmin-bot
-yarn install
+bun install
 cp .env.example .env
 # Edit .env with required configuration
-yarn setup-db
-./rebuild.sh          # Production
-./rebuild.sh --dev    # Development
+bun run setup-db
+bun run build
+bun run dev           # Development
 ```
 
 **Required Environment Variables:**
@@ -72,13 +72,14 @@ sudo ./install.sh
 ```
 
 The installer creates a systemd service at `/opt/cacmin-bot` with proper permissions.
+Production runs under Bun; install Bun before running `install.sh` if it is not already available on the host.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment documentation.
 
 ### Manual Build
 
 ```bash
-yarn install && yarn build
+bun install && bun run build
 sudo ./install.sh
 ```
 
@@ -209,6 +210,13 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/removespamreact <id>` - Remove a custom spam-reaction pattern (`owner`)
 - `/testspamreact <pattern> <sample>` - Test a spam-reaction pattern without saving it (`owner`)
 
+### Identity Block Pattern Controls
+- `/listidentityblocks` - View active name and username block patterns plus built-ins (`admin+`)
+- `/identityblockhelp` - Show the identity-block field and pattern guide (`admin+`)
+- `/addidentityblock <pattern> [name|username|both]` - Add a custom identity block pattern (`owner`)
+- `/removeidentityblock <id>` - Remove a custom identity block pattern (`owner`)
+- `/testidentityblock <pattern> <sample>` - Test an identity block pattern without saving it (`owner`)
+
 ### Wallet Test Commands (`owner`)
 - `/testbalance` - Check your balance and the bot treasury balance
 - `/testdeposit` - Show the raw deposit address and memo generated for you
@@ -264,11 +272,11 @@ See [LEDGER.md](LEDGER.md) for detailed token flow documentation.
 ## Testing
 
 ```bash
-yarn test                    # Run all tests
-yarn test:watch              # Watch mode
-yarn test:coverage           # Coverage report
-yarn test tests/unit         # Unit tests only
-yarn test tests/integration  # Integration tests only
+bun run test                    # Run all tests
+bun run test:watch              # Watch mode
+bun run test:coverage           # Coverage report
+bun run test tests/unit         # Unit tests only
+bun run test tests/integration  # Integration tests only
 ```
 
 ## Documentation

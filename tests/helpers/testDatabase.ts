@@ -3,19 +3,19 @@ import { vi, Mock } from 'vitest';
  * Test database utilities
  */
 
-import Database from 'better-sqlite3';
+import { Database } from '../../src/sqlite';
 import { join } from 'path';
 import { existsSync, unlinkSync, mkdirSync } from 'fs';
 import { AmountPrecision } from '../../src/utils/precision';
 
-let testDb: Database.Database | null = null;
+let testDb: Database | null = null;
 let testDbPath: string | null = null;
 
 /**
  * Initialize test database with schema
  * Uses unique path per invocation to avoid conflicts
  */
-export function initTestDatabase(): Database.Database {
+export function initTestDatabase(): Database {
   // Create test-data directory if it doesn't exist
   const testDataDir = join(__dirname, '../test-data');
   if (!existsSync(testDataDir)) {
@@ -261,7 +261,7 @@ export function initTestDatabase(): Database.Database {
 /**
  * Get test database instance
  */
-export function getTestDatabase(): Database.Database {
+export function getTestDatabase(): Database {
   if (!testDb) {
     throw new Error('Test database not initialized. Call initTestDatabase() first.');
   }
