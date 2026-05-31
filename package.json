@@ -1,7 +1,7 @@
 {
   "name": "cac-admin-bot",
-  "version": "2.13.4",
-  "description": "Cosmos Airdrops Chat Admin Bot - Production Ready",
+  "version": "2.13.5",
+  "description": "Cosmos Airdrops Chat Admin Bot",
   "main": "dist/bot.js",
   "scripts": {
     "start": "bun dist/bot.js",

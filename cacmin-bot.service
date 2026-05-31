@@ -15,8 +15,8 @@ WorkingDirectory=/opt/cacmin-bot
 # Load environment variables from .env file
 EnvironmentFile=/opt/cacmin-bot/.env
 
-# Main process - run with Bun, matching the release build/runtime
-ExecStart=/usr/bin/env bun dist/bot.js
+# Main process - run with the managed Bun install used by install/update scripts
+ExecStart=/opt/bun/bin/bun dist/bot.js
 
 # Restart configuration
 Restart=always

@@ -47,6 +47,10 @@ if ! command -v bun &> /dev/null; then
     BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
 fi
 
+BUN_BIN="$(command -v bun)"
+chmod -R a+rX /opt/bun
+chmod a+rx "$BUN_BIN"
+
 # Get current version timestamp if exists
 CURRENT_TIMESTAMP=""
 if [ -f "$INSTALL_DIR/version.txt" ]; then

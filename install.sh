@@ -38,6 +38,8 @@ if ! command -v bun &> /dev/null; then
 fi
 
 BUN_BIN="$(command -v bun)"
+chmod -R a+rX /opt/bun
+chmod a+rx "$BUN_BIN"
 echo "Bun version: $(bun --version)"
 echo "Bun binary: $BUN_BIN"
 echo ""
