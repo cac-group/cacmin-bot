@@ -83,6 +83,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    continue-on-error: true
 
     steps:
       - name: Deploy to production
