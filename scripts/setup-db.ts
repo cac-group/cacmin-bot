@@ -1,5 +1,5 @@
 import { initDb } from '../src/database';
-import Database from 'better-sqlite3';
+import { Database } from '../src/sqlite';
 import { config } from '../src/config';
 
 async function setupDatabase() {

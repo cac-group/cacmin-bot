@@ -15,8 +15,8 @@ WorkingDirectory=/opt/cacmin-bot
 # Load environment variables from .env file
 EnvironmentFile=/opt/cacmin-bot/.env
 
-# Main process - run node directly for cleaner process management
-ExecStart=/usr/bin/node dist/bot.js
+# Main process - run with Bun, matching the release build/runtime
+ExecStart=/usr/bin/env bun dist/bot.js
 
 # Restart configuration
 Restart=always
@@ -24,6 +24,7 @@ RestartSec=10
 
 # Environment
 Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/opt/bun/bin:/home/cacmin-bot/.bun/bin
 
 # Logging configuration
 StandardOutput=journal

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
+import { Database } from "../../src/sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { DuelService } from "../../src/services/duelService";
@@ -7,7 +7,7 @@ import { LedgerService } from "../../src/services/ledgerService";
 import { getDuelEscrowId } from "../../src/services/unifiedWalletService";
 
 const INTEGRATION_DB_PATH = join(__dirname, "../test-data/integration-duels.db");
-let db: Database.Database;
+let db: Database;
 
 const dbHelpers = {
 	query: <T>(sql: string, params: unknown[] = []): T[] =>

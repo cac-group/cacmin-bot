@@ -25,7 +25,7 @@
  * - fine_config: amount_usd
  */
 
-import Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite";
 import { logger } from "../utils/logger";
 
 const MICRO_MULTIPLIER = 1_000_000;
@@ -40,7 +40,7 @@ interface MigrationResult {
 /**
  * Check if migration has already been applied
  */
-export function isMigrationApplied(db: Database.Database): boolean {
+export function isMigrationApplied(db: SqliteDatabase): boolean {
 	try {
 		// Check if the migration marker exists
 		const result = db
@@ -57,7 +57,7 @@ export function isMigrationApplied(db: Database.Database): boolean {
 /**
  * Run the integer balance migration
  */
-export function runMigration(db: Database.Database): MigrationResult {
+export function runMigration(db: SqliteDatabase): MigrationResult {
 	const result: MigrationResult = {
 		success: false,
 		tablesUpdated: [],

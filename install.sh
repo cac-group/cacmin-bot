@@ -24,16 +24,22 @@ fi
 
 echo -e "${GREEN}=== CAC Admin Bot Installation ===${NC}\n"
 
-# Check if Node.js is installed
-if ! command -v node &> /dev/null; then
-    echo -e "${RED}Error: Node.js is not installed${NC}"
-    echo "Please install Node.js 16+ first:"
-    echo "  curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -"
-    echo "  sudo apt-get install -y nodejs"
-    exit 1
+export PATH="/usr/local/bin:/usr/bin:/bin:/opt/bun/bin:/home/cacmin-bot/.bun/bin:$PATH"
+
+# Check if Bun is installed; bootstrap it into /opt/bun when needed.
+if ! command -v bun &> /dev/null; then
+    echo -e "${YELLOW}Bun is not installed; installing to /opt/bun...${NC}"
+    if ! command -v curl &> /dev/null; then
+        echo -e "${RED}Error: curl is required to install Bun${NC}"
+        echo "Install it with: sudo apt-get install -y curl"
+        exit 1
+    fi
+    BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
 fi
 
-echo "Node version: $(node --version)"
+BUN_BIN="$(command -v bun)"
+echo "Bun version: $(bun --version)"
+echo "Bun binary: $BUN_BIN"
 echo ""
 
 # Create service user if it doesn't exist
@@ -58,6 +64,7 @@ if [ -d "./dist" ] && [ -f "./package.json" ]; then
     cp -r ./dist "$INSTALL_DIR/"
     cp -r ./node_modules "$INSTALL_DIR/"
     cp package.json "$INSTALL_DIR/"
+    [ -f "./bun.lock" ] && cp bun.lock "$INSTALL_DIR/"
 
     [ -f "./cacmin-bot.service" ] && cp cacmin-bot.service "$INSTALL_DIR/"
     [ -f "./cacmin-bot-update.service" ] && cp cacmin-bot-update.service "$INSTALL_DIR/"

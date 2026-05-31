@@ -31,9 +31,8 @@ fi
 
 echo -e "${GREEN}=== CAC Admin Bot Auto-Update ===${NC}\n"
 
-# Check for required commands and prefer system versions
-# (avoids issues with broken /usr/local/bin versions)
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# Check for required commands and prefer system/user-installed versions
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/bun/bin:/home/cacmin-bot/.bun/bin:$PATH"
 
 for cmd in curl jq tar; do
     if ! command -v $cmd &> /dev/null; then
@@ -42,6 +41,11 @@ for cmd in curl jq tar; do
         exit 1
     fi
 done
+
+if ! command -v bun &> /dev/null; then
+    echo -e "${YELLOW}Bun is not installed; installing to /opt/bun...${NC}"
+    BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
+fi
 
 # Get current version timestamp if exists
 CURRENT_TIMESTAMP=""

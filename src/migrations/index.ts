@@ -5,7 +5,7 @@
  * Each migration is idempotent and tracks its completion state.
  */
 
-import Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite";
 import { logger } from "../utils/logger";
 import {
 	isMigrationApplied as check001,
@@ -15,8 +15,8 @@ import {
 interface Migration {
 	id: string;
 	name: string;
-	check: (db: Database.Database) => boolean;
-	run: (db: Database.Database) => { success: boolean; errors: string[] };
+	check: (db: SqliteDatabase) => boolean;
+	run: (db: SqliteDatabase) => { success: boolean; errors: string[] };
 }
 
 const migrations: Migration[] = [
@@ -31,7 +31,7 @@ const migrations: Migration[] = [
 /**
  * Run all pending migrations
  */
-export function runMigrations(db: Database.Database): void {
+export function runMigrations(db: SqliteDatabase): void {
 	logger.info("Checking for pending migrations...");
 
 	let appliedCount = 0;

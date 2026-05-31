@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from '../src/sqlite';
 import { config } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';

@@ -32,6 +32,10 @@ import {
 	handleSessionText,
 	registerCallbackHandlers,
 } from "./handlers/callbacks";
+import {
+	registerIdentityBlockHandlers,
+	registerIdentityBlockModeration,
+} from "./handlers/identityBlocks";
 import { registerReactionSpamHandler } from "./handlers/reactionSpam";
 import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
@@ -146,6 +150,9 @@ async function main() {
 		// Initialize chat indexer for live message indexing to explorer DB
 		ChatIndexerService.initialize(bot);
 
+		// Check visible identity before other message filtering or command handlers
+		registerIdentityBlockModeration(bot); // Name/username identity block moderation
+
 		// Apply global middleware
 		bot.use(messageFilterMiddleware);
 
@@ -170,6 +177,7 @@ async function main() {
 		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
 		registerSpamReactHandlers(bot); // Spam reaction pattern management
+		registerIdentityBlockHandlers(bot); // Identity block pattern management
 		registerReactionSpamHandler(bot); // Reaction-based spam detection
 
 		// Session text handler for multi-step interactive flows

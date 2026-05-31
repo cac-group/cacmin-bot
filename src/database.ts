@@ -1,14 +1,14 @@
 /**
  * Database module for the CAC Admin Bot.
  * Provides SQLite database connection, typed query functions, and schema initialization.
- * Uses better-sqlite3 for synchronous database operations with high performance.
+ * Uses Bun's native SQLite driver for synchronous database operations with high performance.
  *
  * @module database
  */
 
-import Database from "better-sqlite3";
 import { config } from "./config";
 import { runMigrations } from "./migrations";
+import { type Changes, Database } from "./sqlite";
 import { logger } from "./utils/logger";
 
 /**
@@ -62,10 +62,7 @@ export const query = <T>(sql: string, params: unknown[] = []): T[] => {
  * console.log(`Updated ${updateResult.changes} rows`);
  * ```
  */
-export const execute = (
-	sql: string,
-	params: unknown[] = [],
-): Database.RunResult => {
+export const execute = (sql: string, params: unknown[] = []): Changes => {
 	try {
 		const stmt = db.prepare(sql);
 		return stmt.run(params);
@@ -522,6 +519,18 @@ export const initDb = (): void => {
     );
   `);
 
+	// Identity block pattern management table
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS identity_block_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pattern TEXT NOT NULL UNIQUE,
+      match_field TEXT NOT NULL DEFAULT 'both',
+      description TEXT,
+      added_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+  `);
+
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -572,6 +581,8 @@ export const initDb = (): void => {
 
     -- Spam pattern indexes
     CREATE INDEX IF NOT EXISTS idx_spam_patterns_field ON spam_patterns(match_field);
+
+    CREATE INDEX IF NOT EXISTS idx_identity_block_patterns_field ON identity_block_patterns(match_field);
   `);
 
 	logger.info("Database schema initialized");
