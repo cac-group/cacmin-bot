@@ -209,7 +209,10 @@ export class ChatIndexerService {
 			const existing = ChatIndexerService.db
 				.prepare("SELECT id FROM messages WHERE id = ?")
 				.get(messageId);
-			if (existing) return;
+			if (existing) {
+				ChatInteractionIndexerService.indexMessageIdentity(ctx);
+				return;
+			}
 
 			const authorAlreadyExists = !!ChatIndexerService.db
 				.prepare("SELECT 1 FROM authors WHERE name = ?")
@@ -301,6 +304,9 @@ export class ChatIndexerService {
 						)
 						.all(msg.message_id) as Array<{ model: string }>)
 				: [];
+			const previousTopicIds = db
+				.prepare("SELECT topic_id FROM message_topics WHERE message_id = ?")
+				.all(msg.message_id) as Array<{ topic_id: number }>;
 			const apply = db.transaction(() => {
 				if (
 					config.indexerDatasetId &&
@@ -313,7 +319,8 @@ export class ChatIndexerService {
 						) VALUES (?, ?, ?, 'delete', 0, NULL, ?)
 						ON CONFLICT(dataset_id, embedding_model, message_id) DO UPDATE SET
 							operation = 'delete', attempts = 0, last_error = NULL,
-							updated_at_unix = excluded.updated_at_unix
+							updated_at_unix = excluded.updated_at_unix,
+							generation = vector_sync_state.generation + 1
 					`);
 					for (const row of modelRows) {
 						enqueueDelete.run(
@@ -330,6 +337,12 @@ export class ChatIndexerService {
 				db.prepare("DELETE FROM message_topics WHERE message_id = ?").run(
 					msg.message_id,
 				);
+				const refreshTopicCount = db.prepare(`
+					UPDATE topics SET message_count = (
+						SELECT COUNT(*) FROM message_topics WHERE topic_id = topics.id
+					) WHERE id = ?
+				`);
+				for (const row of previousTopicIds) refreshTopicCount.run(row.topic_id);
 				if (ChatIndexerService.tableExists("image_descriptions")) {
 					db.prepare("DELETE FROM image_descriptions WHERE message_id = ?").run(
 						msg.message_id,
@@ -379,12 +392,15 @@ export class ChatIndexerService {
 	private static refreshAuthorStatsExact(author: string): void {
 		const db = ChatIndexerService.db;
 		if (!db) return;
+		const previous = db
+			.prepare("SELECT top_words FROM authors WHERE name = ?")
+			.get(author) as { top_words: string | null } | undefined;
 		db.prepare("DELETE FROM authors WHERE name = ?").run(author);
 		db.prepare(`
-			INSERT INTO authors (name, message_count, first_seen, last_seen)
-			SELECT author, COUNT(*), MIN(timestamp), MAX(timestamp)
+			INSERT INTO authors (name, message_count, first_seen, last_seen, top_words)
+			SELECT author, COUNT(*), MIN(timestamp), MAX(timestamp), ?
 			FROM messages WHERE author = ? GROUP BY author
-		`).run(author);
+		`).run(previous?.top_words ?? null, author);
 	}
 
 	/**
@@ -804,8 +820,8 @@ export class ChatIndexerService {
 
 			for (const topic of ChatIndexerService.topicPatterns) {
 				if (topic.regex.test(lowerText)) {
-					insertTopic.run(messageId, topic.id, 0.8);
-					updateCount.run(topic.id);
+					const inserted = insertTopic.run(messageId, topic.id, 0.8);
+					if (inserted.changes > 0) updateCount.run(topic.id);
 				}
 			}
 		} catch (error) {

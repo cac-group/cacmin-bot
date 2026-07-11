@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
 import { Database, type SqliteDatabase } from "../sqlite";
@@ -23,6 +24,28 @@ export class ChatInteractionIndexerService {
 	static initialize(bot: Telegraf<Context>): void {
 		if (!config.indexerEnabled || !config.indexerDbPath) return;
 		try {
+			if (!existsSync(config.indexerDbPath)) {
+				logger.warn("Chat interaction indexer DB not found, disabling", {
+					dbPath: config.indexerDbPath,
+				});
+				return;
+			}
+			const probe = new Database(config.indexerDbPath, { readonly: true });
+			const hasMessages = probe
+				.prepare(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages'",
+				)
+				.get();
+			probe.close();
+			if (!hasMessages) {
+				logger.warn(
+					"Chat interaction indexer DB has no messages table, disabling",
+					{
+						dbPath: config.indexerDbPath,
+					},
+				);
+				return;
+			}
 			ChatInteractionIndexerService.db = new Database(config.indexerDbPath);
 			ChatInteractionIndexerService.db.exec("PRAGMA journal_mode = WAL");
 			ChatInteractionIndexerService.ensureSchema();
@@ -56,7 +79,13 @@ export class ChatInteractionIndexerService {
 				user_id INTEGER PRIMARY KEY,
 				is_bot INTEGER,
 				first_seen_unix INTEGER NOT NULL,
-				last_seen_unix INTEGER NOT NULL
+				last_seen_unix INTEGER NOT NULL,
+				current_username TEXT,
+				current_username_observed_at_unix INTEGER,
+				current_first_name TEXT,
+				current_last_name TEXT,
+				current_display_name TEXT,
+				current_name_observed_at_unix INTEGER
 			);
 			CREATE TABLE IF NOT EXISTS telegram_user_identity_history (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,11 +157,28 @@ export class ChatInteractionIndexerService {
 				updated_at_unix INTEGER NOT NULL
 			)
 		`);
+		for (const migration of [
+			"ALTER TABLE telegram_users ADD COLUMN current_username TEXT",
+			"ALTER TABLE telegram_users ADD COLUMN current_username_observed_at_unix INTEGER",
+			"ALTER TABLE telegram_users ADD COLUMN current_first_name TEXT",
+			"ALTER TABLE telegram_users ADD COLUMN current_last_name TEXT",
+			"ALTER TABLE telegram_users ADD COLUMN current_display_name TEXT",
+			"ALTER TABLE telegram_users ADD COLUMN current_name_observed_at_unix INTEGER",
+		]) {
+			try {
+				db.exec(migration);
+			} catch {
+				// Column already exists.
+			}
+		}
 	}
 
 	static indexMessageIdentity(ctx: Context): void {
 		const db = ChatInteractionIndexerService.db;
-		const message = ctx.message || (ctx as any).editedMessage;
+		const editedMessage =
+			(ctx as any).editedMessage || (ctx.update as any)?.edited_message;
+		const message = ctx.message || editedMessage;
+		const observedAtUnix = editedMessage?.edit_date ?? message?.date;
 		const user = ctx.from;
 		if (!ChatInteractionIndexerService.enabled || !db || !message || !user)
 			return;
@@ -142,15 +188,30 @@ export class ChatInteractionIndexerService {
 			const apply = db.transaction(() => {
 				ChatInteractionIndexerService.recordIdentity(
 					user,
-					message.date,
+					observedAtUnix,
 					message.message_id,
 				);
 				db.prepare("UPDATE messages SET author_user_id = ? WHERE id = ?").run(
 					user.id,
 					message.message_id,
 				);
-				ChatInteractionIndexerService.recordMentions(message as any);
-				ChatInteractionIndexerService.enqueue(message.message_id, message.date);
+				if (editedMessage) {
+					db.prepare(
+						"DELETE FROM message_user_mentions WHERE message_id = ?",
+					).run(message.message_id);
+					db.prepare(`
+						DELETE FROM unresolved_user_references
+						WHERE source_message_id = ? AND role = 'mention'
+					`).run(message.message_id);
+				}
+				ChatInteractionIndexerService.recordMentions(
+					message as any,
+					observedAtUnix,
+				);
+				ChatInteractionIndexerService.enqueue(
+					message.message_id,
+					observedAtUnix,
+				);
 			});
 			apply();
 		} catch (error) {
@@ -242,7 +303,7 @@ export class ChatInteractionIndexerService {
 		}
 	}
 
-	private static recordMentions(message: any): void {
+	private static recordMentions(message: any, observedAtUnix: number): void {
 		const db = ChatInteractionIndexerService.db;
 		if (!db) return;
 		const text = message.text || message.caption || "";
@@ -252,7 +313,7 @@ export class ChatInteractionIndexerService {
 			if (entity.type === "text_mention" && entity.user?.id) {
 				ChatInteractionIndexerService.recordIdentity(
 					entity.user,
-					message.date,
+					observedAtUnix,
 					message.message_id,
 				);
 				db.prepare(`
@@ -288,7 +349,7 @@ export class ChatInteractionIndexerService {
 						message.message_id,
 						rawValue,
 						normalized,
-						message.date,
+						observedAtUnix,
 						matches.length > 1 ? "ambiguous-username" : "unknown-username",
 					);
 				}
@@ -307,18 +368,51 @@ export class ChatInteractionIndexerService {
 		const firstName = user.first_name?.trim() || null;
 		const lastName = user.last_name?.trim() || null;
 		const displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
+		const hasName = firstName !== null || lastName !== null;
 		db.prepare(`
-			INSERT INTO telegram_users (user_id, is_bot, first_seen_unix, last_seen_unix)
-			VALUES (?, ?, ?, ?)
+			INSERT INTO telegram_users (
+				user_id, is_bot, first_seen_unix, last_seen_unix,
+				current_username, current_username_observed_at_unix,
+				current_first_name, current_last_name, current_display_name,
+				current_name_observed_at_unix
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_id) DO UPDATE SET
 				is_bot = COALESCE(excluded.is_bot, telegram_users.is_bot),
 				first_seen_unix = MIN(first_seen_unix, excluded.first_seen_unix),
-				last_seen_unix = MAX(last_seen_unix, excluded.last_seen_unix)
+				last_seen_unix = MAX(last_seen_unix, excluded.last_seen_unix),
+				current_username = CASE
+					WHEN excluded.current_username IS NOT NULL
+						AND excluded.current_username_observed_at_unix >= COALESCE(telegram_users.current_username_observed_at_unix, -1)
+					THEN excluded.current_username ELSE telegram_users.current_username END,
+				current_username_observed_at_unix = NULLIF(MAX(
+					COALESCE(telegram_users.current_username_observed_at_unix, -1),
+					COALESCE(excluded.current_username_observed_at_unix, -1)
+				), -1),
+				current_first_name = CASE
+					WHEN excluded.current_name_observed_at_unix >= COALESCE(telegram_users.current_name_observed_at_unix, -1)
+					THEN excluded.current_first_name ELSE telegram_users.current_first_name END,
+				current_last_name = CASE
+					WHEN excluded.current_name_observed_at_unix >= COALESCE(telegram_users.current_name_observed_at_unix, -1)
+					THEN excluded.current_last_name ELSE telegram_users.current_last_name END,
+				current_display_name = CASE
+					WHEN excluded.current_name_observed_at_unix >= COALESCE(telegram_users.current_name_observed_at_unix, -1)
+					THEN excluded.current_display_name ELSE telegram_users.current_display_name END,
+				current_name_observed_at_unix = NULLIF(MAX(
+					COALESCE(telegram_users.current_name_observed_at_unix, -1),
+					COALESCE(excluded.current_name_observed_at_unix, -1)
+				), -1)
 		`).run(
 			user.id,
 			user.is_bot == null ? null : Number(user.is_bot),
 			observedAtUnix,
 			observedAtUnix,
+			username,
+			username ? observedAtUnix : null,
+			firstName,
+			lastName,
+			displayName,
+			hasName ? observedAtUnix : null,
 		);
 		db.prepare(`
 			INSERT OR IGNORE INTO telegram_user_identity_history (

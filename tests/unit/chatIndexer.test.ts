@@ -33,6 +33,7 @@ vi.mock("../../src/utils/logger", () => ({
 }));
 
 import { config } from "../../src/config";
+import { ChatInteractionIndexerService } from "../../src/services/chatInteractionIndexerService";
 import { ChatIndexerService } from "../../src/services/chatIndexerService";
 
 const TEST_DIR = join(__dirname, "../.tmp-indexer-test");
@@ -186,6 +187,7 @@ describe("ChatIndexerService", () => {
 
 	afterEach(() => {
 		ChatIndexerService.shutdown();
+		ChatInteractionIndexerService.shutdown();
 
 		// Cleanup test files
 		if (existsSync(TEST_DIR)) {
@@ -378,6 +380,40 @@ describe("ChatIndexerService", () => {
 
 		expect(count.cnt).toBe(1);
 
+		verifyDb.close();
+	});
+
+	it("retries identity maintenance for an already indexed message", async () => {
+		const ctx = createMockContext({
+			messageText: "Identity retry",
+			messageId: 301,
+			userId: 991,
+			firstName: "Retry",
+			chatId: -1001234567890,
+		});
+		await ChatIndexerService.indexMessage(ctx as any);
+
+		const interactionBot = { on: vi.fn() };
+		ChatInteractionIndexerService.initialize(interactionBot as any);
+		const setupDb = new Database(TEST_DB_PATH);
+		setupDb
+			.prepare("UPDATE messages SET author_user_id = NULL WHERE id = 301")
+			.run();
+		setupDb.close();
+
+		await ChatIndexerService.indexMessage(ctx as any);
+
+		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+		expect(
+			verifyDb
+				.prepare("SELECT author_user_id FROM messages WHERE id = 301")
+				.get(),
+		).toEqual({ author_user_id: 991 });
+		expect(
+			verifyDb
+				.prepare("SELECT user_id FROM telegram_users WHERE user_id = 991")
+				.get(),
+		).toEqual({ user_id: 991 });
 		verifyDb.close();
 	});
 
@@ -599,11 +635,15 @@ describe("ChatIndexerService", () => {
 				"INSERT INTO topics (id, name, keywords) VALUES (900, 'Old', 'old')",
 			)
 			.run();
+		setupDb.prepare("UPDATE topics SET message_count = 1 WHERE id = 900").run();
 		setupDb
 			.prepare(
 				"INSERT INTO message_topics (message_id, topic_id) VALUES (900, 900)",
 			)
 			.run();
+		setupDb
+			.prepare("UPDATE authors SET top_words = ? WHERE name = 'Editor'")
+			.run('["preserved"]');
 		setupDb
 			.prepare(
 				"INSERT INTO image_descriptions (message_id, description) VALUES (900, 'old')",
@@ -651,6 +691,84 @@ describe("ChatIndexerService", () => {
 				)
 				.get(),
 		).toEqual({ count: 0 });
+		expect(
+			verifyDb.prepare("SELECT message_count FROM topics WHERE id = 900").get(),
+		).toEqual({ message_count: 0 });
+		expect(
+			verifyDb
+				.prepare("SELECT top_words FROM authors WHERE name = 'Editor'")
+				.get(),
+		).toEqual({ top_words: '["preserved"]' });
+		verifyDb.close();
+	});
+
+	it("advances an existing vector delete generation when an edit timestamp repeats", async () => {
+		const ctx = createMockContext({
+			messageText: "Original vector-backed message",
+			messageId: 901,
+			userId: 999,
+			firstName: "Editor",
+			chatId: -1001234567890,
+		});
+		(ctx.message as any).date = 1767225700;
+		await ChatIndexerService.indexMessage(ctx as any);
+
+		const setupDb = new Database(TEST_DB_PATH);
+		setupDb.exec(`
+			ALTER TABLE embeddings ADD COLUMN model TEXT;
+			CREATE TABLE vector_sync_state (
+				dataset_id TEXT NOT NULL,
+				embedding_model TEXT NOT NULL,
+				message_id INTEGER NOT NULL,
+				operation TEXT NOT NULL,
+				attempts INTEGER NOT NULL DEFAULT 0,
+				last_error TEXT,
+				updated_at_unix INTEGER NOT NULL,
+				generation INTEGER NOT NULL DEFAULT 1,
+				PRIMARY KEY (dataset_id, embedding_model, message_id)
+			);
+		`);
+		setupDb
+			.prepare(
+				"INSERT INTO embeddings (message_id, vector, model) VALUES (?, ?, ?)",
+			)
+			.run(901, Buffer.alloc(8), "nomic-embed-text");
+		setupDb
+			.prepare(`
+				INSERT INTO vector_sync_state (
+					dataset_id, embedding_model, message_id, operation,
+					attempts, last_error, updated_at_unix, generation
+				) VALUES (?, ?, ?, 'upsert', 2, 'old failure', ?, 4)
+			`)
+			.run("test-dataset", "nomic-embed-text", 901, 1767225700);
+		setupDb.close();
+
+		await ChatIndexerService.indexEditedMessage({
+			chat: { id: -1001234567890 },
+			from: { id: 999, first_name: "Editor" },
+			editedMessage: {
+				message_id: 901,
+				date: 1767225700,
+				text: "Edited vector-backed message",
+			},
+		} as any);
+
+		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+		expect(
+			verifyDb
+				.prepare(`
+					SELECT operation, attempts, last_error, updated_at_unix, generation
+					FROM vector_sync_state
+					WHERE dataset_id = ? AND embedding_model = ? AND message_id = ?
+				`)
+				.get("test-dataset", "nomic-embed-text", 901),
+		).toEqual({
+			operation: "delete",
+			attempts: 0,
+			last_error: null,
+			updated_at_unix: 1767225700,
+			generation: 5,
+		});
 		verifyDb.close();
 	});
 });
