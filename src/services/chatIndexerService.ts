@@ -21,6 +21,7 @@ import { config } from "../config";
 import { Database, type SqliteDatabase } from "../sqlite";
 import { computeActiveTime } from "../utils/activeTime";
 import { logger } from "../utils/logger";
+import { ChatInteractionIndexerService } from "./chatInteractionIndexerService";
 
 /** Shape of a row in the explorer's messages table */
 interface MessageRow {
@@ -39,6 +40,17 @@ interface TopicPattern {
 	regex: RegExp;
 }
 
+interface DatasetSummary {
+	message_count: number;
+	author_count: number;
+}
+
+interface LatestMessageSummary {
+	id: number;
+	timestamp: string;
+	timestamp_unix: number;
+}
+
 /** Concurrency limit for Ollama embedding requests */
 const EMBED_CONCURRENCY = 5;
 /** Number of reply-chain messages to include as context on each side */
@@ -47,6 +59,8 @@ const THREAD_WINDOW = 2;
 const LOCAL_WINDOW = 5;
 /** Max characters for contextual embedding text */
 const MAX_CONTEXT_CHARS = 2000;
+/** Minimum message/caption length that the explorer embedding worker will process */
+const EMBED_TRIGGER_MIN_TEXT_LENGTH = 20;
 
 /**
  * Service that indexes group chat messages into the telegram-chat-explorer database.
@@ -109,19 +123,27 @@ export class ChatIndexerService {
 			// Backfill user_id on historical messages using known author<->user_id mappings
 			ChatIndexerService.backfillUserIds();
 
+			// Keep app-visible dataset metadata and metrics state current.
+			ChatIndexerService.refreshDatasetMetricsState();
+
 			// Load existing topic patterns for keyword classification
 			ChatIndexerService.loadTopicPatterns();
 
-			// Start periodic embedding batch task
-			ChatIndexerService.embedInterval = setInterval(() => {
-				ChatIndexerService.runEmbeddingBatch().catch((err) => {
-					logger.error("Indexer embedding batch failed", { error: err });
-				});
-			}, config.embedBatchIntervalMs);
+			// Prefer the explorer embedding worker for production so pgvector stays in sync.
+			if (config.indexerEmbeddingsEnabled) {
+				ChatIndexerService.embedInterval = setInterval(() => {
+					ChatIndexerService.runEmbeddingBatch().catch((err) => {
+						logger.error("Indexer embedding batch failed", { error: err });
+					});
+				}, config.embedBatchIntervalMs);
+			}
 
 			logger.info("Chat indexer initialized", {
 				dbPath: config.indexerDbPath,
-				embedInterval: `${config.embedBatchIntervalMs / 1000}s`,
+				embedInterval: config.indexerEmbeddingsEnabled
+					? `${config.embedBatchIntervalMs / 1000}s`
+					: "disabled",
+				embedTriggerBatchSize: config.indexerEmbedTriggerBatchSize,
 			});
 		} catch (error) {
 			logger.error("Failed to initialize chat indexer, disabling", { error });
@@ -187,7 +209,14 @@ export class ChatIndexerService {
 			const existing = ChatIndexerService.db
 				.prepare("SELECT id FROM messages WHERE id = ?")
 				.get(messageId);
-			if (existing) return;
+			if (existing) {
+				ChatInteractionIndexerService.indexMessageIdentity(ctx);
+				return;
+			}
+
+			const authorAlreadyExists = !!ChatIndexerService.db
+				.prepare("SELECT 1 FROM authors WHERE name = ?")
+				.get(author);
 
 			// Insert into messages table (FTS triggers fire automatically)
 			ChatIndexerService.db
@@ -221,6 +250,17 @@ export class ChatIndexerService {
 				ChatIndexerService.classifyTopics(messageId, text);
 			}
 
+			ChatIndexerService.recordLiveInsertMetrics({
+				messageId,
+				timestamp,
+				timestampUnix,
+				authorWasNew: !authorAlreadyExists,
+				hasPhoto,
+				hasEmbeddingCandidate: ChatIndexerService.canEmbedMessage(text),
+			});
+			ChatIndexerService.recordPendingEmbeddingCandidate(text);
+			ChatInteractionIndexerService.indexMessageIdentity(ctx);
+
 			// Queue photo for download if present
 			if (hasPhoto && "photo" in msg && msg.photo) {
 				const largest = msg.photo[msg.photo.length - 1];
@@ -236,6 +276,433 @@ export class ChatIndexerService {
 		} catch (error) {
 			logger.error("Failed to index message", { error });
 		}
+	}
+
+	/** Applies Telegram message edits without leaving stale derived rows behind. */
+	static async indexEditedMessage(ctx: Context): Promise<void> {
+		const db = ChatIndexerService.db;
+		const msg =
+			(ctx as any).editedMessage || (ctx.update as any)?.edited_message;
+		if (!ChatIndexerService.enabled || !db || !msg || !ctx.from) return;
+		if (config.groupChatId && ctx.chat?.id !== config.groupChatId) return;
+
+		try {
+			const existing = db
+				.prepare("SELECT author FROM messages WHERE id = ?")
+				.get(msg.message_id) as { author: string } | undefined;
+			if (!existing) return;
+			const firstName = ctx.from.first_name || "";
+			const lastName = ctx.from.last_name || "";
+			const author = lastName ? `${firstName} ${lastName}` : firstName;
+			const text = msg.text || msg.caption || null;
+			const timestamp = new Date(msg.date * 1000).toISOString();
+			const replyToId = msg.reply_to_message?.message_id || null;
+			const modelRows = ChatIndexerService.tableHasColumn("embeddings", "model")
+				? (db
+						.prepare(
+							"SELECT DISTINCT model FROM embeddings WHERE message_id = ? AND model IS NOT NULL",
+						)
+						.all(msg.message_id) as Array<{ model: string }>)
+				: [];
+			const previousTopicIds = db
+				.prepare("SELECT topic_id FROM message_topics WHERE message_id = ?")
+				.all(msg.message_id) as Array<{ topic_id: number }>;
+			const apply = db.transaction(() => {
+				if (
+					config.indexerDatasetId &&
+					ChatIndexerService.tableExists("vector_sync_state")
+				) {
+					const enqueueDelete = db.prepare(`
+						INSERT INTO vector_sync_state (
+							dataset_id, embedding_model, message_id, operation,
+							attempts, last_error, updated_at_unix
+						) VALUES (?, ?, ?, 'delete', 0, NULL, ?)
+						ON CONFLICT(dataset_id, embedding_model, message_id) DO UPDATE SET
+							operation = 'delete', attempts = 0, last_error = NULL,
+							updated_at_unix = excluded.updated_at_unix,
+							generation = vector_sync_state.generation + 1
+					`);
+					for (const row of modelRows) {
+						enqueueDelete.run(
+							config.indexerDatasetId,
+							row.model,
+							msg.message_id,
+							msg.date,
+						);
+					}
+				}
+				db.prepare("DELETE FROM embeddings WHERE message_id = ?").run(
+					msg.message_id,
+				);
+				db.prepare("DELETE FROM message_topics WHERE message_id = ?").run(
+					msg.message_id,
+				);
+				const refreshTopicCount = db.prepare(`
+					UPDATE topics SET message_count = (
+						SELECT COUNT(*) FROM message_topics WHERE topic_id = topics.id
+					) WHERE id = ?
+				`);
+				for (const row of previousTopicIds) refreshTopicCount.run(row.topic_id);
+				if (ChatIndexerService.tableExists("image_descriptions")) {
+					db.prepare("DELETE FROM image_descriptions WHERE message_id = ?").run(
+						msg.message_id,
+					);
+				}
+				db.prepare(`
+					UPDATE messages SET
+						author = ?, timestamp = ?, timestamp_unix = ?, text = ?,
+						reply_to_id = ?, raw_html = NULL
+					WHERE id = ?
+				`).run(author, timestamp, msg.date, text, replyToId, msg.message_id);
+				ChatIndexerService.refreshAuthorStatsExact(existing.author);
+				if (author !== existing.author) {
+					ChatIndexerService.refreshAuthorStatsExact(author);
+				}
+			});
+			apply();
+			if (text) ChatIndexerService.classifyTopics(msg.message_id, text);
+			ChatIndexerService.recordPendingEmbeddingCandidate(text);
+			ChatInteractionIndexerService.indexMessageIdentity(ctx);
+			logger.debug("Indexed edited message", {
+				messageId: msg.message_id,
+				author,
+			});
+		} catch (error) {
+			logger.error("Failed to index edited message", { error });
+		}
+	}
+
+	private static tableExists(tableName: string): boolean {
+		return !!ChatIndexerService.db
+			?.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+			.get(tableName);
+	}
+
+	private static tableHasColumn(
+		tableName: string,
+		columnName: string,
+	): boolean {
+		if (!ChatIndexerService.db) return false;
+		const columns = ChatIndexerService.db
+			.prepare(`PRAGMA table_info(${tableName})`)
+			.all() as Array<{ name: string }>;
+		return columns.some((column) => column.name === columnName);
+	}
+
+	private static refreshAuthorStatsExact(author: string): void {
+		const db = ChatIndexerService.db;
+		if (!db) return;
+		const previous = db
+			.prepare("SELECT top_words FROM authors WHERE name = ?")
+			.get(author) as { top_words: string | null } | undefined;
+		db.prepare("DELETE FROM authors WHERE name = ?").run(author);
+		db.prepare(`
+			INSERT INTO authors (name, message_count, first_seen, last_seen, top_words)
+			SELECT author, COUNT(*), MIN(timestamp), MAX(timestamp), ?
+			FROM messages WHERE author = ? GROUP BY author
+		`).run(previous?.top_words ?? null, author);
+	}
+
+	/**
+	 * Keeps an external embedding worker trigger in sync with successful inserts.
+	 */
+	private static recordPendingEmbeddingCandidate(text: string | null): void {
+		const db = ChatIndexerService.db;
+		if (
+			!db ||
+			config.indexerEmbedTriggerBatchSize <= 0 ||
+			!ChatIndexerService.canEmbedMessage(text)
+		) {
+			return;
+		}
+
+		try {
+			ChatIndexerService.ensureLiveIndexStateTable();
+			const row = db
+				.prepare("SELECT value FROM live_index_state WHERE key = ?")
+				.get("pending_embedding_candidates") as { value: string } | undefined;
+			const current = row ? parseInt(row.value, 10) : 0;
+			const next = (Number.isFinite(current) ? current : 0) + 1;
+
+			if (next >= config.indexerEmbedTriggerBatchSize) {
+				ChatIndexerService.touchEmbeddingTrigger();
+				ChatIndexerService.setLiveIndexState(
+					"pending_embedding_candidates",
+					"0",
+				);
+				return;
+			}
+
+			ChatIndexerService.setLiveIndexState(
+				"pending_embedding_candidates",
+				String(next),
+			);
+		} catch (error) {
+			logger.error("Failed to update embedding trigger state", { error });
+		}
+	}
+
+	private static canEmbedMessage(text: string | null): boolean {
+		return (text || "").trim().length >= EMBED_TRIGGER_MIN_TEXT_LENGTH;
+	}
+
+	private static ensureLiveIndexStateTable(): void {
+		ChatIndexerService.db?.exec(`
+			CREATE TABLE IF NOT EXISTS live_index_state (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			)
+		`);
+	}
+
+	private static ensureDatasetMetaTable(): void {
+		ChatIndexerService.db?.exec(`
+			CREATE TABLE IF NOT EXISTS dataset_meta (
+				key TEXT PRIMARY KEY,
+				value TEXT
+			)
+		`);
+	}
+
+	private static refreshDatasetMetricsState(): void {
+		const db = ChatIndexerService.db;
+		if (!db) return;
+
+		try {
+			ChatIndexerService.ensureDatasetMetaTable();
+			ChatIndexerService.ensureLiveIndexStateTable();
+
+			const summary = db
+				.prepare(`
+					SELECT
+						COUNT(*) AS message_count,
+						COUNT(DISTINCT author) AS author_count
+					FROM messages
+				`)
+				.get() as DatasetSummary;
+			const latest = db
+				.prepare(`
+					SELECT id, timestamp, timestamp_unix
+					FROM messages
+					ORDER BY timestamp_unix DESC, id DESC
+					LIMIT 1
+				`)
+				.get() as LatestMessageSummary | undefined;
+
+			ChatIndexerService.setDatasetMeta(
+				"messageCount",
+				String(summary.message_count),
+			);
+			ChatIndexerService.setDatasetMeta(
+				"authorCount",
+				String(summary.author_count),
+			);
+			ChatIndexerService.setLiveIndexState(
+				"sqlite_messages_total",
+				String(summary.message_count),
+			);
+			ChatIndexerService.setLiveIndexState(
+				"sqlite_authors_total",
+				String(summary.author_count),
+			);
+			ChatIndexerService.setLiveIndexState("writer", "cacmin-bot");
+			if (config.indexerDatasetId) {
+				ChatIndexerService.setLiveIndexState(
+					"dataset_id",
+					config.indexerDatasetId,
+				);
+			}
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"pending_embedding_candidates",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_messages_inserted_total",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_embedding_candidates_inserted_total",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_photo_messages_inserted_total",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_media_download_success_total",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_media_download_error_total",
+				"0",
+			);
+			ChatIndexerService.setLiveIndexStateIfMissing(
+				"live_embedding_trigger_touches_total",
+				"0",
+			);
+
+			if (latest) {
+				ChatIndexerService.setDatasetMeta("lastMessage", latest.timestamp);
+				ChatIndexerService.recordLatestMessageState(
+					latest.id,
+					latest.timestamp,
+					latest.timestamp_unix,
+				);
+			}
+		} catch (error) {
+			logger.error("Failed to refresh indexer dataset metrics state", {
+				error,
+			});
+		}
+	}
+
+	private static recordLiveInsertMetrics(input: {
+		messageId: number;
+		timestamp: string;
+		timestampUnix: number;
+		authorWasNew: boolean;
+		hasPhoto: boolean;
+		hasEmbeddingCandidate: boolean;
+	}): void {
+		try {
+			ChatIndexerService.ensureDatasetMetaTable();
+			ChatIndexerService.ensureLiveIndexStateTable();
+			ChatIndexerService.incrementDatasetMetaInteger("messageCount", 1);
+			if (input.authorWasNew) {
+				ChatIndexerService.incrementDatasetMetaInteger("authorCount", 1);
+			}
+			ChatIndexerService.setDatasetMeta("lastMessage", input.timestamp);
+			ChatIndexerService.incrementLiveIndexCounter("sqlite_messages_total", 1);
+			if (input.authorWasNew) {
+				ChatIndexerService.incrementLiveIndexCounter("sqlite_authors_total", 1);
+			}
+			ChatIndexerService.incrementLiveIndexCounter(
+				"live_messages_inserted_total",
+				1,
+			);
+			if (input.hasPhoto) {
+				ChatIndexerService.incrementLiveIndexCounter(
+					"live_photo_messages_inserted_total",
+					1,
+				);
+			}
+			if (input.hasEmbeddingCandidate) {
+				ChatIndexerService.incrementLiveIndexCounter(
+					"live_embedding_candidates_inserted_total",
+					1,
+				);
+			}
+			ChatIndexerService.recordLatestMessageState(
+				input.messageId,
+				input.timestamp,
+				input.timestampUnix,
+			);
+		} catch (error) {
+			logger.error("Failed to update live insert metrics", { error });
+		}
+	}
+
+	private static recordLatestMessageState(
+		messageId: number,
+		timestamp: string,
+		timestampUnix: number,
+	): void {
+		ChatIndexerService.setLiveIndexState(
+			"latest_message_id",
+			String(messageId),
+		);
+		ChatIndexerService.setLiveIndexState("latest_message_timestamp", timestamp);
+		ChatIndexerService.setLiveIndexState(
+			"latest_message_timestamp_unix",
+			String(timestampUnix),
+		);
+		ChatIndexerService.setLiveIndexState(
+			"latest_live_message_id",
+			String(messageId),
+		);
+		ChatIndexerService.setLiveIndexState(
+			"latest_live_message_timestamp",
+			timestamp,
+		);
+		ChatIndexerService.setLiveIndexState(
+			"latest_live_message_timestamp_unix",
+			String(timestampUnix),
+		);
+	}
+
+	private static setDatasetMeta(key: string, value: string): void {
+		ChatIndexerService.db
+			?.prepare(`
+			INSERT INTO dataset_meta (key, value)
+			VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		`)
+			.run(key, value);
+	}
+
+	private static incrementDatasetMetaInteger(
+		key: string,
+		amount: number,
+	): void {
+		const current = ChatIndexerService.readIntegerValue("dataset_meta", key);
+		ChatIndexerService.setDatasetMeta(key, String(current + amount));
+	}
+
+	private static setLiveIndexState(key: string, value: string): void {
+		ChatIndexerService.db
+			?.prepare(`
+			INSERT INTO live_index_state (key, value)
+			VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		`)
+			.run(key, value);
+	}
+
+	private static setLiveIndexStateIfMissing(key: string, value: string): void {
+		ChatIndexerService.db
+			?.prepare(`
+			INSERT OR IGNORE INTO live_index_state (key, value)
+			VALUES (?, ?)
+		`)
+			.run(key, value);
+	}
+
+	private static incrementLiveIndexCounter(key: string, amount: number): void {
+		const current = ChatIndexerService.readIntegerValue(
+			"live_index_state",
+			key,
+		);
+		ChatIndexerService.setLiveIndexState(key, String(current + amount));
+	}
+
+	private static readIntegerValue(table: string, key: string): number {
+		const row = ChatIndexerService.db
+			?.prepare(`SELECT value FROM ${table} WHERE key = ?`)
+			.get(key) as { value: string } | undefined;
+		const parsed = row ? parseInt(row.value, 10) : 0;
+		return Number.isFinite(parsed) ? parsed : 0;
+	}
+
+	private static touchEmbeddingTrigger(): void {
+		const triggerFile =
+			config.indexerEmbedTriggerFile ||
+			(config.indexerDbPath
+				? join(
+						dirname(config.indexerDbPath),
+						"..",
+						"state",
+						"embed-missing.trigger",
+					)
+				: null);
+		if (!triggerFile) return;
+
+		mkdirSync(dirname(triggerFile), { recursive: true });
+		writeFileSync(triggerFile, `${new Date().toISOString()}\n`);
+		ChatIndexerService.incrementLiveIndexCounter(
+			"live_embedding_trigger_touches_total",
+			1,
+		);
+		logger.debug("Touched indexer embedding trigger", { triggerFile });
 	}
 
 	/**
@@ -281,12 +748,20 @@ export class ChatIndexerService {
 				ChatIndexerService.db
 					.prepare("UPDATE messages SET media_path = ? WHERE id = ?")
 					.run(relativePath, item.messageId);
+				ChatIndexerService.incrementLiveIndexCounter(
+					"live_media_download_success_total",
+					1,
+				);
 
 				logger.debug("Downloaded photo", {
 					messageId: item.messageId,
 					path: relativePath,
 				});
 			} catch (error) {
+				ChatIndexerService.incrementLiveIndexCounter(
+					"live_media_download_error_total",
+					1,
+				);
 				logger.error("Failed to download photo", {
 					messageId: item.messageId,
 					error,
@@ -345,8 +820,8 @@ export class ChatIndexerService {
 
 			for (const topic of ChatIndexerService.topicPatterns) {
 				if (topic.regex.test(lowerText)) {
-					insertTopic.run(messageId, topic.id, 0.8);
-					updateCount.run(topic.id);
+					const inserted = insertTopic.run(messageId, topic.id, 0.8);
+					if (inserted.changes > 0) updateCount.run(topic.id);
 				}
 			}
 		} catch (error) {

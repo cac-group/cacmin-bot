@@ -94,6 +94,15 @@ interface Config {
 	/** Base directory for downloaded media files */
 	indexerMediaDir?: string;
 
+	/** Whether cacmin-bot should run its own embedding batch loop */
+	indexerEmbeddingsEnabled: boolean;
+
+	/** File to touch when enough live rows are ready for external embedding */
+	indexerEmbedTriggerFile?: string;
+
+	/** Number of eligible live inserts before touching the external embedding trigger */
+	indexerEmbedTriggerBatchSize: number;
+
 	/** Ollama API endpoint URL */
 	ollamaUrl: string;
 
@@ -105,6 +114,15 @@ interface Config {
 
 	/** Interval in ms between embedding batch runs (default: 5 min) */
 	embedBatchIntervalMs: number;
+}
+
+function parseNonNegativeInteger(
+	value: string | undefined,
+	fallback: number,
+): number {
+	if (!value) return fallback;
+	const parsed = parseInt(value, 10);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 /**
@@ -152,12 +170,21 @@ export const config: Config = {
 	indexerDbPath: process.env.INDEXER_DB_PATH,
 	indexerDatasetId: process.env.INDEXER_DATASET_ID,
 	indexerMediaDir: process.env.INDEXER_MEDIA_DIR,
+	indexerEmbeddingsEnabled: process.env.INDEXER_EMBEDDINGS_ENABLED === "true",
+	indexerEmbedTriggerFile:
+		process.env.INDEXER_EMBED_TRIGGER_FILE ||
+		process.env.LIVE_EMBED_TRIGGER_FILE,
+	indexerEmbedTriggerBatchSize: parseNonNegativeInteger(
+		process.env.INDEXER_EMBED_TRIGGER_BATCH_SIZE ||
+			process.env.LIVE_EMBED_TRIGGER_BATCH_SIZE,
+		25,
+	),
 	ollamaUrl: process.env.OLLAMA_URL || "http://192.168.0.170:26886",
 	embedModel: process.env.EMBED_MODEL || "nomic-embed-text",
 	visionModel: process.env.VISION_MODEL || "qwen3-vl:2b",
-	embedBatchIntervalMs: parseInt(
-		process.env.EMBED_BATCH_INTERVAL_MS || "300000",
-		10,
+	embedBatchIntervalMs: parseNonNegativeInteger(
+		process.env.EMBED_BATCH_INTERVAL_MS,
+		300000,
 	),
 };
 
