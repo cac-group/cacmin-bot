@@ -50,6 +50,11 @@ describe("ChatInteractionIndexerService", () => {
 			rmSync(TEST_DIR, { recursive: true, force: true });
 	});
 
+	it("waits through short shared-database write contention", () => {
+		const db = (ChatInteractionIndexerService as any).db;
+		expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 30000 });
+	});
+
 	it("does not create or register handlers for a missing indexer database", () => {
 		ChatInteractionIndexerService.shutdown();
 		rmSync(TEST_DIR, { recursive: true, force: true });

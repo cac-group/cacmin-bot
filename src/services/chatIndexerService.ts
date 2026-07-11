@@ -98,6 +98,7 @@ export class ChatIndexerService {
 
 			ChatIndexerService.db = new Database(config.indexerDbPath);
 			ChatIndexerService.db.exec("PRAGMA journal_mode = WAL");
+			ChatIndexerService.db.exec("PRAGMA busy_timeout = 30000");
 			ChatIndexerService.db.exec("PRAGMA synchronous = NORMAL");
 			ChatIndexerService.bot = bot;
 			ChatIndexerService.enabled = true;
