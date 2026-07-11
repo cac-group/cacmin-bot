@@ -238,7 +238,7 @@ export class ChatIndexerService {
 					replyToId,
 					isForwarded,
 					forwardedFrom,
-					"live", // sentinel for live messages
+					`telegram-live:${msg.chat.id}`,
 					null, // no raw_html for live messages
 					ctx.from.id,
 				);
