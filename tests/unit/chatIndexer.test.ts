@@ -222,7 +222,7 @@ describe("ChatIndexerService", () => {
 		expect(row.id).toBe(42);
 		expect(row.author).toBe("Alice");
 		expect(row.text).toBe("Hello this is a test message from the group chat");
-		expect(row.file_path).toBe("live");
+		expect(row.file_path).toBe("telegram-live:-1001234567890");
 		expect(row.has_media).toBe(0);
 		expect(row.raw_html).toBeNull();
 
