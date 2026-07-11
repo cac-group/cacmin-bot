@@ -195,6 +195,11 @@ describe("ChatIndexerService", () => {
 		}
 	});
 
+	it("waits through short shared-database write contention", () => {
+		const db = (ChatIndexerService as any).db;
+		expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 30000 });
+	});
+
 	it("should index a text message into the DB", async () => {
 		const ctx = createMockContext({
 			messageText: "Hello this is a test message from the group chat",

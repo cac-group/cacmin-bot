@@ -48,6 +48,7 @@ export class ChatInteractionIndexerService {
 			}
 			ChatInteractionIndexerService.db = new Database(config.indexerDbPath);
 			ChatInteractionIndexerService.db.exec("PRAGMA journal_mode = WAL");
+			ChatInteractionIndexerService.db.exec("PRAGMA busy_timeout = 30000");
 			ChatInteractionIndexerService.ensureSchema();
 			ChatInteractionIndexerService.enabled = true;
 			bot.on("message_reaction", async (ctx, next) => {
