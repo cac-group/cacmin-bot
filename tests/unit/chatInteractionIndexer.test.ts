@@ -53,6 +53,7 @@ describe("ChatInteractionIndexerService", () => {
 	it("stores multiple active reactions idempotently and removes only the deleted reaction", async () => {
 		const next = vi.fn(async () => {});
 		const update = {
+			update: { update_id: 100 },
 			messageReaction: {
 				chat: { id: -1001234567890, type: "supergroup" },
 				message_id: 100,
@@ -95,6 +96,7 @@ describe("ChatInteractionIndexerService", () => {
 
 		await reactionHandler!(
 			{
+				update: { update_id: 101 },
 				messageReaction: {
 					...update.messageReaction,
 					old_reaction: update.messageReaction.new_reaction,
@@ -112,6 +114,41 @@ describe("ChatInteractionIndexerService", () => {
 		).toEqual([{ message_id: 100 }]);
 		db.close();
 		expect(next).toHaveBeenCalledTimes(3);
+	});
+
+	it("ignores reaction state delivered after a newer update", async () => {
+		const next = vi.fn(async () => {});
+		const reaction = {
+			chat: { id: -1001234567890, type: "supergroup" },
+			message_id: 100,
+			date: 1767398400,
+			user: { id: 8, first_name: "Reaction" },
+			old_reaction: [],
+			new_reaction: [{ type: "emoji", emoji: "🔥" }],
+		};
+		await reactionHandler!({ update: { update_id: 200 }, messageReaction: reaction }, next);
+		await reactionHandler!(
+			{
+				update: { update_id: 201 },
+				messageReaction: {
+					...reaction,
+					old_reaction: reaction.new_reaction,
+					new_reaction: [],
+				},
+			},
+			next,
+		);
+		await reactionHandler!({ update: { update_id: 200 }, messageReaction: reaction }, next);
+
+		const db = new Database(TEST_DB_PATH, { readonly: true });
+		expect(db.prepare("SELECT reaction_key FROM active_message_reactions").all()).toEqual([]);
+		expect(
+			db.prepare(`
+				SELECT last_update_id FROM telegram_reaction_state
+				WHERE message_id = 100 AND reactor_user_id = 8
+			`).get(),
+		).toEqual({ last_update_id: 201 });
+		db.close();
 	});
 
 	it("records live message identity and ID-backed mentions after the message insert", () => {

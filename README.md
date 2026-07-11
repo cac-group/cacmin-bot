@@ -91,7 +91,7 @@ For the CAC Museum deployment, keep `INDEXER_EMBEDDINGS_ENABLED=false` and use `
 
 The indexer also maintains the explorer dataset counters used by Grafana metrics (`dataset_meta` and `live_index_state`). Duplicate Telegram message IDs return before these counters are advanced.
 
-Live author identity, ID-backed mentions, edits, and `message_reaction` old/new state are written into the explorer's immutable-user and interaction queue tables. Each distinct active reaction from the same user counts separately; repeated Telegram delivery is idempotent and reaction removal deletes only the removed active reaction.
+Live author identity, ID-backed mentions, edits, and `message_reaction` old/new state are written into the explorer's immutable-user and interaction queue tables. Each distinct active reaction from the same user counts separately; repeated Telegram delivery is idempotent and reaction removal deletes only the removed active reaction. The greatest Telegram `update_id` is persisted per message/reactor so delayed or replayed older transitions cannot restore stale active-reaction state.
 
 ### Service Management
 

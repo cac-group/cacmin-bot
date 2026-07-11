@@ -28,7 +28,10 @@ export class ChatInteractionIndexerService {
 			ChatInteractionIndexerService.ensureSchema();
 			ChatInteractionIndexerService.enabled = true;
 			bot.on("message_reaction", async (ctx, next) => {
-				ChatInteractionIndexerService.indexReaction(ctx.messageReaction);
+				ChatInteractionIndexerService.indexReaction(
+					ctx.messageReaction,
+					ctx.update.update_id,
+				);
 				await next();
 			});
 			logger.info("Chat interaction indexer initialized", {
@@ -111,6 +114,13 @@ export class ChatInteractionIndexerService {
 				reacted_at_unix INTEGER NOT NULL,
 				PRIMARY KEY (message_id, reactor_user_id, reaction_key)
 			);
+			CREATE TABLE IF NOT EXISTS telegram_reaction_state (
+				message_id INTEGER NOT NULL,
+				reactor_user_id INTEGER NOT NULL,
+				last_update_id INTEGER NOT NULL,
+				last_updated_at_unix INTEGER NOT NULL,
+				PRIMARY KEY (message_id, reactor_user_id)
+			);
 			CREATE TABLE IF NOT EXISTS interaction_dirty_messages (
 				message_id INTEGER PRIMARY KEY,
 				attempts INTEGER NOT NULL DEFAULT 0,
@@ -151,10 +161,11 @@ export class ChatInteractionIndexerService {
 		}
 	}
 
-	static indexReaction(reaction: any): void {
+	static indexReaction(reaction: any, updateId: number): void {
 		const db = ChatInteractionIndexerService.db;
 		if (!ChatInteractionIndexerService.enabled || !db || !reaction?.user)
 			return;
+		if (!Number.isSafeInteger(updateId)) return;
 		if (config.groupChatId && reaction.chat?.id !== config.groupChatId) return;
 
 		try {
@@ -171,6 +182,17 @@ export class ChatInteractionIndexerService {
 				}),
 			);
 			const apply = db.transaction(() => {
+				const state = db
+					.prepare(`
+						SELECT last_update_id
+						FROM telegram_reaction_state
+						WHERE message_id = ? AND reactor_user_id = ?
+					`)
+					.get(reaction.message_id, reaction.user.id) as
+					| { last_update_id: number }
+					| undefined;
+				if (state && updateId <= state.last_update_id) return;
+
 				ChatInteractionIndexerService.recordIdentity(
 					reaction.user,
 					reaction.date,
@@ -198,6 +220,14 @@ export class ChatInteractionIndexerService {
 						reaction.date,
 					);
 				}
+				db.prepare(`
+					INSERT INTO telegram_reaction_state (
+						message_id, reactor_user_id, last_update_id, last_updated_at_unix
+					) VALUES (?, ?, ?, ?)
+					ON CONFLICT(message_id, reactor_user_id) DO UPDATE SET
+						last_update_id = excluded.last_update_id,
+						last_updated_at_unix = excluded.last_updated_at_unix
+				`).run(reaction.message_id, reaction.user.id, updateId, reaction.date);
 				ChatInteractionIndexerService.enqueue(
 					reaction.message_id,
 					reaction.date,
