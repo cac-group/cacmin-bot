@@ -83,6 +83,16 @@ bun install && bun run build
 sudo ./install.sh
 ```
 
+### Chat Explorer Indexer
+
+When `INDEXER_ENABLED=true`, `cacmin-bot` can be the live writer for the shared `telegram-chat-explorer` dataset. Point `INDEXER_DB_PATH` at the active explorer SQLite DB, set `INDEXER_DATASET_ID` to the matching dataset ID, and set `GROUP_CHAT_ID` to the Telegram supergroup ID.
+
+For the CAC Museum deployment, keep `INDEXER_EMBEDDINGS_ENABLED=false` and use `INDEXER_EMBED_TRIGGER_FILE=/opt/telegram-chat-explorer/state/embed-missing.trigger`. After every `INDEXER_EMBED_TRIGGER_BATCH_SIZE` eligible text/caption inserts, the bot touches that trigger so `teleindexer-embed-missing.path` can run the explorer embedding worker and keep pgvector in sync.
+
+The indexer also maintains the explorer dataset counters used by Grafana metrics (`dataset_meta` and `live_index_state`). Duplicate Telegram message IDs return before these counters are advanced.
+
+Live author identity, ID-backed mentions, edits, and `message_reaction` old/new state are written into the explorer's immutable-user and interaction queue tables. Each distinct active reaction from the same user counts separately; repeated Telegram delivery is idempotent and reaction removal deletes only the removed active reaction.
+
 ### Service Management
 
 ```bash

@@ -43,6 +43,7 @@ import { registerSpamReactHandlers } from "./handlers/spamReacts";
 import { registerViolationHandlers } from "./handlers/violations";
 import { messageFilterMiddleware } from "./middleware/messageFilter";
 import { ChatIndexerService } from "./services/chatIndexerService";
+import { ChatInteractionIndexerService } from "./services/chatInteractionIndexerService";
 import { DuelService } from "./services/duelService";
 import { JailService } from "./services/jailService";
 import { LedgerService } from "./services/ledgerService";
@@ -148,7 +149,12 @@ async function main() {
 		JailService.initialize(bot);
 
 		// Initialize chat indexer for live message indexing to explorer DB
+		ChatInteractionIndexerService.initialize(bot);
 		ChatIndexerService.initialize(bot);
+		bot.on("edited_message", async (ctx, next) => {
+			await ChatIndexerService.indexEditedMessage(ctx);
+			await next();
+		});
 
 		// Check visible identity before other message filtering or command handlers
 		registerIdentityBlockModeration(bot); // Name/username identity block moderation
@@ -303,6 +309,7 @@ async function main() {
 				clearInterval(id);
 			}
 			ChatIndexerService.shutdown();
+			ChatInteractionIndexerService.shutdown();
 			bot.stop(signal);
 			// Force exit after 5s -- intervals in services/handlers keep the event loop alive
 			setTimeout(() => {

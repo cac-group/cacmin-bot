@@ -11,6 +11,9 @@ vi.mock("../../src/config", () => ({
 		indexerDbPath: "",
 		indexerDatasetId: "test-dataset",
 		indexerMediaDir: "",
+		indexerEmbeddingsEnabled: false,
+		indexerEmbedTriggerFile: "",
+		indexerEmbedTriggerBatchSize: 2,
 		ollamaUrl: "http://localhost:11434",
 		embedModel: "nomic-embed-text",
 		visionModel: "qwen3-vl:2b",
@@ -73,6 +76,13 @@ function createExplorerSchema(db: Database): void {
 	`);
 
 	db.exec(`
+		CREATE TABLE IF NOT EXISTS dataset_meta (
+			key TEXT PRIMARY KEY,
+			value TEXT
+		)
+	`);
+
+	db.exec(`
 		CREATE TABLE IF NOT EXISTS topics (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -124,6 +134,16 @@ function createExplorerSchema(db: Database): void {
 	`);
 }
 
+function getKeyValueRows(table: string): Record<string, string> {
+	const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+	const rows = verifyDb.prepare(`SELECT key, value FROM ${table}`).all() as {
+		key: string;
+		value: string;
+	}[];
+	verifyDb.close();
+	return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+}
+
 describe("ChatIndexerService", () => {
 	let db: Database;
 
@@ -146,6 +166,12 @@ describe("ChatIndexerService", () => {
 		// Point config to test DB
 		(config as any).indexerDbPath = TEST_DB_PATH;
 		(config as any).indexerMediaDir = TEST_DIR;
+		(config as any).indexerEmbeddingsEnabled = false;
+		(config as any).indexerEmbedTriggerFile = join(
+			TEST_DIR,
+			"embed-missing.trigger",
+		);
+		(config as any).indexerEmbedTriggerBatchSize = 2;
 
 		// Mock bot with minimal Telegraf shape
 		const mockBot = {
@@ -181,7 +207,9 @@ describe("ChatIndexerService", () => {
 
 		// Verify the message was inserted
 		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
-		const row = verifyDb.prepare("SELECT * FROM messages WHERE id = ?").get(42) as any;
+		const row = verifyDb
+			.prepare("SELECT * FROM messages WHERE id = ?")
+			.get(42) as any;
 
 		expect(row).toBeDefined();
 		expect(row.id).toBe(42);
@@ -227,6 +255,86 @@ describe("ChatIndexerService", () => {
 		expect(author.last_seen).toBeDefined();
 
 		verifyDb.close();
+	});
+
+	it("refreshes stale dataset metadata on startup", () => {
+		ChatIndexerService.shutdown();
+
+		const setupDb = new Database(TEST_DB_PATH);
+		setupDb
+			.prepare(`
+				INSERT INTO messages (
+					id, author, timestamp, timestamp_unix, text, has_media, media_type,
+					media_path, reply_to_id, is_forwarded, forwarded_from, file_path, raw_html, user_id
+				)
+				VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, NULL, 0, NULL, 'messages.html', '', NULL)
+			`)
+			.run(
+				1000,
+				"Historical",
+				"2026-07-01T00:00:00.000Z",
+				1782878400,
+				"Historical message long enough for embedding",
+			);
+		setupDb
+			.prepare(`
+				INSERT INTO messages (
+					id, author, timestamp, timestamp_unix, text, has_media, media_type,
+					media_path, reply_to_id, is_forwarded, forwarded_from, file_path, raw_html, user_id
+				)
+				VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, NULL, 0, NULL, 'messages.html', '', NULL)
+			`)
+			.run(
+				1001,
+				"Second",
+				"2026-07-02T00:00:00.000Z",
+				1782964800,
+				"Another historical message long enough for embedding",
+			);
+		setupDb
+			.prepare("INSERT OR REPLACE INTO dataset_meta (key, value) VALUES (?, ?)")
+			.run("messageCount", "1");
+		setupDb.close();
+
+		const mockBot = { telegram: { getFileLink: vi.fn() } };
+		ChatIndexerService.initialize(mockBot as any);
+
+		const meta = getKeyValueRows("dataset_meta");
+		const liveState = getKeyValueRows("live_index_state");
+		expect(meta.messageCount).toBe("2");
+		expect(meta.authorCount).toBe("2");
+		expect(meta.lastMessage).toBe("2026-07-02T00:00:00.000Z");
+		expect(liveState.sqlite_messages_total).toBe("2");
+		expect(liveState.sqlite_authors_total).toBe("2");
+		expect(liveState.latest_message_id).toBe("1001");
+		expect(liveState.latest_message_timestamp_unix).toBe("1782964800");
+	});
+
+	it("updates dataset metadata and live counters for new inserts without double-counting duplicates", async () => {
+		const ctx = createMockContext({
+			messageText: "This live message is long enough for semantic embeddings",
+			messageId: 1100,
+			userId: 999,
+			firstName: "Metric",
+			chatId: -1001234567890,
+		});
+		(ctx.message as any).date = 1783190160;
+
+		await ChatIndexerService.indexMessage(ctx as any);
+		await ChatIndexerService.indexMessage(ctx as any);
+
+		const meta = getKeyValueRows("dataset_meta");
+		const liveState = getKeyValueRows("live_index_state");
+		expect(meta.messageCount).toBe("1");
+		expect(meta.authorCount).toBe("1");
+		expect(meta.lastMessage).toBe(new Date(1783190160 * 1000).toISOString());
+		expect(liveState.sqlite_messages_total).toBe("1");
+		expect(liveState.sqlite_authors_total).toBe("1");
+		expect(liveState.latest_message_id).toBe("1100");
+		expect(liveState.latest_message_timestamp_unix).toBe("1783190160");
+		expect(liveState.live_messages_inserted_total).toBe("1");
+		expect(liveState.live_embedding_candidates_inserted_total).toBe("1");
+		expect(liveState.pending_embedding_candidates).toBe("1");
 	});
 
 	it("should index messages into FTS", async () => {
@@ -286,10 +394,74 @@ describe("ChatIndexerService", () => {
 		await ChatIndexerService.indexMessage(ctx as any);
 
 		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
-		const row = verifyDb.prepare("SELECT * FROM messages WHERE id = ?").get(400);
+		const row = verifyDb
+			.prepare("SELECT * FROM messages WHERE id = ?")
+			.get(400);
 
 		expect(row).toBeUndefined();
 
+		verifyDb.close();
+	});
+
+	it("touches the embedding trigger after enough eligible inserts", async () => {
+		const triggerFile = join(TEST_DIR, "embed-missing.trigger");
+
+		await ChatIndexerService.indexMessage(
+			createMockContext({
+				messageText: "short",
+				messageId: 900,
+				userId: 999,
+				firstName: "Trigger",
+				chatId: -1001234567890,
+			}) as any,
+		);
+
+		expect(existsSync(triggerFile)).toBe(false);
+
+		await ChatIndexerService.indexMessage(
+			createMockContext({
+				messageText: "This message is long enough for semantic embeddings",
+				messageId: 901,
+				userId: 999,
+				firstName: "Trigger",
+				chatId: -1001234567890,
+			}) as any,
+		);
+		await ChatIndexerService.indexMessage(
+			createMockContext({
+				messageText: "This message is long enough for semantic embeddings",
+				messageId: 901,
+				userId: 999,
+				firstName: "Trigger",
+				chatId: -1001234567890,
+			}) as any,
+		);
+
+		expect(existsSync(triggerFile)).toBe(false);
+
+		let verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+		let state = verifyDb
+			.prepare("SELECT value FROM live_index_state WHERE key = ?")
+			.get("pending_embedding_candidates") as any;
+		expect(state.value).toBe("1");
+		verifyDb.close();
+
+		await ChatIndexerService.indexMessage(
+			createMockContext({
+				messageText: "Another message long enough for semantic embeddings",
+				messageId: 902,
+				userId: 999,
+				firstName: "Trigger",
+				chatId: -1001234567890,
+			}) as any,
+		);
+
+		expect(existsSync(triggerFile)).toBe(true);
+		verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+		state = verifyDb
+			.prepare("SELECT value FROM live_index_state WHERE key = ?")
+			.get("pending_embedding_candidates") as any;
+		expect(state.value).toBe("0");
 		verifyDb.close();
 	});
 
@@ -297,7 +469,9 @@ describe("ChatIndexerService", () => {
 		// Insert a test topic
 		const setupDb = new Database(TEST_DB_PATH);
 		setupDb
-			.prepare("INSERT INTO topics (name, keywords, message_count) VALUES (?, ?, 0)")
+			.prepare(
+				"INSERT INTO topics (name, keywords, message_count) VALUES (?, ?, 0)",
+			)
 			.run("Airdrops", "airdrop,airdrops,claim,claiming,free tokens");
 		setupDb.close();
 
@@ -360,7 +534,9 @@ describe("ChatIndexerService", () => {
 		await ChatIndexerService.indexMessage(ctx2 as any);
 
 		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
-		const row = verifyDb.prepare("SELECT * FROM messages WHERE id = ?").get(601) as any;
+		const row = verifyDb
+			.prepare("SELECT * FROM messages WHERE id = ?")
+			.get(601) as any;
 
 		expect(row.reply_to_id).toBe(600);
 
@@ -396,10 +572,85 @@ describe("ChatIndexerService", () => {
 		await ChatIndexerService.indexMessage(ctx as any);
 
 		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
-		const row = verifyDb.prepare("SELECT * FROM messages WHERE id = ?").get(800) as any;
+		const row = verifyDb
+			.prepare("SELECT * FROM messages WHERE id = ?")
+			.get(800) as any;
 
 		expect(row.author).toBe("John Doe");
 
+		verifyDb.close();
+	});
+
+	it("applies edited messages and invalidates stale derived rows", async () => {
+		const ctx = createMockContext({
+			messageText: "Original content long enough for an embedding",
+			messageId: 900,
+			userId: 999,
+			firstName: "Editor",
+			chatId: -1001234567890,
+		});
+		await ChatIndexerService.indexMessage(ctx as any);
+		const setupDb = new Database(TEST_DB_PATH);
+		setupDb
+			.prepare("INSERT INTO embeddings (message_id, vector) VALUES (?, ?)")
+			.run(900, Buffer.alloc(8));
+		setupDb
+			.prepare(
+				"INSERT INTO topics (id, name, keywords) VALUES (900, 'Old', 'old')",
+			)
+			.run();
+		setupDb
+			.prepare(
+				"INSERT INTO message_topics (message_id, topic_id) VALUES (900, 900)",
+			)
+			.run();
+		setupDb
+			.prepare(
+				"INSERT INTO image_descriptions (message_id, description) VALUES (900, 'old')",
+			)
+			.run();
+		setupDb.close();
+
+		await ChatIndexerService.indexEditedMessage({
+			chat: { id: -1001234567890 },
+			from: { id: 999, first_name: "Editor" },
+			editedMessage: {
+				message_id: 900,
+				date: 1767225700,
+				text: "Edited replacement content long enough for an embedding",
+			},
+		} as any);
+
+		const verifyDb = new Database(TEST_DB_PATH, { readonly: true });
+		expect(
+			verifyDb
+				.prepare("SELECT text, timestamp_unix FROM messages WHERE id = 900")
+				.get(),
+		).toEqual({
+			text: "Edited replacement content long enough for an embedding",
+			timestamp_unix: 1767225700,
+		});
+		expect(
+			verifyDb
+				.prepare(
+					"SELECT COUNT(*) AS count FROM embeddings WHERE message_id = 900",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			verifyDb
+				.prepare(
+					"SELECT COUNT(*) AS count FROM message_topics WHERE message_id = 900",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			verifyDb
+				.prepare(
+					"SELECT COUNT(*) AS count FROM image_descriptions WHERE message_id = 900",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 		verifyDb.close();
 	});
 });
