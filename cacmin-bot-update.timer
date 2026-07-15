@@ -1,9 +1,11 @@
 [Unit]
-Description=Check for cacmin-bot updates
+Description=Check daily for a published CAC Admin Bot update
 
 [Timer]
 OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=15m
 Persistent=true
+Unit=cacmin-bot-update.service
 
 [Install]
 WantedBy=timers.target

@@ -1,235 +1,228 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# CAC Admin Bot Auto-Update Script
-# Downloads and installs the latest release from GitHub
+umask 0022
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+CHECK_ONLY=false
+FORCE=false
+RELEASE_TAG=latest
 
-# Configuration
-REPO="cac-group/cacmin-bot"
-INSTALL_DIR="/opt/cacmin-bot"
-SERVICE_NAME="cacmin-bot.service"
-DOWNLOAD_DIR="/tmp/cacmin-bot-update"
+usage() {
+	cat <<'EOF'
+Usage: cacmin-bot-auto-update [--check] [--force] [--release TAG]
 
-# Parse arguments
-FORCE_UPDATE=false
-if [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
-    FORCE_UPDATE=true
-fi
+  --check        Report whether an update is available without changing local state.
+  --force        Reinstall the selected published release.
+  --release TAG  Select an exact release tag instead of the rolling latest release.
+EOF
+}
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Error: This script must be run as root${NC}"
-    echo "Usage: sudo ./auto-update.sh [--force]"
-    exit 1
-fi
-
-echo -e "${GREEN}=== CAC Admin Bot Auto-Update ===${NC}\n"
-
-# Check for required commands and prefer system/user-installed versions
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/bun/bin:/home/cacmin-bot/.bun/bin:$PATH"
-BUN_BIN="/opt/bun/bin/bun"
-
-for cmd in curl jq tar; do
-    if ! command -v $cmd &> /dev/null; then
-        echo -e "${RED}Error: $cmd is not installed${NC}"
-        echo "Install it with: sudo apt-get install -y $cmd"
-        exit 1
-    fi
+while (($# > 0)); do
+	case "$1" in
+		--check) CHECK_ONLY=true ;;
+		--force) FORCE=true ;;
+		--release)
+			if (($# < 2)) || [[ -z $2 ]]; then
+				echo "--release requires a tag" >&2
+				exit 2
+			fi
+			RELEASE_TAG=$2
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*)
+			echo "Unknown argument: $1" >&2
+			usage >&2
+			exit 2
+			;;
+	esac
+	shift
 done
 
-if [ ! -x "$BUN_BIN" ]; then
-	echo -e "${YELLOW}Bun is not installed at $BUN_BIN; installing to /opt/bun...${NC}"
-	BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
-fi
-
-chmod -R a+rX /opt/bun
-chmod a+rx "$BUN_BIN"
-
-# Get current version timestamp if exists
-CURRENT_TIMESTAMP=""
-if [ -f "$INSTALL_DIR/version.txt" ]; then
-    CURRENT_TIMESTAMP=$(cat "$INSTALL_DIR/version.txt")
-    CURRENT_DATE=$(date -d "@$CURRENT_TIMESTAMP" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r "$CURRENT_TIMESTAMP" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "unknown")
-    echo -e "Current version: ${YELLOW}${CURRENT_DATE}${NC}"
+TEST_MODE=${CACMIN_TEST_MODE:-0}
+if [[ $TEST_MODE == 1 ]]; then
+	INSTALL_DIR=${CACMIN_INSTALL_DIR:?CACMIN_INSTALL_DIR is required in test mode}
 else
-    echo -e "${YELLOW}No version file found (first install or old version)${NC}"
+	INSTALL_DIR=/opt/cacmin-bot
+	export PATH=/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 fi
 
-# Get latest release info from GitHub
-echo -e "\n${YELLOW}Checking for latest release...${NC}"
-RELEASE_INFO=$(curl -s "https://api.github.com/repos/$REPO/releases/tags/latest")
+SERVICE_NAME=cacmin-bot.service
+REPO=cac-group/cacmin-bot
+EXPECTED_HOSTNAME=${CACMIN_EXPECTED_HOSTNAME:-tgbot}
+CURRENT_HOSTNAME=${CACMIN_HOSTNAME:-$(hostname -s)}
 
-# Check if we got valid JSON
-if ! echo "$RELEASE_INFO" | jq empty 2>/dev/null; then
-    echo -e "${RED}Error: Failed to fetch release information from GitHub${NC}"
-    echo "Response: $RELEASE_INFO"
-    echo ""
-    echo "This might mean:"
-    echo "1. No builds have completed yet"
-    echo "2. The GitHub Actions workflow is still running"
-    echo "3. Network connectivity issue"
-    echo ""
-    echo "Check: https://github.com/$REPO/actions"
-    exit 1
+if [[ $CURRENT_HOSTNAME != "$EXPECTED_HOSTNAME" ]]; then
+	echo "Refusing to update on '$CURRENT_HOSTNAME'; expected '$EXPECTED_HOSTNAME'" >&2
+	exit 1
 fi
 
-LATEST_PUBLISHED=$(echo "$RELEASE_INFO" | jq -r '.updated_at')
-LATEST_TIMESTAMP=$(date -d "$LATEST_PUBLISHED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$LATEST_PUBLISHED" +%s 2>/dev/null)
-LATEST_DATE=$(date -d "@$LATEST_TIMESTAMP" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r "$LATEST_TIMESTAMP" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-DOWNLOAD_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "cacmin-bot-dist.tar.gz") | .browser_download_url')
+for command in curl jq date; do
+	command -v "$command" >/dev/null || {
+		echo "$command is required" >&2
+		exit 1
+	}
+done
 
-if [ -z "$LATEST_TIMESTAMP" ] || [ "$LATEST_TIMESTAMP" == "null" ]; then
-    echo -e "${RED}Error: No 'latest' release found${NC}"
-    echo "The build may still be in progress."
-    echo "Check: https://github.com/$REPO/releases"
-    exit 1
+release_tag_path=$(jq -rn --arg tag "$RELEASE_TAG" '$tag | @uri')
+release_info=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/$release_tag_path")
+release_published=$(jq -er '.updated_at' <<<"$release_info")
+download_url=$(jq -er '.assets[] | select(.name == "cacmin-bot-dist.tar.gz") | .browser_download_url' <<<"$release_info")
+release_timestamp=$(date -d "$release_published" +%s)
+current_timestamp=0
+if [[ -f $INSTALL_DIR/version.txt ]]; then
+	read -r current_timestamp <"$INSTALL_DIR/version.txt" || true
+	[[ $current_timestamp =~ ^[0-9]+$ ]] || current_timestamp=0
 fi
 
-echo -e "Latest version: ${GREEN}${LATEST_DATE}${NC}"
-
-# Check if update is needed (compare timestamps)
-# Only compare if CURRENT_TIMESTAMP is numeric
-if [ -n "$CURRENT_TIMESTAMP" ] && [[ "$CURRENT_TIMESTAMP" =~ ^[0-9]+$ ]] && [ "$CURRENT_TIMESTAMP" -ge "$LATEST_TIMESTAMP" ] && [ "$FORCE_UPDATE" != true ]; then
-    echo -e "\n${GREEN}Already up to date!${NC}"
-    echo "Use --force to reinstall anyway."
-    exit 0
+if ((current_timestamp >= release_timestamp)) && [[ $FORCE != true ]]; then
+	echo "update_available=no"
+	exit 0
 fi
 
-if [ "$FORCE_UPDATE" == true ]; then
-    echo -e "${YELLOW}Force update enabled - will reinstall${NC}"
+if [[ $CHECK_ONLY == true ]]; then
+	echo "update_available=yes"
+	exit 0
 fi
 
-if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-    echo -e "${RED}Error: Release tarball not found${NC}"
-    echo "The release may not have finished building yet."
-    exit 1
+if [[ $EUID -ne 0 && $TEST_MODE != 1 ]]; then
+	echo "The updater must run as root" >&2
+	exit 1
 fi
 
-# Create download directory
-rm -rf "$DOWNLOAD_DIR"
-mkdir -p "$DOWNLOAD_DIR"
-cd "$DOWNLOAD_DIR"
+for command in python3 tar systemctl; do
+	command -v "$command" >/dev/null || {
+		echo "$command is required" >&2
+		exit 1
+	}
+done
 
-# Download latest release
-echo -e "\n${YELLOW}Downloading latest release...${NC}"
-if curl -L -o cacmin-bot-dist.tar.gz "$DOWNLOAD_URL"; then
-    echo -e "${GREEN}✓ Download complete${NC}"
-else
-    echo -e "${RED}Error: Download failed${NC}"
-    exit 1
-fi
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/cacmin-update.XXXXXX")
+cleanup() {
+	rm -rf "$work_dir"
+}
+trap cleanup EXIT
+archive=$work_dir/cacmin-bot-dist.tar.gz
+extract_dir=$work_dir/extracted
+mkdir -p "$extract_dir"
+curl -fL "$download_url" -o "$archive"
 
-# Verify tarball
-if ! tar -tzf cacmin-bot-dist.tar.gz &>/dev/null; then
-    echo -e "${RED}Error: Downloaded tarball is corrupt${NC}"
-    exit 1
-fi
+python3 - "$archive" <<'PY'
+import posixpath
+import sys
+import tarfile
 
-# Stop the service
-echo -e "\n${YELLOW}Stopping service...${NC}"
+
+def safe_path(path: str) -> bool:
+	if not path or path.startswith("/"):
+		return False
+	normalized = posixpath.normpath(path)
+	return normalized != ".." and not normalized.startswith("../")
+
+
+with tarfile.open(sys.argv[1], "r:gz") as archive:
+	for member in archive.getmembers():
+		if not safe_path(member.name):
+			raise SystemExit(f"unsafe archive path: {member.name}")
+		if member.isdev() or member.isfifo():
+			raise SystemExit(f"unsupported archive entry: {member.name}")
+		if member.issym():
+			target = posixpath.join(posixpath.dirname(member.name), member.linkname)
+			if not safe_path(target):
+				raise SystemExit(f"unsafe symlink target: {member.name}")
+		elif member.islnk() and not safe_path(member.linkname):
+			raise SystemExit(f"unsafe hardlink target: {member.name}")
+PY
+tar -xzf "$archive" -C "$extract_dir"
+
+for required in dist/bot.js node_modules package.json; do
+	if [[ ! -e $extract_dir/$required ]]; then
+		echo "Release archive is missing $required" >&2
+		exit 1
+	fi
+done
+
+mkdir -p "$INSTALL_DIR/.rollback"
+rollback_dir=$INSTALL_DIR/.rollback/update-$(date +%Y%m%dT%H%M%S)-$$
+mkdir -p "$rollback_dir"
+code_entries=(dist node_modules package.json bun.lock version.txt)
+was_active=false
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    systemctl stop "$SERVICE_NAME"
-    echo -e "${GREEN}✓ Service stopped${NC}"
-else
-    echo -e "${YELLOW}Service was not running${NC}"
+	was_active=true
+fi
+transaction_armed=true
+transaction_phase=none
+
+restore_previous_code() {
+	local entry
+	local failed=0
+	rm -f "$INSTALL_DIR/version.txt.new" || failed=1
+	for entry in "${code_entries[@]}"; do
+		if [[ -e $rollback_dir/$entry ]]; then
+			rm -rf "${INSTALL_DIR:?}/$entry" || failed=1
+			mv "$rollback_dir/$entry" "$INSTALL_DIR/$entry" || failed=1
+		elif [[ $transaction_phase == installing ]]; then
+			rm -rf "${INSTALL_DIR:?}/$entry" || failed=1
+		fi
+	done
+	return "$failed"
+}
+
+on_error() {
+	local status=$?
+	local rollback_failed=false
+	trap - ERR
+	set +e
+	if [[ $transaction_armed == true ]]; then
+		systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || rollback_failed=true
+		if [[ $transaction_phase != none ]]; then
+			restore_previous_code || rollback_failed=true
+		fi
+		if [[ $was_active == true ]]; then
+			systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || rollback_failed=true
+			systemctl is-active --quiet "$SERVICE_NAME" || rollback_failed=true
+		fi
+	fi
+	if [[ $rollback_failed == true ]]; then
+		echo "ROLLBACK INCOMPLETE after updater failure status=$status" >&2
+		exit 70
+	fi
+	exit "$status"
+}
+trap on_error ERR
+
+if [[ $was_active == true ]]; then
+	systemctl stop "$SERVICE_NAME"
 fi
 
-# Backup current installation
-if [ -d "$INSTALL_DIR" ]; then
-    BACKUP_DIR="/tmp/cacmin-bot-backup-$(date +%Y%m%d-%H%M%S)"
-    echo -e "\n${YELLOW}Creating backup at $BACKUP_DIR${NC}"
-    mkdir -p "$BACKUP_DIR"
+transaction_phase=moving
+for entry in "${code_entries[@]}"; do
+	[[ -e $INSTALL_DIR/$entry ]] && mv "$INSTALL_DIR/$entry" "$rollback_dir/$entry"
+done
+transaction_phase=installing
+for entry in dist node_modules package.json bun.lock; do
+	[[ -e $extract_dir/$entry ]] && cp -a "$extract_dir/$entry" "$INSTALL_DIR/$entry"
+done
+printf '%s\n' "$release_timestamp" >"$INSTALL_DIR/version.txt.new"
+chown root:root "$INSTALL_DIR/version.txt.new"
+chmod 0644 "$INSTALL_DIR/version.txt.new"
+mv "$INSTALL_DIR/version.txt.new" "$INSTALL_DIR/version.txt"
+chown -R root:root "$INSTALL_DIR/dist" "$INSTALL_DIR/node_modules" "$INSTALL_DIR/package.json"
+[[ -f $INSTALL_DIR/bun.lock ]] && chown root:root "$INSTALL_DIR/bun.lock"
+chmod -R go-w "$INSTALL_DIR/dist" "$INSTALL_DIR/node_modules"
 
-    # Only backup critical files
-    [ -f "$INSTALL_DIR/.env" ] && cp "$INSTALL_DIR/.env" "$BACKUP_DIR/"
-    [ -d "$INSTALL_DIR/data" ] && cp -r "$INSTALL_DIR/data" "$BACKUP_DIR/"
-
-    echo -e "${GREEN}✓ Backup created${NC}"
+if [[ $was_active == true ]]; then
+	systemctl start "$SERVICE_NAME"
+	if ! systemctl is-active --quiet "$SERVICE_NAME"; then
+		echo "Updated service failed to start; rolling back" >&2
+		false
+	fi
 fi
 
-# Extract new version (in-place update to preserve directory inode)
-echo -e "\n${YELLOW}Installing new version...${NC}"
-
-# Ensure install directory exists
-mkdir -p "$INSTALL_DIR"
-
-# Extract to temp location first
-EXTRACT_DIR="/tmp/cacmin-bot-extract-$$"
-mkdir -p "$EXTRACT_DIR"
-tar -xzf cacmin-bot-dist.tar.gz -C "$EXTRACT_DIR/"
-
-# Remove old files EXCEPT .env, data, logs
-# node_modules is now shipped in the tarball, so we remove it to get fresh version
-find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 \
-    ! -name '.env' \
-    ! -name 'data' \
-    ! -name 'logs' \
-    -exec rm -rf {} + 2>/dev/null || true
-
-# Copy new files into existing directory (preserving inode)
-cp -r "$EXTRACT_DIR"/* "$INSTALL_DIR/"
-
-# Cleanup extract dir
-rm -rf "$EXTRACT_DIR"
-
-# Create data directory if it doesn't exist
-mkdir -p "$INSTALL_DIR/data"
-
-echo -e "${GREEN}✓ Files extracted${NC}"
-
-# Set proper permissions
-echo -e "\n${YELLOW}Setting permissions...${NC}"
-chown -R cacmin-bot:cacmin-bot "$INSTALL_DIR"
-chmod 750 "$INSTALL_DIR"
-chmod 750 "$INSTALL_DIR/data"
-if [ -f "$INSTALL_DIR/.env" ]; then
-    chmod 600 "$INSTALL_DIR/.env"
-fi
-echo -e "${GREEN}✓ Permissions set${NC}"
-
-# Update systemd service if changed
-if [ -f "$INSTALL_DIR/cacmin-bot.service" ]; then
-    echo -e "\n${YELLOW}Updating systemd service...${NC}"
-    cp "$INSTALL_DIR/cacmin-bot.service" "/etc/systemd/system/$SERVICE_NAME"
-    systemctl daemon-reload
-    echo -e "${GREEN}✓ Service updated${NC}"
-fi
-
-# Save version info (timestamp)
-echo "$LATEST_TIMESTAMP" > "$INSTALL_DIR/version.txt"
-chown cacmin-bot:cacmin-bot "$INSTALL_DIR/version.txt"
-
-# Start the service
-echo -e "\n${YELLOW}Starting service...${NC}"
-systemctl start "$SERVICE_NAME"
-
-# Wait a moment and check status
-sleep 2
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo -e "${GREEN}✓ Service started successfully${NC}"
-else
-    echo -e "${RED}Warning: Service may have failed to start${NC}"
-    echo "Check logs with: sudo journalctl -u $SERVICE_NAME -n 50"
-fi
-
-# Cleanup
-rm -rf "$DOWNLOAD_DIR"
-
-echo -e "\n${GREEN}=== Update Complete ===${NC}"
-if [ -n "$CURRENT_DATE" ] && [ "$CURRENT_DATE" != "unknown" ]; then
-    echo -e "Updated from ${YELLOW}${CURRENT_DATE}${NC} to ${GREEN}${LATEST_DATE}${NC}\n"
-else
-    echo -e "Installed version: ${GREEN}${LATEST_DATE}${NC}\n"
-fi
-
-echo "To view logs:"
-echo "  sudo journalctl -u $SERVICE_NAME -f"
-echo ""
-echo "To check status:"
-echo "  sudo systemctl status $SERVICE_NAME"
+transaction_phase=none
+transaction_armed=false
+trap - ERR
+echo "updated_to=$release_timestamp"

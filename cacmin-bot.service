@@ -1,6 +1,6 @@
 [Unit]
 Description=CAC Admin Telegram Bot
-Documentation=https://github.com/Cordtus/cacmin-bot
+Documentation=https://github.com/cac-group/cacmin-bot
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
@@ -10,35 +10,42 @@ StartLimitBurst=5
 Type=simple
 User=cacmin-bot
 Group=cacmin-bot
+SupplementaryGroups=teleindexer-data
 WorkingDirectory=/opt/cacmin-bot
-
-# Load environment variables from .env file
-EnvironmentFile=/opt/cacmin-bot/.env
-
-# Main process - run with the managed Bun install used by install/update scripts
+EnvironmentFile=/etc/cacmin-bot/cacmin-bot.env
+Environment=NODE_ENV=production
+Environment=PATH=/opt/bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/bun/bin/bun dist/bot.js
+UMask=0007
 
-# Restart configuration
 Restart=always
 RestartSec=10
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
 
-# Environment
-Environment=NODE_ENV=production
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:/opt/bun/bin:/home/cacmin-bot/.bun/bin
-
-# Logging configuration
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=cacmin-bot
 
-# Security hardening (optional, adjust as needed for LXC)
 NoNewPrivileges=true
 PrivateTmp=true
-
-# Graceful shutdown
-TimeoutStopSec=30
-KillMode=mixed
-KillSignal=SIGTERM
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+ReadWritePaths=/opt/cacmin-bot/data
+ReadWritePaths=/opt/cacmin-bot/logs
+ReadWritePaths=/opt/telegram-chat-explorer/data
+ReadWritePaths=/opt/telegram-chat-explorer/state
 
 [Install]
 WantedBy=multi-user.target

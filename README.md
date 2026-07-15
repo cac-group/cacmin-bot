@@ -71,8 +71,39 @@ tar -xzf cacmin-bot-dist.tar.gz
 sudo ./install.sh
 ```
 
-The installer creates a systemd service at `/opt/cacmin-bot` with proper permissions.
-Production runs under Bun; install Bun before running `install.sh` if it is not already available on the host.
+The production installer is intentionally preparation-first. It builds or
+validates the release, installs root-owned code at `/opt/cacmin-bot`, installs
+both update units, disables/stops the bot and update timer, stops any running
+updater invocation, and verifies all three CACMin units are inactive. It does
+not touch unrelated services. Production runs with the managed Bun binary at
+`/opt/bun/bin/bun`; install it before running `install.sh`.
+
+Configuration lives outside the code tree at
+`/etc/cacmin-bot/cacmin-bot.env` (`root:cacmin-bot`, mode `0640`). Runtime data
+and file logs remain service-owned under `/opt/cacmin-bot/data` and
+`/opt/cacmin-bot/logs`. At the approved cutover, activate the prepared service
+and updater explicitly:
+
+```bash
+sudo ./install.sh --activate
+```
+
+Preparation warns if an existing environment file has insecure metadata but
+never prints its contents. Activation refuses a missing environment file and
+normalizes then verifies its ownership and mode before enabling either unit.
+
+The installer refuses its production paths on hosts other than `tgbot`. The
+update timer executes the root-owned
+`/usr/local/libexec/cacmin-bot-auto-update`, never a script writable by the bot
+service. Timer runs follow the rolling `latest` release. Tag-triggered GitHub
+deployments pass that exact tag with `--release TAG --force`, so production
+installs the artifact published by the triggering workflow rather than a newer
+or older `latest` artifact. A read-only release check does not call systemd or
+change the install:
+
+```bash
+sudo /usr/local/libexec/cacmin-bot-auto-update --check
+```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment documentation.
 
@@ -85,13 +116,39 @@ sudo ./install.sh
 
 ### Chat Explorer Indexer
 
-When `INDEXER_ENABLED=true`, `cacmin-bot` can be the live writer for the shared `telegram-chat-explorer` dataset. Point `INDEXER_DB_PATH` at the active explorer SQLite DB, set `INDEXER_DATASET_ID` to the matching dataset ID, and set `GROUP_CHAT_ID` to the Telegram supergroup ID.
+When `INDEXER_ENABLED=true`, `cacmin-bot` is the single live writer for the shared `telegram-chat-explorer` dataset. Point `INDEXER_DB_PATH` at the active explorer SQLite DB, set `INDEXER_DATASET_ID` to the matching dataset ID, and set `GROUP_CHAT_ID` to the Telegram supergroup ID. The museum/API service must use `LIVE_INDEX_ENABLED=false`; running two Telegram consumers or two SQLite writers during migration can lose updates or double-handle bot actions.
 
 For the CAC Museum deployment, keep `INDEXER_EMBEDDINGS_ENABLED=false` and use `INDEXER_EMBED_TRIGGER_FILE=/opt/telegram-chat-explorer/state/embed-missing.trigger`. After every `INDEXER_EMBED_TRIGGER_BATCH_SIZE` eligible text/caption inserts, the bot touches that trigger so `teleindexer-embed-missing.path` can run the explorer embedding worker and keep pgvector in sync.
 
 The indexer also maintains the explorer dataset counters used by Grafana metrics (`dataset_meta` and `live_index_state`). Duplicate Telegram message IDs return before these counters are advanced.
 
 Live author identity, ID-backed mentions, edits, and `message_reaction` old/new state are written into the explorer's immutable-user and interaction queue tables. Each distinct active reaction from the same user counts separately; repeated Telegram delivery is idempotent and reaction removal deletes only the removed active reaction. The greatest Telegram `update_id` is persisted per message/reactor so delayed or replayed older transitions cannot restore stale active-reaction state.
+
+### Production Topology and Recovery
+
+On `tgbot`, the `cacmin-bot` account owns only its mutable data/log directories
+and joins `teleindexer-data` to write the shared explorer database, downloaded
+media, and embedding trigger. Application code remains `root:root` and is
+read-only to the service. The unit's write allowlist is limited to those own and
+shared paths.
+
+Install and updater replacements move the previous code into
+`/opt/cacmin-bot/.rollback/` before replacing it. If an updated active service
+does not start, the updater restores the previous code and attempts to restart
+that version. Rollback is armed before the first code move; partial move or
+activation failure restores every displaced entry. A failed activation leaves
+the bot, updater, and timer inactive and leaves the bot and timer disabled, so
+a reboot cannot create a second writer. For manual recovery, stop
+`cacmin-bot.service`, restore one
+rollback directory's `dist`, `node_modules`, `package.json`, `bun.lock`, and
+`version.txt`, confirm they are `root:root` without group/other write bits, then
+start the service and verify the writer counters and a read-only wallet/ledger
+status command before reopening moderation traffic.
+
+Database recovery is separate from code rollback. Never replace
+`/opt/cacmin-bot/data/bot.db` while the service is running. Restore the database
+and its WAL/SHM-consistent backup as one maintenance operation, then verify the
+ledger, moderation state, and explorer writer freshness before starting the bot.
 
 ### Service Management
 
