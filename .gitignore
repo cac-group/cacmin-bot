@@ -53,10 +53,10 @@ tmp/
 *.~undo-tree
 
 # Local agent and planning artifacts
-/.codex/
-/.agents/
-/.serena/
-/.claude/
+/.codex
+/.agents
+/.serena
+/.claude
 /CLAUDE.md
 /docs/superpowers/
 /docs/handoffs/
