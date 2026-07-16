@@ -51,18 +51,22 @@ tmp/
 *.bak
 *.~undo-tree
 
-# Development notes and Claude-related files
-.claude/
-IMPLEMENTATION_COMPLETE.md
-QUICKSTART.md
-STATUS.md
-UPGRADE_SUMMARY.md
-CLAUDE.md
-AGENTS.md
-
-# Internal documentation
-IMPLEMENTATION_SUMMARY.md
-AUDIT_TRAIL_DOCUMENTATION.md
-USER_WALLET_GUIDE.md
-WALLET_VERIFICATION_GUIDE.md
-REFACTORING_PLAN.md
+# Local agent and planning artifacts
+/.codex/
+/.agents/
+/.serena/
+/.claude/
+/CLAUDE.md
+/docs/superpowers/
+/docs/handoffs/
+/scratch/
+/.tmp/
+/context.md
+/context-*.md
+/CONTEXT.md
+/handoff.md
+/handoff-*.md
+/HANDOFF.md
+/IMPLEMENTATION_COMPLETE.md
+/IMPLEMENTATION_SUMMARY.md
+/REFACTORING_PLAN.md
