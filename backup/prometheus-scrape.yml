@@ -1,9 +1,0 @@
-# Prometheus scrape configuration for Litestream
-# Add this job to your prometheus.yml scrape_configs section
-
-# scrape_configs:
-#   - job_name: 'litestream'
-#     static_configs:
-#       - targets: ['pi0:9090']  # or localhost:9090 if Prometheus is on same host
-#     scrape_interval: 15s
-#     metrics_path: /metrics
