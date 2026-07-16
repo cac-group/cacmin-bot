@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -45,7 +45,7 @@ jobs:
           tar -czf cacmin-bot-dist.tar.gz dist/ node_modules/ package.json bun.lock cacmin-bot.service cacmin-bot-update.service cacmin-bot-update.timer install.sh auto-update.sh version.txt
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cacmin-bot-dist
           path: cacmin-bot-dist.tar.gz
