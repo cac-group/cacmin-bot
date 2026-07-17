@@ -52,6 +52,7 @@ import { RestrictionService } from "./services/restrictionService";
 import { TransactionLockService } from "./services/transactionLock";
 import { UnifiedWalletService } from "./services/unifiedWalletService";
 import { setBotInstance } from "./utils/adminNotify";
+import { waitForBotLaunch } from "./utils/botLifecycle";
 import { logger } from "./utils/logger";
 
 /**
@@ -303,7 +304,9 @@ async function main() {
 		});
 
 		// Graceful shutdown -- stop bot, clear intervals, then force exit
+		let shutdownRequested = false;
 		const shutdown = (signal: string) => {
+			shutdownRequested = true;
 			logger.info(`Shutting down (${signal})...`);
 			for (const id of intervals) {
 				clearInterval(id);
@@ -321,25 +324,33 @@ async function main() {
 		process.once("SIGTERM", () => shutdown("SIGTERM"));
 
 		// Start the bot with message_reaction updates enabled for spam detection
-		await bot.launch({
-			allowedUpdates: [
-				"message",
-				"edited_message",
-				"channel_post",
-				"edited_channel_post",
-				"callback_query",
-				"inline_query",
-				"chosen_inline_result",
-				"shipping_query",
-				"pre_checkout_query",
-				"poll",
-				"poll_answer",
-				"my_chat_member",
-				"chat_member",
-				"chat_join_request",
-				"message_reaction", // Required for reaction spam detection
-			],
-		});
+		const launchResult = await waitForBotLaunch(
+			() =>
+				bot.launch({
+					allowedUpdates: [
+						"message",
+						"edited_message",
+						"channel_post",
+						"edited_channel_post",
+						"callback_query",
+						"inline_query",
+						"chosen_inline_result",
+						"shipping_query",
+						"pre_checkout_query",
+						"poll",
+						"poll_answer",
+						"my_chat_member",
+						"chat_member",
+						"chat_join_request",
+						"message_reaction", // Required for reaction spam detection
+					],
+				}),
+			() => shutdownRequested,
+		);
+		if (launchResult === "stopped") {
+			logger.info("Bot stopped cleanly");
+			return;
+		}
 		logger.info("Bot started successfully");
 		console.log(" CAC Admin Bot is running...");
 	} catch (error) {
