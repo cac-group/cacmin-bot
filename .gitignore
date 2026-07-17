@@ -57,6 +57,7 @@ tmp/
 /.agents
 /.serena
 /.claude
+/AGENTS.md
 /CLAUDE.md
 /docs/superpowers/
 /docs/handoffs/
