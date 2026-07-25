@@ -59,6 +59,17 @@ bun run dev           # Development
 - `BOT_TREASURY_MNEMONIC`: Wallet seed phrase (24 words)
 - `JUNO_RPC_URL`: Primary Juno RPC endpoint
 
+Telegram uses `https://api.telegram.org` by default. A deployment using the
+local Telegram Bot API and its media gateway can set:
+
+```dotenv
+TELEGRAM_API_ROOT=http://tgbotapi.lxd:8081
+TELEGRAM_FILE_ROOT=http://tgbotapi.lxd:8082
+```
+
+Both values must be bare HTTP(S) origins. `TELEGRAM_FILE_ROOT` is optional with
+the public API, but is required if `getFile` returns an absolute local path.
+
 **Rebuild Options:** `./rebuild.sh [--dev|--quick|--full]`
 
 ## Production Deployment
@@ -87,6 +98,19 @@ and updater explicitly:
 ```bash
 sudo ./install.sh --activate
 ```
+
+For the `tgbotapi.lxd` deployment, add the local API and media gateway origins
+to `/etc/cacmin-bot/cacmin-bot.env`:
+
+```dotenv
+TELEGRAM_API_ROOT=http://tgbotapi.lxd:8081
+TELEGRAM_FILE_ROOT=http://tgbotapi.lxd:8082
+```
+
+The API root handles Bot API calls. The file root handles media whose `getFile`
+response contains an absolute server path; CACMin sends that path only as an
+encoded gateway query parameter. Do not expose the media gateway outside the
+trusted service network.
 
 Preparation warns if an existing environment file has insecure metadata but
 never prints its contents. Activation refuses a missing environment file and

@@ -21,6 +21,7 @@ import { config } from "../config";
 import { Database, type SqliteDatabase } from "../sqlite";
 import { computeActiveTime } from "../utils/activeTime";
 import { logger } from "../utils/logger";
+import { getTelegramFileUrl, TelegramFileError } from "../utils/telegram";
 import { ChatInteractionIndexerService } from "./chatInteractionIndexerService";
 
 /** Shape of a row in the explorer's messages table */
@@ -717,7 +718,8 @@ export class ChatIndexerService {
 			if (!item) break;
 
 			try {
-				const fileLink = await ChatIndexerService.bot.telegram.getFileLink(
+				const fileLink = await getTelegramFileUrl(
+					ChatIndexerService.bot.telegram,
 					item.fileId,
 				);
 				const response = await fetch(fileLink.href);
@@ -754,18 +756,20 @@ export class ChatIndexerService {
 					1,
 				);
 
-				logger.debug("Downloaded photo", {
+				logger.debug("Downloaded Telegram photo", {
 					messageId: item.messageId,
-					path: relativePath,
 				});
 			} catch (error) {
 				ChatIndexerService.incrementLiveIndexCounter(
 					"live_media_download_error_total",
 					1,
 				);
-				logger.error("Failed to download photo", {
+				logger.error("Failed to download Telegram photo", {
 					messageId: item.messageId,
-					error,
+					errorCode:
+						error instanceof TelegramFileError
+							? error.code
+							: "media_download_failed",
 				});
 			}
 		}
