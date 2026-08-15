@@ -72,13 +72,12 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const target = resolveTargetUser(ctx, args);
 
 		if (!target) {
-			const msg = await ctx.reply(
+			await ctx.reply(
 				fmt`⚠️ ${bold("Usage:")}
-• Reply to a user: ${code("/jail <minutes>")}
-• Direct: ${code("/jail <@username|userId> <minutes>")}
+• Reply to a user: ${code('/jail <minutes> ["reason"]')}
+• Direct: ${code('/jail <@username|userId> <minutes> ["reason"]')}
 • Alias: ${code("/silence")}`,
 			);
-			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
 
@@ -86,8 +85,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const remainingArgs = getRemainingArgs(args, target);
 
 		if (remainingArgs.length < 1) {
-			const msg = await ctx.reply("⚠️ Please specify duration in minutes.");
-			autoDeleteInGroup(ctx, msg.message_id);
+			await ctx.reply("⚠️ Please specify duration in minutes.");
 			return;
 		}
 
@@ -95,21 +93,24 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const minutes = parseInt(minutesStr, 10);
 		const userId = target.userId;
 
+		// Extract quoted reason after the duration (e.g. /jail @alice 30 "spamming")
+		const reasonMatch = remainingArgs
+			.slice(1)
+			.join(" ")
+			.match(/"([^"]*)"/);
+		const reason = reasonMatch ? reasonMatch[1].trim() : undefined;
+
 		// Check if target user is immune to moderation
 		if (isImmuneToModeration(userId)) {
 			const userDisplay = formatUserIdDisplay(userId);
-			const msg = await ctx.reply(
+			await ctx.reply(
 				fmt`⛔ Cannot jail ${userDisplay} - admins and owners are immune to moderation actions.`,
 			);
-			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
 
 		if (Number.isNaN(minutes) || minutes < 1) {
-			const msg = await ctx.reply(
-				"⚠️ Invalid duration. Minutes must be a positive number.",
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
+			await ctx.reply("⚠️ Invalid duration. Minutes must be a positive number.");
 			return;
 		}
 
@@ -127,12 +128,11 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 					botMember.can_delete_messages;
 
 				if (!canDelete) {
-					const msg = await ctx.reply(
+					await ctx.reply(
 						fmt`⚠️ Warning: Bot is not an administrator or lacks "Delete Messages" permission.
 User will be marked as jailed, but messages cannot be deleted automatically.
 Please make the bot an admin with delete permissions.`,
 					);
-					autoDeleteInGroup(ctx, msg.message_id);
 				}
 			} catch (error) {
 				logger.error("Failed to check bot permissions", {
@@ -153,7 +153,16 @@ Please make the bot an admin with delete permissions.`,
 		]);
 
 		// Log the jail event
-		JailService.logJailEvent(userId, "jailed", adminId, minutes, bailAmount);
+		JailService.logJailEvent(
+			userId,
+			"jailed",
+			adminId,
+			minutes,
+			bailAmount,
+			undefined,
+			undefined,
+			reason ? { reason } : undefined,
+		);
 
 		// Actually restrict the user in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
@@ -193,24 +202,28 @@ Please make the bot an admin with delete permissions.`,
 				});
 				const errorMsg =
 					error instanceof Error ? error.message : "Unknown error";
-				const msg = await ctx.reply(
+				await ctx.reply(
 					fmt`⚠️ Database updated but failed to restrict user in Telegram.
 Error: ${errorMsg}
 The bot may lack admin permissions or the user may have left.`,
 				);
-				autoDeleteInGroup(ctx, msg.message_id);
 			}
 		}
 
 		const userDisplay = formatUserIdDisplay(userId);
-		const msg = await ctx.reply(
+		await ctx.reply(
 			fmt`🔒 User ${userDisplay} has been jailed for ${minutes} minutes.
 Bail amount: ${bailAmount.toFixed(2)} JUNO
-
+${reason ? `Reason: ${reason}\n` : ""}
 They can pay bail using /paybail or check their status with /mystatus`,
 		);
-		autoDeleteInGroup(ctx, msg.message_id);
-		logger.info("User jailed", { adminId, userId, minutes, bailAmount });
+		logger.info("User jailed", {
+			adminId,
+			userId,
+			minutes,
+			bailAmount,
+			reason,
+		});
 	};
 
 	bot.command("jail", adminOrHigher, jailHandler);

@@ -232,7 +232,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/verifybailfor <@username|userId> <txhash>` - Verify an on-chain bail payment made for another user
 
 ### Moderation and Restrictions
-- `/jail <@username|userId> <minutes>` or `/silence <@username|userId> <minutes>` - Jail a user for a fixed duration (`admin+`)
+- `/jail <@username|userId> <minutes> ["reason"]` or `/silence <@username|userId> <minutes> ["reason"]` - Jail a user for a fixed duration, optionally recording a quoted reason (`admin+`)
 - `/unjail <@username|userId>` or `/unsilence <@username|userId>` - Release a jailed user (`admin+`)
 - `/warn <@username|userId> <reason>` - Issue a warning and violation (`admin+`)
 - `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]` - Add a user restriction (`admin+`)
