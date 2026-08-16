@@ -180,6 +180,10 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/treasurybalance` or `/gamebalance` - View the game treasury balance (`admin+`)
 - `/contributetreasury <amount>` - Contribute to the treasury from your balance (`admin+`)
 - `/withdrawtreasury <amount>` - Withdraw treasury funds back to your balance (`owner`)
+- `/treasurytransfer <@user|userId> <amount>` - Send treasury funds to a user's balance (`owner`)
+- `/treasurywithdraw <amount> <address>` - Withdraw treasury funds to an external Juno address (`owner`)
+- `/treasuryreserve <amount> <to|from>` - Move funds between the treasury and reserve accounts (`owner`)
+- `/treasurydetails` - View full treasury details: address, balances, and recent transactions (`owner`)
 
 ### Shared Accounts
 - `/createshared <name> <display_name> [description]` - Create a shared account; quote multi-word display names or descriptions (`elevated+`)
