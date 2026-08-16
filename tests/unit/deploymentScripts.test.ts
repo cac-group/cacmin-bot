@@ -378,10 +378,12 @@ describe("CACMin deployment contracts", () => {
 			"utf8",
 		);
 		expect(workflow).toContain("RELEASE_TAG: $" + "{{ github.ref_name }}");
-		expect(workflow).toContain("envs: RELEASE_TAG");
+		expect(workflow).toContain("runs-on: [self-hosted, X64]");
+		expect(workflow).toContain("lxc exec tgbot");
 		expect(workflow).toContain(
 			'cacmin-bot-auto-update --release "$RELEASE_TAG" --force',
 		);
+		expect(workflow).not.toContain("envs: RELEASE_TAG");
 	});
 
 	it.each([

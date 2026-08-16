@@ -88,7 +88,6 @@ jobs:
     steps:
       - name: Deploy to production via LXD
         run: |
-          lxc exec tgbot -- /usr/local/libexec/cacmin-bot-auto-update \
-            --release "$RELEASE_TAG" --force
+          lxc exec tgbot -- /usr/local/libexec/cacmin-bot-auto-update --release "$RELEASE_TAG" --force
         env:
           RELEASE_TAG: ${{ github.ref_name }}
