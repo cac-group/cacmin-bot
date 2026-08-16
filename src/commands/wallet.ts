@@ -18,6 +18,10 @@ import {
 	handleSend,
 	handleTransactions,
 	handleTreasuryBalance,
+	handleTreasuryDetails,
+	handleTreasuryReserve,
+	handleTreasuryTransfer,
+	handleTreasuryWithdraw,
 	handleWalletStats,
 	handleWithdraw,
 	handleWithdrawTreasury,
@@ -44,6 +48,10 @@ ${bold("Treasury Commands:")}
 /treasurybalance (or /gamebalance) - Check the game treasury balance (admin+)
 /contributetreasury <amount> - Contribute to the treasury from your balance (admin+)
 /withdrawtreasury <amount> - Withdraw treasury funds back to your balance (owner only)
+/treasurytransfer <@user|userId> <amount> - Send treasury funds to a user's balance (owner only)
+/treasurywithdraw <amount> <address> - Withdraw treasury funds to an external Juno address (owner only)
+/treasuryreserve <amount> <to|from> - Move funds between the treasury and reserve accounts (owner only)
+/treasurydetails - View full treasury info: address, balances, and recent transactions (owner only)
 
 ${bold("Owner Diagnostics (owner only):")}
 /walletstats - View system wallet statistics (owner only)
@@ -213,4 +221,40 @@ export function registerWalletCommands(bot: Telegraf<Context>): void {
 	 * Syntax: /withdrawtreasury <amount>
 	 */
 	bot.command("withdrawtreasury", ownerOnly, handleWithdrawTreasury);
+
+	/**
+	 * Command: /treasurytransfer
+	 * Send treasury funds to a specific user's internal balance.
+	 *
+	 * Permission: Owner only
+	 * Syntax: /treasurytransfer <@user|userId> <amount>
+	 */
+	bot.command("treasurytransfer", ownerOnly, handleTreasuryTransfer);
+
+	/**
+	 * Command: /treasurywithdraw
+	 * Withdraw treasury funds directly to an external Juno address.
+	 *
+	 * Permission: Owner only
+	 * Syntax: /treasurywithdraw <amount> <juno1...address>
+	 */
+	bot.command("treasurywithdraw", ownerOnly, handleTreasuryWithdraw);
+
+	/**
+	 * Command: /treasuryreserve
+	 * Move funds between the game treasury and the system reserve account.
+	 *
+	 * Permission: Owner only
+	 * Syntax: /treasuryreserve <amount> <to|from>
+	 */
+	bot.command("treasuryreserve", ownerOnly, handleTreasuryReserve);
+
+	/**
+	 * Command: /treasurydetails
+	 * View full game treasury details including address, balances, and recent transactions.
+	 *
+	 * Permission: Owner only
+	 * Syntax: /treasurydetails
+	 */
+	bot.command("treasurydetails", ownerOnly, handleTreasuryDetails);
 }
