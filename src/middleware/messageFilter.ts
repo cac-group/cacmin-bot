@@ -6,15 +6,12 @@
  */
 
 import type { Context, MiddlewareFn } from "telegraf";
-import { execute, get } from "../database";
+import { get } from "../database";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
 import { logger } from "../utils/logger";
-
-/** Max message count to track per user per chat (used for spam detection heuristics) */
-const MESSAGE_COUNT_CAP = 10;
 
 /**
  * Middleware that filters messages based on user restrictions and mute status.
@@ -61,16 +58,6 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		"migrate_from_chat_id" in msg;
 
 	if ("new_chat_members" in msg) {
-		// Reset message counts for rejoining users so kicked spammers don't keep accumulated credit
-		const chatId = ctx.chat?.id;
-		if (chatId && msg.new_chat_members) {
-			for (const member of msg.new_chat_members) {
-				execute(
-					"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
-					[member.id, chatId],
-				);
-			}
-		}
 		return next();
 	}
 
@@ -160,18 +147,8 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 			}
 		}
 
-		// Increment message count for spam detection (capped at MESSAGE_COUNT_CAP)
+		// Index message for chat explorer (fire-and-forget)
 		if (isGroupChat) {
-			execute(
-				`INSERT INTO user_message_counts (user_id, chat_id, message_count)
-				VALUES (?, ?, 1)
-				ON CONFLICT(user_id, chat_id) DO UPDATE
-				SET message_count = MIN(message_count + 1, ?)
-				WHERE message_count < ?`,
-				[ctx.from.id, ctx.chat.id, MESSAGE_COUNT_CAP, MESSAGE_COUNT_CAP],
-			);
-
-			// Index message for chat explorer (fire-and-forget)
 			ChatIndexerService.indexMessage(ctx).catch(() => {});
 		}
 
