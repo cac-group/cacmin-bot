@@ -16,6 +16,7 @@ const dbHelpers = {
 		db.prepare(sql).run(params),
 	get: <T>(sql: string, params: unknown[] = []): T | undefined =>
 		db.prepare(sql).get(params) as T | undefined,
+	withTransaction: <T>(fn: () => T): T => db.transaction(fn)(),
 };
 
 function initIntegrationDb(): void {
@@ -133,6 +134,7 @@ vi.mock("../../src/database", () => ({
 	query: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.query(sql, params)),
 	execute: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.execute(sql, params)),
 	get: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.get(sql, params)),
+	withTransaction: vi.fn(<T>(fn: () => T) => dbHelpers.withTransaction(fn)),
 	initDb: vi.fn(),
 }));
 

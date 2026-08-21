@@ -20,6 +20,15 @@ const db = new Database(config.databasePath);
 // Enable foreign keys for referential integrity
 db.exec("PRAGMA foreign_keys = ON");
 
+// WAL journaling improves concurrency and read/write throughput
+db.exec("PRAGMA journal_mode = WAL");
+
+// Wait up to 30s for a locked table instead of failing immediately with SQLITE_BUSY
+db.exec("PRAGMA busy_timeout = 30000");
+
+// Balance durability and performance for the ledger workload
+db.exec("PRAGMA synchronous = NORMAL");
+
 /**
  * Executes a SELECT query and returns all matching rows as typed objects.
  *
@@ -98,6 +107,32 @@ export const get = <T>(sql: string, params: unknown[] = []): T | undefined => {
 		logger.error(`Database get failed: ${sql}`, error);
 		throw error;
 	}
+};
+
+/**
+ * Runs a function inside a synchronous SQLite transaction (BEGIN/COMMIT).
+ * The callback must be synchronous - it cannot contain awaits, otherwise the
+ * transaction boundary is not held across the asynchronous gap and atomicity
+ * is lost. Use this to make ledger read-modify-write sequences atomic.
+ *
+ * @template T - The return type of the callback
+ * @param fn - Synchronous function whose DB work runs inside the transaction
+ * @returns The callback's return value
+ *
+ * @example
+ * ```typescript
+ * const newBalance = withTransaction(() => {
+ *   const current = getBalance(userId);
+ *   updateBalance(userId, current - amount);
+ *   return current - amount;
+ * });
+ * ```
+ */
+export const withTransaction = <T>(fn: () => T): T => {
+	const run = db.transaction(fn);
+	// BEGIN IMMEDIATE acquires the write lock up front so concurrent
+	// ledger operations serialize instead of reading stale balances.
+	return run.immediate ? run.immediate() : run();
 };
 
 /**
@@ -494,16 +529,6 @@ export const initDb = (): void => {
       FOREIGN KEY (opponent_id) REFERENCES users(id),
       FOREIGN KEY (winner_id) REFERENCES users(id),
       FOREIGN KEY (loser_id) REFERENCES users(id)
-    );
-  `);
-
-	// Lightweight message counter for spam detection (capped at 10)
-	db.exec(`
-    CREATE TABLE IF NOT EXISTS user_message_counts (
-      user_id INTEGER NOT NULL,
-      chat_id INTEGER NOT NULL,
-      message_count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (user_id, chat_id)
     );
   `);
 
