@@ -159,11 +159,6 @@ export async function banIfBlockedIdentity(
 	try {
 		await telegram.banChatMember(chatId, user.id);
 
-		execute(
-			"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
-			[user.id, chatId],
-		);
-
 		StructuredLogger.logSecurityEvent("User auto-banned via identity block", {
 			userId: user.id,
 			username: user.username,

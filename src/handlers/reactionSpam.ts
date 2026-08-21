@@ -9,14 +9,14 @@
 
 import type { Context, Telegraf } from "telegraf";
 import type { Chat, User } from "telegraf/types";
-import { execute, get } from "../database";
+import { get } from "../database";
 import { scheduleDelete } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
 import { getDbSpamReacts } from "./spamReacts";
 
-/** Minimum messages a user must have sent before being exempt from spam checks */
-const MIN_MESSAGES_FOR_EXEMPTION = 10;
+/** Minimum account age (seconds) before a user is exempt from spam checks (14 days) */
+const MIN_ACCOUNT_AGE_SECONDS = 14 * 24 * 60 * 60;
 
 /** Max reactions allowed within the time window before triggering a velocity kick */
 const VELOCITY_REACTION_LIMIT = 3;
@@ -26,6 +26,9 @@ const VELOCITY_WINDOW_MS = 60_000;
 
 /** How often to prune stale entries from the velocity tracker (5 minutes) */
 const VELOCITY_CLEANUP_INTERVAL_MS = 300_000;
+
+/** How often to prune the established-user exemption cache (20 minutes) */
+const ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS = 1_200_000;
 
 /**
  * Patterns that indicate a spam bot bio.
@@ -72,6 +75,15 @@ const reactionTracker = new Map<string, number[]>();
  * Key format: `${userId}:${chatId}`
  */
 const kickedUsers = new Set<string>();
+
+/**
+ * In-memory cache of established users exempt from spam checks.
+ * Key: userId -> last time the exemption was confirmed (ms epoch).
+ * Established status only grows with time, so entries are pruned on a
+ * 20-minute interval to keep the set bounded; re-checking a pruned user
+ * is one cheap indexed lookup.
+ */
+const establishedUsers = new Map<number, number>();
 
 /** Auto-delete delay for kick/ban announcement messages (120 seconds) */
 const KICK_MESSAGE_AUTO_DELETE_MS = 120_000;
@@ -291,6 +303,41 @@ async function kickUser(
 }
 
 /**
+ * Returns true if the user's account is old enough to be considered established.
+ * Results are cached in-memory so the DB is only hit once per user per cache window.
+ *
+ * @param userId - The user ID to check
+ * @returns True if the account age exceeds MIN_ACCOUNT_AGE_SECONDS
+ */
+function isEstablishedUser(userId: number): boolean {
+	if (establishedUsers.has(userId)) return true;
+
+	const row = get<{ created_at: number }>(
+		"SELECT created_at FROM users WHERE id = ?",
+		[userId],
+	);
+	const ageSeconds = row?.created_at ? Date.now() / 1000 - row.created_at : 0;
+
+	if (ageSeconds >= MIN_ACCOUNT_AGE_SECONDS) {
+		establishedUsers.set(userId, Date.now());
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Removes stale entries from the established-user exemption cache.
+ * Re-checking a pruned user is one indexed lookup, so pruning keeps the set
+ * bounded without leaving established users re-evaluated too aggressively.
+ */
+function pruneEstablishedCache(): void {
+	const cutoff = Date.now() - ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS;
+	for (const [userId, lastChecked] of establishedUsers) {
+		if (lastChecked < cutoff) establishedUsers.delete(userId);
+	}
+}
+
+/**
  * Removes stale entries from the velocity tracker.
  */
 function pruneReactionTracker(): void {
@@ -344,6 +391,9 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 	// Periodic cleanup of stale velocity tracking data
 	setInterval(pruneReactionTracker, VELOCITY_CLEANUP_INTERVAL_MS);
 
+	// Periodic cleanup of the established-user exemption cache
+	setInterval(pruneEstablishedCache, ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS);
+
 	bot.on("message_reaction", async (ctx) => {
 		const reaction = ctx.messageReaction;
 		if (!reaction) return;
@@ -394,17 +444,10 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		// Check message history
-		const countRow = get<{ message_count: number }>(
-			"SELECT message_count FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
-			[user.id, chat.id],
-		);
-		const messageCount = countRow?.message_count ?? 0;
-
-		if (messageCount >= MIN_MESSAGES_FOR_EXEMPTION) {
+		// Skip checks for established users (account age exceeds exemption threshold)
+		if (isEstablishedUser(user.id)) {
 			logger.debug("Skipping spam check for established user", {
 				userId: user.id,
-				messageCount,
 			});
 			return;
 		}
@@ -412,7 +455,6 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 		logger.info("[REACTION_CHECK]", {
 			userId: user.id,
 			username: user.username,
-			messageCount,
 		});
 
 		// --- Detection method 1: Profile pattern matching (bio + personal chat) ---
@@ -490,7 +532,6 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 					userId: user.id,
 					username: user.username,
 					chatId: chat.id,
-					messageCount,
 					operation: "reaction_spam_velocity",
 				},
 			);
@@ -499,12 +540,6 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				await kickUser(ctx.telegram, chat.id, user.id);
 				kickedUsers.add(userChatKey);
 				reactionTracker.delete(userChatKey);
-
-				// Reset message count so they don't accumulate credit across kicks
-				execute(
-					"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
-					[user.id, chat.id],
-				);
 
 				const kickMessage = getKickMessage(user);
 				await sendKickAnnouncement(
@@ -520,7 +555,6 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 					firstName: user.first_name,
 					chatId: chat.id,
 					reason: "reaction_velocity",
-					messageCount,
 				});
 			} catch (kickError) {
 				logger.error("Failed to kick spam bot (velocity)", {

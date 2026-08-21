@@ -114,7 +114,7 @@ describe("identity block bans", () => {
 		invalidateIdentityBlockCache();
 	});
 
-	it("bans matching non-admin users and clears their message count", async () => {
+	it("bans matching non-admin users", async () => {
 		const telegram = {
 			banChatMember: vi.fn().mockResolvedValue(true),
 		};
@@ -132,10 +132,6 @@ describe("identity block bans", () => {
 
 		expect(banned).toBe(true);
 		expect(telegram.banChatMember).toHaveBeenCalledWith(-100123, 456);
-		expect(executeMock).toHaveBeenCalledWith(
-			"DELETE FROM user_message_counts WHERE user_id = ? AND chat_id = ?",
-			[456, -100123],
-		);
 	});
 
 	it("does not ban configured owners", async () => {
