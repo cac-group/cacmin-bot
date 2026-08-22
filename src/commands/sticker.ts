@@ -7,6 +7,7 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
+import { adminOrHigher } from "../middleware";
 import { logger } from "../utils/logger";
 
 /**
@@ -113,10 +114,10 @@ Use this file_id to send this sticker programmatically.`,
 	 * The file_unique_id is stable across senders and bots for the same GIF content,
 	 * making it a reliable fingerprint for targeting a specific animation in restrictions.
 	 *
-	 * Permission: Any user
+	 * Permission: Admin or higher
 	 * Usage: Reply to a GIF with /getgifid
 	 */
-	bot.command("getgifid", async (ctx) => {
+	bot.command("getgifid", adminOrHigher, async (ctx) => {
 		try {
 			const replyMessage = ctx.message.reply_to_message;
 
