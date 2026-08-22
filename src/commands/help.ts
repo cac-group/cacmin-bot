@@ -334,7 +334,9 @@ export const helpContent: Record<string, FmtString> = {
 		"/sendsticker [name]\n",
 		"  Send a named sticker from the CACGifs pack.\n\n",
 		"/getsticker\n",
-		"  Reply to any sticker to get its file_id for bot configuration.",
+		"  Reply to any sticker to get its file_id for bot configuration.\n\n",
+		"/getgifid\n",
+		"  Reply to a GIF to get its file_unique_id for a no_specific_gif restriction.",
 	]),
 
 	giveaways: fmt([
@@ -483,7 +485,8 @@ export const helpContent: Record<string, FmtString> = {
 		"\n",
 		"/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]\n",
 		"  Add a content restriction. Supports @username, userId, or reply-to-message.\n",
-		"  Types: no_stickers, no_urls, no_media, no_photos, no_videos, no_documents, no_gifs, no_voice, no_forwarding, regex_block, random_delete.\n",
+		"  Types: no_stickers, no_urls, no_media, no_photos, no_videos, no_documents, no_gifs, no_specific_gif, no_voice, no_forwarding, regex_block, random_delete.\n",
+		"  no_specific_gif uses [action] as the GIF's file_unique_id (reply to the GIF with /getgifid to get it).\n",
 		"  random_delete uses [action] as a chance like 10%, 25, 0.1, or default.\n",
 		"  Severity: delete (default), mute, jail. Auto-escalation after threshold (default 5) violations.\n\n",
 		"/regexhelp\n",

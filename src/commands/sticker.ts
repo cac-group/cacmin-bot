@@ -107,6 +107,50 @@ Use this file_id to send this sticker programmatically.`,
 	});
 
 	/**
+	 * Command: /getgifid
+	 * Get file_unique_id from a GIF animation (send this command as a reply to a GIF)
+	 *
+	 * The file_unique_id is stable across senders and bots for the same GIF content,
+	 * making it a reliable fingerprint for targeting a specific animation in restrictions.
+	 *
+	 * Permission: Any user
+	 * Usage: Reply to a GIF with /getgifid
+	 */
+	bot.command("getgifid", async (ctx) => {
+		try {
+			const replyMessage = ctx.message.reply_to_message;
+
+			if (!replyMessage || !("animation" in replyMessage)) {
+				return ctx.reply(
+					"Please reply to a GIF animation with /getgifid to get its file\\_unique\\_id",
+				);
+			}
+
+			const animation = replyMessage.animation;
+			const fileUniqueId = animation.file_unique_id;
+
+			await ctx.reply(
+				fmt`${bold("GIF Information")}
+
+Unique ID: ${code(fileUniqueId)}
+
+Use this with a ${code("no_specific_gif")} restriction to block this exact animation:
+${code(`/addaction no_specific_gif ${fileUniqueId}`)} (global)`,
+			);
+
+			logger.info("GIF file_unique_id retrieved", {
+				fileUniqueId,
+				fileName: animation.file_name,
+				mimeType: animation.mime_type,
+				userId: ctx.from?.id,
+			});
+		} catch (error) {
+			logger.error("Error getting GIF info", { error });
+			await ctx.reply("Failed to get GIF information.");
+		}
+	});
+
+	/**
 	 * Listen for stickers sent to the bot to log their file_ids
 	 */
 	bot.on("sticker", async (ctx) => {

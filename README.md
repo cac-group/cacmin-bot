@@ -213,6 +213,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/cac` - Send the first sticker from the CACGifs pack
 - `/sendsticker [name]` - Send a named sticker from the pack
 - `/getsticker` - Reply to a sticker to get its `file_id`
+- `/getgifid` - Reply to a GIF to get its `file_unique_id` for a `no_specific_gif` restriction
 
 ### Giveaways and Games
 - `/giveaway <amount>` - Create an open giveaway funded from your balance

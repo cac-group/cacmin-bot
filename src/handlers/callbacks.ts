@@ -435,7 +435,8 @@ async function handleAutoJailCallback(
 	// Some restriction types need extra input before they can be applied.
 	if (
 		restrictionType === "regex_block" ||
-		restrictionType === "random_delete"
+		restrictionType === "random_delete" ||
+		restrictionType === "no_specific_gif"
 	) {
 		session.data.threshold = threshold;
 		session.data.jailDuration = jailDuration;
@@ -468,6 +469,19 @@ ${code("10%")} - ten percent chance
 ${code("25")} - twenty-five percent chance
 ${code("0.1")} - ten percent chance
 ${code("default")} - use the standard ${code("10%")} chance`,
+		);
+		return;
+	}
+
+	if (restrictionType === "no_specific_gif") {
+		await ctx.editMessageText(
+			fmt`${bold("Specific GIF Block")}
+
+Reply with the GIF file\\_unique\\_id to block.
+
+Get it by replying to the target GIF with ${code("/getgifid")}.
+
+If you want to block ALL GIFs instead, use ${code("no_gifs")}.`,
 		);
 		return;
 	}
@@ -1362,6 +1376,28 @@ async function processAddRestrictionSession(
 				targetId,
 				restrictionType,
 				normalizedChance,
+				severity,
+				autoJailSetting,
+				threshold,
+				jailDuration,
+				jailFine,
+			);
+			return true;
+		}
+
+		if (restrictionType === "no_specific_gif") {
+			const fileUniqueId = text.trim();
+			if (!fileUniqueId) {
+				await ctx.reply("Please provide a non-empty GIF file\\_unique\\_id.");
+				return true;
+			}
+
+			await applyRestriction(
+				ctx,
+				userId,
+				targetId,
+				restrictionType,
+				fileUniqueId,
 				severity,
 				autoJailSetting,
 				threshold,

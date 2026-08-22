@@ -60,7 +60,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	 *
 	 * **Restriction Types:**
 	 * no_stickers, no_urls, no_media, no_photos, no_videos, no_documents,
-	 * no_gifs, no_voice, no_forwarding, regex_block, random_delete
+	 * no_gifs, no_specific_gif, no_voice, no_forwarding, regex_block, random_delete
 	 *
 	 * **Severity Levels:**
 	 * - delete: Just delete the violating message (default)
@@ -103,6 +103,7 @@ ${bold("Restriction Types:")}
 • ${bold("No Videos")} - Block only video messages
 • ${bold("No Documents")} - Block only document files
 • ${bold("No GIFs")} - Block GIF animations
+• ${bold("No Specific GIF")} - Block one exact GIF animation (reply to it with ${code("/getgifid")} to get its file\\_unique\\_id)
 • ${bold("No Voice")} - Block voice messages and video notes
 • ${bold("No Forwarding")} - Block forwarded messages
 • ${bold("Regex Block")} - Block messages matching text patterns

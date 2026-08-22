@@ -62,9 +62,10 @@ export interface UserRestriction {
 		| "no_documents"
 		| "muted"
 		| "no_gifs"
+		| "no_specific_gif"
 		| "no_voice"
 		| "no_forwarding";
-	restrictedAction?: string; // Sticker pack ID, domain, or regex pattern
+	restrictedAction?: string; // Sticker pack ID, domain, regex pattern, or gif file_unique_id
 	metadata?: string; // JSON-encoded
 	restrictedUntil?: number; // Unix timestamp, undefined = permanent
 	severity: "delete" | "mute" | "jail"; // Penalty severity
@@ -86,6 +87,7 @@ export type RestrictionType =
 	| "no_videos"
 	| "no_documents"
 	| "no_gifs"
+	| "no_specific_gif"
 	| "no_voice"
 	| "no_forwarding"
 	| "muted";
