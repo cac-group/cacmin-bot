@@ -6,7 +6,6 @@
  * @module bot
  */
 
-import { Telegraf } from "telegraf";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerDuelCommands } from "./commands/duel";
 import { registerFineConfigCommands } from "./commands/fineConfig";
@@ -54,6 +53,7 @@ import { UnifiedWalletService } from "./services/unifiedWalletService";
 import { setBotInstance } from "./utils/adminNotify";
 import { waitForBotLaunch } from "./utils/botLifecycle";
 import { logger } from "./utils/logger";
+import { createTelegramBot } from "./utils/telegram";
 
 /**
  * Main initialization and startup function for the CAC Admin Bot.
@@ -138,7 +138,7 @@ async function main() {
 		await initializeRollSystem();
 
 		// Create bot instance
-		const bot = new Telegraf(config.botToken);
+		const bot = createTelegramBot();
 
 		// Cache bot info at startup for efficient reply detection
 		const botInfo = await bot.telegram.getMe();

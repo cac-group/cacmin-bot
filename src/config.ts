@@ -22,6 +22,12 @@ interface Config {
 	/** Telegram bot API token from BotFather */
 	botToken: string;
 
+	/** HTTP(S) origin for Telegram Bot API requests */
+	telegramApiRoot: string;
+
+	/** Optional HTTP(S) origin for serving local Telegram files */
+	telegramFileRoot?: string;
+
 	/** Juno blockchain RPC endpoint URL */
 	junoRpcUrl: string;
 
@@ -125,6 +131,51 @@ function parseNonNegativeInteger(
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+interface TelegramEndpointConfig {
+	telegramApiRoot: string;
+	telegramFileRoot?: string;
+}
+
+function normalizeHttpOrigin(value: string, variableName: string): string {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`${variableName} must be an HTTP(S) origin`);
+	}
+
+	const hasOnlyTrailingSlashes = /^\/+$/.test(url.pathname);
+	if (
+		(url.protocol !== "http:" && url.protocol !== "https:") ||
+		url.username ||
+		url.password ||
+		!hasOnlyTrailingSlashes ||
+		url.search ||
+		url.hash
+	) {
+		throw new Error(`${variableName} must be an HTTP(S) origin`);
+	}
+
+	return url.origin;
+}
+
+export function parseTelegramEndpointConfig(
+	environment: NodeJS.ProcessEnv,
+): TelegramEndpointConfig {
+	const apiRoot =
+		environment.TELEGRAM_API_ROOT?.trim() || "https://api.telegram.org";
+	const fileRoot = environment.TELEGRAM_FILE_ROOT?.trim();
+
+	return {
+		telegramApiRoot: normalizeHttpOrigin(apiRoot, "TELEGRAM_API_ROOT"),
+		telegramFileRoot: fileRoot
+			? normalizeHttpOrigin(fileRoot, "TELEGRAM_FILE_ROOT")
+			: undefined,
+	};
+}
+
+const telegramEndpoints = parseTelegramEndpointConfig(process.env);
+
 /**
  * Main configuration object populated from environment variables.
  * Falls back to default values where appropriate.
@@ -134,6 +185,7 @@ function parseNonNegativeInteger(
  */
 export const config: Config = {
 	botToken: process.env.BOT_TOKEN || "",
+	...telegramEndpoints,
 	junoRpcUrl: process.env.JUNO_RPC_URL || "https://rpc.juno.basementnodes.ca",
 	junoApiUrl: process.env.JUNO_API_URL || "https://api.juno.basementnodes.ca",
 	adminChatId: parseInt(process.env.ADMIN_CHAT_ID || "0", 10),
