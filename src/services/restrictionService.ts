@@ -61,6 +61,11 @@ const restrictionChecks: Record<string, RestrictionCheckFn> = {
 	no_videos: (msg) => !!msg.video,
 	no_documents: (msg) => !!msg.document,
 	no_gifs: (msg) => !!msg.animation,
+	no_specific_gif: (msg, action) => {
+		if (!msg.animation) return false;
+		if (!action) return true; // Block all GIFs
+		return msg.animation.file_unique_id === action;
+	},
 	no_voice: (msg) => !!(msg.voice || msg.video_note),
 	no_forwarding: (msg) => !!(msg.forward_from || msg.forward_from_chat),
 	random_delete: (msg, action) => {

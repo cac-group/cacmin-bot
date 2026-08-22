@@ -32,7 +32,10 @@ export const restrictionTypeKeyboard: InlineKeyboardMarkup = {
 			{ text: "No Forwarding", callback_data: "restrict_no_forwarding" },
 			{ text: "Regex Block", callback_data: "restrict_regex_block" },
 		],
-		[{ text: "Random Delete", callback_data: "restrict_random_delete" }],
+		[
+			{ text: "Random Delete", callback_data: "restrict_random_delete" },
+			{ text: "No Specific GIF", callback_data: "restrict_no_specific_gif" },
+		],
 		[{ text: "Cancel", callback_data: "cancel" }],
 	],
 };
