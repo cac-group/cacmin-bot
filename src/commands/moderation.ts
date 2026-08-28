@@ -54,7 +54,7 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 	 * User: /jail @alice 30
 	 * Bot: User @alice has been jailed for 30 minutes.
 	 *      Bail amount: 69.420 JUNO
-	 *      They can pay bail using /paybail or check their status with /mystatus
+	 *      Anyone can pay their bail using /paybail <@username|userId>, or reply /paybail to the jailed user's message. They can check their status with /mystatus
 	 *
 	 * @example
 	 * User: (reply to message) /jail 60
@@ -201,7 +201,7 @@ The bot may lack admin permissions or the user may have left.`,
 			fmt`🔒 User ${userDisplay} has been jailed for ${minutes} minutes.
 		Bail amount: ${bailAmount.toFixed(3)} JUNO
 ${reason ? `Reason: ${reason}\n` : ""}
-They can pay bail using /paybail or check their status with /mystatus`,
+Anyone can pay their bail using /paybail <@username|userId>, or reply /paybail to the jailed user's message. They can check their status with /mystatus`,
 		);
 		logger.info("User jailed", {
 			adminId,
