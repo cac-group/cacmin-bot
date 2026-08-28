@@ -257,6 +257,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/paybail [<@username|userId>]` - Pay your own bail, or another user's bail; in a group, you can reply `/paybail` to their message
 - `/verifybail <txhash>` - Verify your own bail payment
 - `/verifybail <@username|userId> <txhash>` - Verify another user's bail payment, or reply `/verifybail <txhash>` to their group message
+- `/bailhelp` - Get complete bail payment and verification details in a DM
 
 ### Moderation and Restrictions
 - `/jail <@username|userId> <minutes> ["reason"]` or `/silence <@username|userId> <minutes> ["reason"]` - Jail a user for a fixed duration, optionally recording a quoted reason (`admin+`)

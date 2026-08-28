@@ -140,6 +140,7 @@ describe("help documentation coverage", () => {
 		expect(helpContent.payments.text).toContain(
 			"/verifybail <@username|userId> <txhash>",
 		);
+		expect(helpContent.payments.text).toContain("/bailhelp");
 		expect(helpContent.shared.text).toContain(
 			"/sharedsend <name> <@username|user_id> <amount> [description]",
 		);
