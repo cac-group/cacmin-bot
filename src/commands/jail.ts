@@ -690,6 +690,14 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 
 		const bailAmount = JailService.getCurrentBailAmount(userId);
 
+		if (JailService.isBailPaymentUsed(txHash)) {
+			const msg = await ctx.reply(
+				"This transaction hash has already been used for a bail payment.",
+			);
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
+
 		// Verify payment on blockchain
 		const verified = await JunoService.verifyPayment(txHash, bailAmount);
 
@@ -701,22 +709,21 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			return;
 		}
 
-		// Release from jail
-		execute(
-			"UPDATE users SET muted_until = NULL, updated_at = ? WHERE id = ?",
-			[now, userId],
-		);
-
-		// Log the bail payment event
-		JailService.logJailEvent(
+		const payment = JailService.recordBailPayment(
 			userId,
-			"bail_paid",
-			undefined,
-			undefined,
+			payerId,
 			bailAmount,
-			userId,
 			txHash,
 		);
+		if (!payment.success) {
+			const msg = await ctx.reply(
+				payment.duplicate
+					? "This transaction hash has already been used for a bail payment."
+					: "The bail payment could not be recorded. Please try again.",
+			);
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
 
 		// Restore permissions in group chat
 		if (config.groupChatId) {
