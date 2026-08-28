@@ -284,7 +284,7 @@ Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 Custom fine: ${junoAmount.toFixed(3)} JUNO
 Reason: ${reason}
 
-They can pay bail using /paybail or check their status with /mystatus`,
+Anyone can pay their bail using /paybail <@username|userId>, or reply /paybail to the jailed user's message. They can check their status with /mystatus`,
 		);
 
 		StructuredLogger.logSecurityEvent("Custom jail applied", {
