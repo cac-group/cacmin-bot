@@ -79,6 +79,32 @@ function formatTimeRemaining(seconds: number): string {
  * ```
  */
 export function registerJailCommands(bot: Telegraf<Context>): void {
+	bot.command("bailhelp", async (ctx) => {
+		if (ctx.chat?.type !== "private") {
+			await ctx.reply(
+				"Please DM me and send /bailhelp for complete bail payment details: https://t.me/banbabybot",
+			);
+			return;
+		}
+
+		await ctx.reply(
+			`BAIL PAYMENT DETAILS
+
+Send the exact required bail amount in JUNO to:
+${JunoService.getPaymentAddress()}
+
+Send /paybail in this DM to see the exact amount for your current jail, or use /paybail <@username|userId> to get the amount for another jailed user.
+
+No bail ID or memo is required. After the transaction confirms, submit its transaction hash:
+- Your own bail: /verifybail <txhash>
+- Someone else's bail: /verifybail <@username|userId> <txhash>
+
+In a group, you can also reply /paybail to the jailed user's message before sending payment.
+
+The bot verifies a successful JUNO transfer to the treasury for the required amount, then records the transaction hash and payer and releases the jailed user.`,
+		);
+	});
+
 	/**
 	 * Command: /jailstats
 	 * View comprehensive jail system statistics or specific user jail info.

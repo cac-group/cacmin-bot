@@ -379,6 +379,8 @@ export const helpContent: Record<string, FmtString> = {
 		"  Verify an on-chain fine payment for a specific violation.\n\n",
 		"/verifybail <txhash>\n",
 		"  Verify your bail payment. Use /verifybail <@username|userId> <txhash>, or reply /verifybail <txhash> to the user's group message, to verify bail paid for someone else.",
+		"\n\n/bailhelp\n",
+		"  DM the bot for complete bail payment, transaction verification, and tracking details.",
 	]),
 
 	games_roll: fmt([
