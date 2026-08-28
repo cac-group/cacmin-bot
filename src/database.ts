@@ -82,6 +82,16 @@ export const execute = (sql: string, params: unknown[] = []): Changes => {
 };
 
 /**
+ * Executes synchronous database work in one SQLite transaction.
+ *
+ * @param fn - Database operations to execute atomically
+ * @returns The callback result
+ */
+export function transaction<T>(fn: () => T): T {
+	return db.transaction(fn)();
+}
+
+/**
  * Executes a SELECT query and returns a single row as a typed object.
  * Returns undefined if no rows match.
  *

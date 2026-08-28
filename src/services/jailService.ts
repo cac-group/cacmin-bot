@@ -14,7 +14,7 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
-import { execute, query } from "../database";
+import { execute, query, transaction } from "../database";
 import type { JailEvent, User } from "../types";
 import { StructuredLogger } from "../utils/logger";
 import { PriceService } from "./priceService";
@@ -201,6 +201,61 @@ export class JailService {
 			[userId],
 		)[0];
 		return event ? event.bailAmount : DEFAULT_JAIL_BAIL_AMOUNT;
+	}
+
+	/**
+	 * Records a bail payment and releases the jailed user atomically.
+	 *
+	 * @param userId - Jailed user being released
+	 * @param paidByUserId - Telegram user who submitted the payment
+	 * @param bailAmount - Verified payment amount in JUNO
+	 * @param paymentTx - Verified blockchain transaction hash
+	 * @returns Whether the payment was recorded, and whether a duplicate caused failure
+	 */
+	static recordBailPayment(
+		userId: number,
+		paidByUserId: number,
+		bailAmount: number,
+		paymentTx: string,
+	): { success: boolean; duplicate: boolean } {
+		try {
+			transaction(() => {
+				JailService.logJailEvent(
+					userId,
+					"bail_paid",
+					undefined,
+					undefined,
+					bailAmount,
+					paidByUserId,
+					paymentTx,
+				);
+				execute(
+					"UPDATE users SET muted_until = NULL, updated_at = ? WHERE id = ?",
+					[Math.floor(Date.now() / 1000), userId],
+				);
+			});
+			return { success: true, duplicate: false };
+		} catch (error) {
+			const duplicate =
+				error instanceof Error &&
+				error.message.includes("UNIQUE constraint failed");
+			return { success: false, duplicate };
+		}
+	}
+
+	/**
+	 * Check whether a transaction hash has already paid bail for any user.
+	 *
+	 * @param paymentTx - Blockchain transaction hash
+	 * @returns True when the hash is already recorded as a bail payment
+	 */
+	static isBailPaymentUsed(paymentTx: string): boolean {
+		return Boolean(
+			query<{ id: number }>(
+				"SELECT id FROM jail_events WHERE event_type = 'bail_paid' AND payment_tx = ? LIMIT 1",
+				[paymentTx],
+			)[0],
+		);
 	}
 
 	/**

@@ -15,6 +15,10 @@ import {
 	isMigrationApplied as check002,
 	runMigration as run002,
 } from "./002_drop_user_message_counts";
+import {
+	isMigrationApplied as check003,
+	runMigration as run003,
+} from "./003_unique_bail_payment_transactions";
 
 interface Migration {
 	id: string;
@@ -35,6 +39,12 @@ const migrations: Migration[] = [
 		name: "drop_user_message_counts",
 		check: check002,
 		run: run002,
+	},
+	{
+		id: "003",
+		name: "unique_bail_payment_transactions",
+		check: check003,
+		run: run003,
 	},
 ];
 
