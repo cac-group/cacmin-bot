@@ -10,7 +10,7 @@ import type { Context, Telegraf } from "telegraf";
 import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { JailService } from "./jailService";
+import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
 import { getDuelEscrowId } from "./unifiedWalletService";
@@ -941,24 +941,14 @@ export class DuelService {
 
 		if (consequence === "jail") {
 			// Use the jail system
-			execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-				untilTimestamp,
-				Math.floor(Date.now() / 1000),
+			JailService.jailUser({
 				userId,
-			]);
-
-			JailService.logJailEvent(
-				userId,
-				"jailed",
-				undefined,
 				durationMinutes,
-				0,
-				undefined,
-				undefined,
-				{
+				bailAmount: DEFAULT_JAIL_BAIL_AMOUNT,
+				metadata: {
 					reason: "duel_loss",
 				},
-			);
+			});
 
 			// Actually restrict in Telegram
 			try {

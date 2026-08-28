@@ -4,29 +4,15 @@ import { bold, code, fmt } from "telegraf/format";
 import type { Message } from "telegraf/typings/core/types/typegram";
 import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
+import { dedupeResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
 import {
 	getRandomDeleteProbability,
 	RANDOM_DELETE_MIN_UNIQUE_WORDS,
 } from "../utils/randomDelete";
 import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
-import { JailService } from "./jailService";
+import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { createViolation } from "./violationService";
-
-/** Auto-delete delay for violation responses in milliseconds */
-const VIOLATION_RESPONSE_AUTO_DELETE_MS = 120_000;
-
-/**
- * Tracks pending violation response messages for auto-deletion.
- * Key format: `${chatId}:${userId}:${restriction}`
- */
-interface TrackedResponse {
-	messageId: number;
-	chatId: number;
-	timeoutId: ReturnType<typeof setTimeout>;
-}
-
-const pendingViolationResponses = new Map<string, TrackedResponse>();
 
 /**
  * Restriction check handler type
@@ -194,9 +180,9 @@ export class RestrictionService {
 	}
 
 	/**
-	 * Send a violation response with auto-delete tracking.
-	 * Deletes any previous similar response to the same user before sending.
-	 * Auto-deletes after 120 seconds or when replaced by a new similar response.
+	 * Send a violation response with recent duplicate tracking.
+	 * Deletes a previous similar response to the same user when it is less than
+	 * two minutes old.
 	 *
 	 * @param ctx - Telegraf context
 	 * @param restriction - The restriction type for tracking key
@@ -211,44 +197,19 @@ export class RestrictionService {
 	): Promise<void> {
 		if (!ctx.from || !ctx.chat) return;
 
-		const trackingKey = `${ctx.chat.id}:${ctx.from.id}:${restriction}`;
-
-		// Delete previous response if exists
-		const existing = pendingViolationResponses.get(trackingKey);
-		if (existing) {
-			clearTimeout(existing.timeoutId);
-			try {
-				await ctx.telegram.deleteMessage(existing.chatId, existing.messageId);
-			} catch {
-				// Message may already be deleted, ignore
-			}
-			pendingViolationResponses.delete(trackingKey);
-		}
-
 		// Send new response, replying to violating message if provided
 		const sentMessage = replyToMessageId
 			? await ctx.reply(message, {
 					reply_parameters: { message_id: replyToMessageId },
 				})
 			: await ctx.reply(message);
-		const chatId = ctx.chat.id;
-
-		// Set up auto-delete timer
-		const timeoutId = setTimeout(async () => {
-			try {
-				await ctx.telegram.deleteMessage(chatId, sentMessage.message_id);
-			} catch {
-				// Message may already be deleted, ignore
-			}
-			pendingViolationResponses.delete(trackingKey);
-		}, VIOLATION_RESPONSE_AUTO_DELETE_MS);
-
-		// Track the response
-		pendingViolationResponses.set(trackingKey, {
-			messageId: sentMessage.message_id,
-			chatId: ctx.chat.id,
-			timeoutId,
-		});
+		await dedupeResponse(
+			ctx.telegram,
+			ctx.chat.id,
+			ctx.from.id,
+			`restriction:${restriction}`,
+			sentMessage.message_id,
+		);
 	}
 
 	/**
@@ -387,32 +348,17 @@ ${warningText}Use /violations to check your status.${fineText}`,
 
 		const userId = ctx.from.id;
 		const duration = restriction.autoJailDuration || 2880; // Default 2 days
-		const fine = restriction.autoJailFine || 10.0; // Default 10 JUNO
 
 		try {
-			const mutedUntil = Math.floor(Date.now() / 1000) + duration * 60;
-
-			// Update database
-			execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-				mutedUntil,
-				Math.floor(Date.now() / 1000),
+			const { mutedUntil, bailAmount } = JailService.jailUser({
 				userId,
-			]);
-
-			// Log the jail event
-			JailService.logJailEvent(
-				userId,
-				"jailed",
-				undefined,
-				duration,
-				fine,
-				undefined,
-				undefined,
-				{
+				durationMinutes: duration,
+				bailAmount: DEFAULT_JAIL_BAIL_AMOUNT,
+				metadata: {
 					reason: "auto_spam_detection",
 					restriction: restriction.restriction,
 				},
-			);
+			});
 
 			// Actually restrict the user in Telegram (if in a group)
 			if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
@@ -446,7 +392,7 @@ ${warningText}Use /violations to check your status.${fineText}`,
 
 You have been automatically jailed for ${duration} minutes (${days} days) due to repeated violations of: ${restriction.restriction}
 
-${bold("Fine Amount:")} ${fine} JUNO
+				${bold("Bail Amount:")} ${bailAmount.toFixed(3)} JUNO
 
 ${bold("To get unjailed immediately:")}
 1. Check your balance: ${code("/balance")}
@@ -462,7 +408,7 @@ View your violations: ${code("/violations")}`,
 				userId,
 				restriction: restriction.restriction,
 				duration,
-				fine,
+				bailAmount,
 			});
 		} catch (error) {
 			logger.error("Failed to apply auto-jail", { userId, error });
@@ -480,32 +426,17 @@ View your violations: ${code("/violations")}`,
 
 		const userId = ctx.from.id;
 		const duration = 60; // 1 hour for immediate jail
-		const fine = 5.0; // 5 JUNO fine
 
 		try {
-			const mutedUntil = Math.floor(Date.now() / 1000) + duration * 60;
-
-			// Update database
-			execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-				mutedUntil,
-				Math.floor(Date.now() / 1000),
+			const { mutedUntil, bailAmount } = JailService.jailUser({
 				userId,
-			]);
-
-			// Log the jail event
-			JailService.logJailEvent(
-				userId,
-				"jailed",
-				undefined,
-				duration,
-				fine,
-				undefined,
-				undefined,
-				{
+				durationMinutes: duration,
+				bailAmount: DEFAULT_JAIL_BAIL_AMOUNT,
+				metadata: {
 					reason: "restriction_violation",
 					restriction: restriction.restriction,
 				},
-			);
+			});
 
 			// Actually restrict the user in Telegram (if in a group)
 			if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
@@ -537,7 +468,7 @@ View your violations: ${code("/violations")}`,
 
 You have been jailed for ${duration} minutes for violating: ${restriction.restriction}
 
-${bold(`Fine: ${fine} JUNO`)}
+			${bold(`Bail Amount: ${bailAmount.toFixed(3)} JUNO`)}
 
 ${bold("To get unjailed immediately:")}
 1. Check your balance: ${code("/balance")}

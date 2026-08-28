@@ -124,7 +124,7 @@ ${code("/addrestriction @bob no_stickers - - delete 3")} (auto-jail after 3 viol
 ${code('/addrestriction 123456 regex_block "spam" - jail')} (instant jail)
 ${code("/addrestriction 123456 random_delete 25%")} (25% delete chance on longer text)
 
-Auto-escalation: After threshold violations (default 5) within 60 minutes, user gets auto-jailed for jailDuration (default 2880 min = 2 days) with jailFine (default 10 JUNO).
+ Auto-escalation: After threshold violations (default 5) within 60 minutes, user gets auto-jailed for jailDuration (default 2880 min = 2 days) with the canonical 69.420 JUNO bail amount.
 
 For regex pattern examples: ${code("/regexhelp")}
 

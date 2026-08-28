@@ -19,6 +19,19 @@ import type { JailEvent, User } from "../types";
 import { StructuredLogger } from "../utils/logger";
 import { PriceService } from "./priceService";
 
+/** Canonical bail amount for jails without an explicitly configured amount. */
+export const DEFAULT_JAIL_BAIL_AMOUNT = 69.42;
+
+export interface JailUserRequest {
+	userId: number;
+	durationMinutes: number;
+	adminId?: number;
+	bailAmount?: number;
+	paidByUserId?: number;
+	paymentTx?: string;
+	metadata?: Record<string, any>;
+}
+
 /**
  * Service class for managing user jails (temporary mutes).
  * Integrates with Telegram Bot API to enforce and lift restrictions.
@@ -37,13 +50,46 @@ export class JailService {
 	}
 
 	/**
+	 * Creates a jail using the canonical jail definition.
+	 *
+	 * @param request - Jail target, duration, optional explicit bail, and audit data
+	 * @returns The expiry timestamp and recorded bail amount
+	 */
+	static jailUser(request: JailUserRequest): {
+		mutedUntil: number;
+		bailAmount: number;
+	} {
+		const now = Math.floor(Date.now() / 1000);
+		const mutedUntil = now + request.durationMinutes * 60;
+		const bailAmount = request.bailAmount ?? DEFAULT_JAIL_BAIL_AMOUNT;
+
+		execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
+			mutedUntil,
+			now,
+			request.userId,
+		]);
+		JailService.logJailEvent(
+			request.userId,
+			"jailed",
+			request.adminId,
+			request.durationMinutes,
+			bailAmount,
+			request.paidByUserId,
+			request.paymentTx,
+			request.metadata,
+		);
+
+		return { mutedUntil, bailAmount };
+	}
+
+	/**
 	 * Logs a jail-related event to the database for audit trail.
 	 *
 	 * @param userId - Telegram user ID being jailed/unjailed
 	 * @param eventType - Type of event (jailed, unjailed, auto_unjailed, bail_paid)
 	 * @param adminId - Optional admin user ID who performed the action
 	 * @param durationMinutes - Optional duration of jail in minutes
-	 * @param bailAmount - Bail amount in JUNO (default 0)
+	 * @param bailAmount - Bail amount in JUNO (default canonical amount for jailing)
 	 * @param paidByUserId - Optional user ID who paid bail
 	 * @param paymentTx - Optional blockchain transaction hash
 	 * @param metadata - Optional additional metadata
@@ -59,7 +105,7 @@ export class JailService {
 		eventType: "jailed" | "unjailed" | "auto_unjailed" | "bail_paid",
 		adminId?: number,
 		durationMinutes?: number,
-		bailAmount: number = 0,
+		bailAmount: number = eventType === "jailed" ? DEFAULT_JAIL_BAIL_AMOUNT : 0,
 		paidByUserId?: number,
 		paymentTx?: string,
 		metadata?: Record<string, any>,
@@ -138,6 +184,23 @@ export class JailService {
 			LIMIT ?`,
 			[userId, limit],
 		);
+	}
+
+	/**
+	 * Gets the bail amount recorded for a user's current jail.
+	 *
+	 * @param userId - Telegram user ID
+	 * @returns The recorded bail amount, or the canonical default
+	 */
+	static getCurrentBailAmount(userId: number): number {
+		const event = query<{ bailAmount: number }>(
+			`SELECT bail_amount AS bailAmount
+			 FROM jail_events
+			 WHERE user_id = ? AND event_type = 'jailed'
+			 ORDER BY timestamp DESC, id DESC LIMIT 1`,
+			[userId],
+		)[0];
+		return event ? event.bailAmount : DEFAULT_JAIL_BAIL_AMOUNT;
 	}
 
 	/**

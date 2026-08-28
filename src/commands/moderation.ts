@@ -10,7 +10,7 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { execute, get } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware/index";
-import { JailService } from "../services/jailService";
+import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
@@ -53,13 +53,13 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 	 * @example
 	 * User: /jail @alice 30
 	 * Bot: User @alice has been jailed for 30 minutes.
-	 *      Bail amount: 3.50 JUNO
+	 *      Bail amount: 69.420 JUNO
 	 *      They can pay bail using /paybail or check their status with /mystatus
 	 *
 	 * @example
 	 * User: (reply to message) /jail 60
 	 * Bot: User 123456 has been jailed for 60 minutes.
-	 *      Bail amount: 7.00 JUNO
+	 *      Bail amount: 69.420 JUNO
 	 */
 	const jailHandler = async (ctx: Context) => {
 		const adminId = ctx.from?.id;
@@ -142,27 +142,13 @@ Please make the bot an admin with delete permissions.`,
 			}
 		}
 
-		const mutedUntil = Math.floor(Date.now() / 1000) + minutes * 60;
-		const bailAmount = await JailService.calculateBailAmount(minutes);
-
-		// Update database
-		execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-			mutedUntil,
-			Math.floor(Date.now() / 1000),
+		const { mutedUntil, bailAmount } = JailService.jailUser({
 			userId,
-		]);
-
-		// Log the jail event
-		JailService.logJailEvent(
-			userId,
-			"jailed",
+			durationMinutes: minutes,
 			adminId,
-			minutes,
-			bailAmount,
-			undefined,
-			undefined,
-			reason ? { reason } : undefined,
-		);
+			bailAmount: DEFAULT_JAIL_BAIL_AMOUNT,
+			metadata: reason ? { reason } : undefined,
+		});
 
 		// Actually restrict the user in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
@@ -213,7 +199,7 @@ The bot may lack admin permissions or the user may have left.`,
 		const userDisplay = formatUserIdDisplay(userId);
 		await ctx.reply(
 			fmt`🔒 User ${userDisplay} has been jailed for ${minutes} minutes.
-Bail amount: ${bailAmount.toFixed(2)} JUNO
+		Bail amount: ${bailAmount.toFixed(3)} JUNO
 ${reason ? `Reason: ${reason}\n` : ""}
 They can pay bail using /paybail or check their status with /mystatus`,
 		);

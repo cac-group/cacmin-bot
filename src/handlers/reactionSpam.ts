@@ -10,7 +10,7 @@
 import type { Context, Telegraf } from "telegraf";
 import type { Chat, User } from "telegraf/types";
 import { get } from "../database";
-import { scheduleDelete } from "../utils/autoDelete";
+import { dedupeResponse } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
 import { getDbSpamReacts } from "./spamReacts";
@@ -84,20 +84,6 @@ const kickedUsers = new Set<string>();
  * is one cheap indexed lookup.
  */
 const establishedUsers = new Map<number, number>();
-
-/** Auto-delete delay for kick/ban announcement messages (120 seconds) */
-const KICK_MESSAGE_AUTO_DELETE_MS = 120_000;
-
-/**
- * Tracks the last kick/ban announcement message per chat.
- * When a new kick/ban occurs in the same chat, the previous announcement is deleted
- * to avoid cluttering the chat during spam waves.
- * Key: chatId -> { messageId, cancelAutoDelete }
- */
-const lastKickMessages = new Map<
-	number,
-	{ messageId: number; cancelAutoDelete: () => void }
->();
 
 /** Profile info returned from Telegram's getChat for spam evaluation */
 interface UserProfile {
@@ -189,8 +175,7 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Sends a kick/ban announcement message, deleting any previous one in the same chat.
- * Also schedules auto-deletion after KICK_MESSAGE_AUTO_DELETE_MS.
+ * Sends a kick/ban announcement message, replacing a recent response for the user.
  *
  * @param telegram - Telegram API instance
  * @param chatId - Chat to send the message in
@@ -200,21 +185,10 @@ function escapeHtml(text: string): string {
 async function sendKickAnnouncement(
 	telegram: Telegraf<Context>["telegram"],
 	chatId: number,
+	userId: number,
 	message: string,
 	replyToMessageId: number,
 ): Promise<void> {
-	// Delete previous kick/ban announcement in this chat
-	const previous = lastKickMessages.get(chatId);
-	if (previous) {
-		previous.cancelAutoDelete();
-		try {
-			await telegram.deleteMessage(chatId, previous.messageId);
-		} catch {
-			// Previous message may already be deleted
-		}
-		lastKickMessages.delete(chatId);
-	}
-
 	// Send new announcement
 	const sent = await telegram.sendMessage(chatId, message, {
 		parse_mode: "HTML",
@@ -222,17 +196,13 @@ async function sendKickAnnouncement(
 		link_preview_options: { is_disabled: true },
 	});
 
-	// Schedule auto-delete and track for replacement
-	const cancelAutoDelete = scheduleDelete(
+	await dedupeResponse(
 		telegram,
 		chatId,
+		userId,
+		"spam-kick-announcement",
 		sent.message_id,
-		KICK_MESSAGE_AUTO_DELETE_MS,
 	);
-	lastKickMessages.set(chatId, {
-		messageId: sent.message_id,
-		cancelAutoDelete,
-	});
 }
 
 /**
@@ -492,6 +462,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 					await sendKickAnnouncement(
 						ctx.telegram,
 						chat.id,
+						user.id,
 						kickMessage,
 						reaction.message_id,
 					);
@@ -545,6 +516,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				await sendKickAnnouncement(
 					ctx.telegram,
 					chat.id,
+					user.id,
 					kickMessage,
 					reaction.message_id,
 				);

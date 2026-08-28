@@ -9,7 +9,7 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import type { CallbackQuery } from "telegraf/types";
 import { execute, get } from "../database";
-import { JailService } from "../services/jailService";
+import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { LedgerService } from "../services/ledgerService";
 import {
 	getGiveawayEscrowId,
@@ -1494,28 +1494,16 @@ async function processJailSession(
 		return true;
 	}
 
-	const mutedUntil = Math.floor(Date.now() / 1000) + jailMinutes * 60;
-	const bailAmount = await JailService.calculateBailAmount(jailMinutes);
-
-	// Update database
-	execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-		mutedUntil,
-		Math.floor(Date.now() / 1000),
-		targetId,
-	]);
-
-	// Log the jail event
-	JailService.logJailEvent(
-		targetId,
-		"jailed",
+	const { bailAmount } = JailService.jailUser({
+		userId: targetId,
+		durationMinutes: jailMinutes,
 		adminId,
-		jailMinutes,
-		bailAmount,
-	);
+		bailAmount: DEFAULT_JAIL_BAIL_AMOUNT,
+	});
 
 	const userDisplay = formatUserIdDisplay(targetId);
 	await ctx.reply(
-		fmt`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(2)} JUNO`,
+		fmt`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(3)} JUNO`,
 	);
 
 	StructuredLogger.logSecurityEvent("User jailed via interactive flow", {

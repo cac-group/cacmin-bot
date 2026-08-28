@@ -8,7 +8,6 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
-import { execute } from "../database";
 import { ownerOnly } from "../middleware/index";
 import { JailService } from "../services/jailService";
 import { PriceService } from "../services/priceService";
@@ -186,7 +185,7 @@ Prices from CoinGecko API`,
 	 * @example
 	 * User: /customjail @alice 120 5.0 Repeated spamming despite warnings
 	 * Bot: User @alice has been jailed for 120 minutes.
-	 *      Custom fine: 5.00 JUNO
+	 *      Custom fine: 5.000 JUNO
 	 *      Reason: Repeated spamming despite warnings
 	 */
 	bot.command("customjail", ownerOnly, async (ctx) => {
@@ -236,26 +235,13 @@ This jails the user for the specified time with a custom fine amount.`,
 			);
 		}
 
-		const mutedUntil = Math.floor(Date.now() / 1000) + minutes * 60;
-
-		// Update database
-		execute("UPDATE users SET muted_until = ?, updated_at = ? WHERE id = ?", [
-			mutedUntil,
-			Math.floor(Date.now() / 1000),
+		const { mutedUntil } = JailService.jailUser({
 			userId,
-		]);
-
-		// Log the jail event with custom metadata
-		JailService.logJailEvent(
-			userId,
-			"jailed",
-			ownerId,
-			minutes,
-			junoAmount,
-			undefined,
-			undefined,
-			{ reason, customFine: true },
-		);
+			durationMinutes: minutes,
+			adminId: ownerId,
+			bailAmount: junoAmount,
+			metadata: { reason, customFine: true },
+		});
 
 		// Actually restrict the user in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
@@ -295,7 +281,7 @@ Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 		const userDisplay = formatUserIdDisplay(userId);
 		await ctx.reply(
 			fmt`User ${userDisplay} has been jailed for ${minutes} minutes.
-Custom fine: ${junoAmount.toFixed(2)} JUNO
+Custom fine: ${junoAmount.toFixed(3)} JUNO
 Reason: ${reason}
 
 They can pay bail using /paybail or check their status with /mystatus`,
