@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
 
     steps:
     - name: Checkout repository
@@ -34,7 +34,7 @@ jobs:
         GROUP_CHAT_ID: '-100123456789'
 
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
 
     steps:
     - name: Checkout repository
@@ -52,7 +52,7 @@ jobs:
       run: bun run tsc --noEmit
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
 
     steps:
     - name: Checkout repository
@@ -70,7 +70,7 @@ jobs:
       run: bun run lint
 
   test-coverage:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: build-and-test
 
     steps:
