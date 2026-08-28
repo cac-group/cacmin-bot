@@ -39,10 +39,10 @@ interface RollState {
 // In-memory cache of current state (loaded from DB at startup)
 let rollState: RollState | null = null;
 
-// Track last roll messages per user for cleanup (chatId -> userId -> {userMsgId, botMsgId})
+// Track the latest roll response per user for recent duplicate suppression.
 interface RollMessagePair {
-	userMsgId: number;
 	botMsgId: number;
+	sentAt: number;
 }
 const lastRollMessages = new Map<number, Map<number, RollMessagePair>>();
 
@@ -519,22 +519,16 @@ Use ${code("/deposit")} to add funds.`,
 				]);
 			}
 
-			// Delete previous roll messages (user command + bot response) for this user
+			// Replace only the previous recent bot response for this user.
 			const chatId = ctx.chat?.id;
-			const userMsgId = ctx.message?.message_id;
 			if (chatId) {
 				const chatMessages = lastRollMessages.get(chatId);
 				const prevPair = chatMessages?.get(userId);
-				if (prevPair) {
+				if (prevPair && Date.now() - prevPair.sentAt <= 2 * 60 * 1000) {
 					// Delete both messages in parallel, ignore errors (may be deleted/too old)
-					await Promise.all([
-						ctx.telegram
-							.deleteMessage(chatId, prevPair.userMsgId)
-							.catch(() => {}),
-						ctx.telegram
-							.deleteMessage(chatId, prevPair.botMsgId)
-							.catch(() => {}),
-					]);
+					await ctx.telegram
+						.deleteMessage(chatId, prevPair.botMsgId)
+						.catch(() => {});
 				}
 			}
 
@@ -567,13 +561,13 @@ Verify: ${code(verificationHash)}`,
 			}
 
 			// Track both messages for future cleanup
-			if (chatId && sentMessage && userMsgId) {
+			if (chatId && sentMessage) {
 				if (!lastRollMessages.has(chatId)) {
 					lastRollMessages.set(chatId, new Map());
 				}
 				lastRollMessages.get(chatId)?.set(userId, {
-					userMsgId,
 					botMsgId: sentMessage.message_id,
+					sentAt: Date.now(),
 				});
 			}
 

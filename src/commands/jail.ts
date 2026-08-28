@@ -64,10 +64,8 @@ function formatTimeRemaining(seconds: number): string {
  * - /jailstats - View global jail statistics (elevated users only)
  * - /mystatus - Check your own jail status and fines
  * - /jails - List all active jails
- * - /paybail - Pay your own bail
- * - /paybailfor - Pay bail for another user
- * - /verifybail - Verify your bail payment
- * - /verifybailfor - Verify bail payment for another user
+ * - /paybail - Pay your own or another user's bail
+ * - /verifybail - Verify your own or another user's bail payment
  *
  * @param bot - Telegraf bot instance
  *
@@ -149,14 +147,12 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				// Current jail status
 				if (user.muted_until && user.muted_until > now) {
 					const timeRemaining = user.muted_until - now;
-					const bailAmount = await JailService.calculateBailAmount(
-						Math.ceil(timeRemaining / 60),
-					);
+					const bailAmount = JailService.getCurrentBailAmount(targetUserId);
 
 					parts.push(bold("Currently Jailed:"));
 					parts.push(" Yes\n");
 					parts.push(`Time Remaining: ${formatTimeRemaining(timeRemaining)}\n`);
-					parts.push(`Bail Amount: ${escapeNumber(bailAmount, 2)} JUNO\n`);
+					parts.push(`Bail Amount: ${escapeNumber(bailAmount, 3)} JUNO\n`);
 					parts.push(
 						`Jailed Until: ${new Date(user.muted_until * 1000).toLocaleString()}\n\n`,
 					);
@@ -181,7 +177,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 							parts.push(` (${event.durationMinutes}min)`);
 						}
 						if (event.bailAmount && event.bailAmount > 0) {
-							parts.push(` - ${escapeNumber(event.bailAmount, 2)} JUNO`);
+							parts.push(` - ${escapeNumber(event.bailAmount, 3)} JUNO`);
 						}
 						parts.push(`\n  ${eventDate}\n`);
 					}
@@ -279,11 +275,9 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 				const jail = activeJails[index];
 				const timeRemaining = formatTimeRemaining(jail.timeRemaining);
 				const userDisplay = formatUserIdDisplay(jail.id);
-				const bailAmount = await JailService.calculateBailAmount(
-					Math.ceil(jail.timeRemaining / 60),
-				);
+				const bailAmount = JailService.getCurrentBailAmount(jail.id);
 				parts.push(
-					`${index + 1}. ${userDisplay} - ${timeRemaining} (${escapeNumber(bailAmount, 2)} JUNO)\n`,
+					`${index + 1}. ${userDisplay} - ${timeRemaining} (${escapeNumber(bailAmount, 3)} JUNO)\n`,
 				);
 			}
 			parts.push("\n");
@@ -351,14 +345,12 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		// Check if jailed
 		if (user.muted_until && user.muted_until > now) {
 			const timeRemaining = user.muted_until - now;
-			const bailAmount = await JailService.calculateBailAmount(
-				Math.ceil(timeRemaining / 60),
-			);
+			const bailAmount = JailService.getCurrentBailAmount(userId);
 
 			parts.push(bold("Currently Jailed"));
 			parts.push("\n");
 			parts.push(`Time remaining: ${formatTimeRemaining(timeRemaining)}\n`);
-			parts.push(`Bail amount: ${bailAmount.toFixed(2)} JUNO\n\n`);
+			parts.push(`Bail amount: ${bailAmount.toFixed(3)} JUNO\n\n`);
 			parts.push("To pay bail: /paybail\n\n");
 		} else {
 			parts.push("Not currently jailed\n\n");
@@ -427,9 +419,9 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      1. User 123456
 	 *         Time: 30m 15s
 	 *         Bail: 3.50 JUNO
-	 *         Pay: /paybailfor 123456
+	 *         Pay: /paybail 123456
 	 *
-	 *      Anyone can pay bail for any user using /paybailfor <@username|userId>
+	 *      Anyone can pay bail for any user using /paybail <@username|userId>
 	 */
 	bot.command("jails", async (ctx) => {
 		const activeJails = JailService.getActiveJails();
@@ -444,20 +436,18 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		for (let index = 0; index < activeJails.length; index++) {
 			const jail = activeJails[index];
-			const bailAmount = await JailService.calculateBailAmount(
-				Math.ceil(jail.timeRemaining / 60),
-			);
+			const bailAmount = JailService.getCurrentBailAmount(jail.id);
 			const timeRemaining = formatTimeRemaining(jail.timeRemaining);
 			const userDisplay = formatUserIdDisplay(jail.id);
 
 			parts.push(`${index + 1}. ${userDisplay}\n`);
 			parts.push(`   Time: ${timeRemaining}\n`);
-			parts.push(`   Bail: ${escapeNumber(bailAmount, 2)} JUNO\n`);
-			parts.push(`   Pay: /paybailfor ${jail.id}\n\n`);
+			parts.push(`   Bail: ${escapeNumber(bailAmount, 3)} JUNO\n`);
+			parts.push(`   Pay: /paybail ${jail.id}\n\n`);
 		}
 
 		parts.push(
-			"Anyone can pay bail for any user using /paybailfor <@username|userId>",
+			"Anyone can pay bail for any user using /paybail <@username|userId>",
 		);
 
 		const msg = await ctx.reply(fmt(parts));
@@ -466,10 +456,10 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 	/**
 	 * Command: /paybail
-	 * Get payment instructions to pay your own bail.
+	 * Get payment instructions to pay your own or another user's bail.
 	 *
 	 * Permission: Any user
-	 * Syntax: /paybail
+	 * Syntax: /paybail [@username|userId]
 	 *
 	 * @example
 	 * User: /paybail
@@ -485,10 +475,29 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      /verifybail <txhash>
 	 */
 	bot.command("paybail", async (ctx) => {
-		const userId = ctx.from?.id;
-		if (!userId) return;
+		const payerId = ctx.from?.id;
+		if (!payerId) return;
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
+		const hasReply = Boolean(
+			ctx.message &&
+				"reply_to_message" in ctx.message &&
+				ctx.message.reply_to_message,
+		);
+		const target =
+			resolveTargetUser(ctx, args) ||
+			(hasReply ? resolveTargetUser(ctx, []) : null);
+		const targetUserId =
+			target?.userId || (args.length === 0 && !hasReply ? payerId : undefined);
 
-		const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
+		if (!targetUserId) {
+			const msg = await ctx.reply(
+				"Usage: /paybail [@username|userId], or reply /paybail to a jailed user's message.",
+			);
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
+
+		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {
 			const msg = await ctx.reply(fmt`User not found in database.`);
 			autoDeleteInGroup(ctx, msg.message_id);
@@ -506,34 +515,32 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		}
 
 		const timeRemaining = user.muted_until - now;
-		const bailAmount = await JailService.calculateBailAmount(
-			Math.ceil(timeRemaining / 60),
-		);
+		const bailAmount = JailService.getCurrentBailAmount(targetUserId);
 
 		const parts = [bold("Pay Your Bail"), "\n\n"];
 		parts.push(
 			`Current jail time remaining: ${formatTimeRemaining(timeRemaining)}\n`,
 		);
-		parts.push(`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n`);
-		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
+		parts.push(`Bail amount: ${escapeNumber(bailAmount, 3)} JUNO\n\n`);
+		parts.push(`Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:\n`);
 		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
 		parts.push("After payment, send:\n");
 		parts.push("/verifybail <txhash>\n\n");
-		parts.push("Payment will release you from jail immediately!");
+		parts.push("Payment will release this user from jail immediately!");
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
 	});
 
 	/**
-	 * Command: /paybailfor
+	 * Retired /paybailfor implementation kept only as an unregistered migration reference.
 	 * Get payment instructions to pay bail for another user.
 	 *
 	 * Permission: Any user
-	 * Syntax: /paybailfor <@username|userId>
+	 * Use /paybail [@username|userId] instead.
 	 *
 	 * @example
-	 * User: /paybailfor @alice
+	 * User: /paybail @alice
 	 * Bot: Pay Bail For @alice
 	 *
 	 *      Current jail time remaining: 1h 15m 0s
@@ -543,18 +550,18 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      `juno1...`
 	 *
 	 *      After payment, send:
-	 *      /verifybailfor 123456 <txhash>
+	 *      /verifybail 123456 <txhash>
 	 */
-	bot.command("paybailfor", async (ctx) => {
+	const _unusedPaybailForHandler = async (ctx: Context) => {
 		const payerId = ctx.from?.id;
 		if (!payerId) return;
 
-		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
 		const target = resolveTargetUser(ctx, args);
 
 		if (!target) {
 			const msg = await ctx.reply(
-				"Usage: /paybailfor <@username|userId> or reply to a user's message",
+				"Usage: /paybail <@username|userId> or reply to a user's message",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
@@ -580,9 +587,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		}
 
 		const timeRemaining = user.muted_until - now;
-		const bailAmount = await JailService.calculateBailAmount(
-			Math.ceil(timeRemaining / 60),
-		);
+		const bailAmount = JailService.getCurrentBailAmount(targetUserId);
 
 		const parts = [
 			bold(`Pay Bail For ${formatUserIdDisplay(targetUserId)}`),
@@ -591,16 +596,16 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 		parts.push(
 			`Current jail time remaining: ${formatTimeRemaining(timeRemaining)}\n`,
 		);
-		parts.push(`Bail amount: ${escapeNumber(bailAmount, 2)} JUNO\n\n`);
-		parts.push(`Send exactly ${escapeNumber(bailAmount, 2)} JUNO to:\n`);
+		parts.push(`Bail amount: ${escapeNumber(bailAmount, 3)} JUNO\n\n`);
+		parts.push(`Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:\n`);
 		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
 		parts.push("After payment, send:\n");
-		parts.push(`/verifybailfor ${targetUserId} <txhash>\n\n`);
+		parts.push(`/verifybail ${targetUserId} <txhash>\n\n`);
 		parts.push("Payment will release them from jail immediately!");
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
-	});
+	};
 
 	/**
 	 * Command: /verifybail
@@ -617,12 +622,25 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	 *      Transaction: `ABC123DEF456...`
 	 */
 	bot.command("verifybail", async (ctx) => {
-		const userId = ctx.from?.id;
-		if (!userId) return;
+		const payerId = ctx.from?.id;
+		if (!payerId) return;
 
-		const txHash = ctx.message?.text.split(" ")[1];
-		if (!txHash) {
-			const msg = await ctx.reply("Usage: /verifybail <txhash>");
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
+		const hasReply = Boolean(
+			ctx.message &&
+				"reply_to_message" in ctx.message &&
+				ctx.message.reply_to_message,
+		);
+		const target =
+			resolveTargetUser(ctx, args) ||
+			(hasReply ? resolveTargetUser(ctx, []) : null);
+		const userId =
+			target?.userId || (!hasReply && args.length <= 1 ? payerId : undefined);
+		const txHash = target ? getRemainingArgs(args, target)[0] : args[0];
+		if (!userId || !txHash) {
+			const msg = await ctx.reply(
+				"Usage: /verifybail <txhash>, /verifybail <@username|userId> <txhash>, or reply /verifybail <txhash> to a user's message.",
+			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
@@ -644,10 +662,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		const timeRemaining = user.muted_until - now;
-		const bailAmount = await JailService.calculateBailAmount(
-			Math.ceil(timeRemaining / 60),
-		);
+		const bailAmount = JailService.getCurrentBailAmount(userId);
 
 		// Verify payment on blockchain
 		const verified = await JunoService.verifyPayment(txHash, bailAmount);
@@ -728,30 +743,30 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	});
 
 	/**
-	 * Command: /verifybailfor
+	 * Retired /verifybailfor implementation kept only as an unregistered migration reference.
 	 * Verify bail payment made for another user.
 	 *
 	 * Permission: Any user
-	 * Syntax: /verifybailfor <@username|userId> <txhash>
+	 * Use /verifybail <@username|userId> <txhash> instead.
 	 *
 	 * @example
-	 * User: /verifybailfor 123456 ABC123DEF456...
+	 * User: /verifybail 123456 ABC123DEF456...
 	 * Bot: Bail Payment Verified!
 	 *
 	 *      User 123456 has been released from jail.
 	 *      Paid by: @bob
 	 *      Transaction: `ABC123DEF456...`
 	 */
-	bot.command("verifybailfor", async (ctx) => {
+	const _unusedVerifyBailForHandler = async (ctx: Context) => {
 		const payerId = ctx.from?.id;
 		if (!payerId) return;
 
-		const args = ctx.message?.text.split(" ").slice(1) || [];
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
 		const target = resolveTargetUser(ctx, args);
 
 		if (!target) {
 			const msg = await ctx.reply(
-				"Usage: /verifybailfor <@username|userId> <txhash> or reply to a user's message with /verifybailfor <txhash>",
+				"Usage: /verifybail <@username|userId> <txhash> or reply to a user's message with /verifybail <txhash>",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
@@ -762,7 +777,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 
 		if (!txHash) {
 			const msg = await ctx.reply(
-				"Usage: /verifybailfor <@username|userId> <txhash> or reply with /verifybailfor <txhash>",
+				"Usage: /verifybail <@username|userId> <txhash> or reply with /verifybail <txhash>",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
@@ -787,10 +802,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		const timeRemaining = user.muted_until - now;
-		const bailAmount = await JailService.calculateBailAmount(
-			Math.ceil(timeRemaining / 60),
-		);
+		const bailAmount = JailService.getCurrentBailAmount(targetUserId);
 
 		// Verify payment on blockchain
 		const verified = await JunoService.verifyPayment(txHash, bailAmount);
@@ -893,5 +905,5 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 			operation: "bail_verification_for_other",
 			payerId: payerId,
 		});
-	});
+	};
 }

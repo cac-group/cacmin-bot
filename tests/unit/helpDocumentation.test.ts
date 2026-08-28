@@ -136,11 +136,9 @@ describe("help documentation coverage", () => {
 		expect(helpContent.owner.text).toContain(
 			"/claimdeposit <txhash> <userId|@username>",
 		);
+		expect(helpContent.payments.text).toContain("/paybail <@username|userId>");
 		expect(helpContent.payments.text).toContain(
-			"/paybailfor <@username|userId>",
-		);
-		expect(helpContent.payments.text).toContain(
-			"/verifybailfor <@username|userId> <txhash>",
+			"/verifybail <@username|userId> <txhash>",
 		);
 		expect(helpContent.shared.text).toContain(
 			"/sharedsend <name> <@username|user_id> <amount> [description]",
@@ -171,11 +169,9 @@ describe("help documentation coverage", () => {
 			"`/claimdeposit <txhash> <userId|@username>`",
 		);
 		expect(readmeCommands).toContain("`/processdeposit <txhash>`");
+		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
 		expect(readmeCommands).toContain(
-			"`/paybailfor <@username|userId>`",
-		);
-		expect(readmeCommands).toContain(
-			"`/verifybailfor <@username|userId> <txhash>`",
+			"`/verifybail <@username|userId> <txhash>`",
 		);
 		expect(readmeCommands).toContain(
 			"`/customjail <@username|userId> <minutes> <juno_amount> <reason>`",
@@ -193,7 +189,9 @@ describe("wallethelp text", () => {
 		expect(walletHelp).toContain("/verifydeposit <txhash>");
 		expect(walletHelp).toContain("/transactions [@user|userId]");
 		expect(walletHelp).toContain("/fundtreasury deposit");
-		expect(walletHelp).toContain("/walletstats - View system wallet statistics (owner only)");
+		expect(walletHelp).toContain(
+			"/walletstats - View system wallet statistics (owner only)",
+		);
 		expect(walletHelp).toContain(
 			"/adjustbalance <amount> <debit|credit> [reason] - Correct ledger discrepancies (owner only)",
 		);

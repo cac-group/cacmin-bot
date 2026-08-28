@@ -254,10 +254,9 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/payallfines` - Pay all unpaid fines from your internal wallet in DM
 - `/payfine [violationId]` - List unpaid fines, or show payment instructions for one fine
 - `/verifypayment <violationId> <txhash>` - Verify an on-chain fine payment
-- `/paybail` - Pay your own bail from wallet balance
-- `/paybailfor <@username|userId>` - Pay another user's bail from your wallet
-- `/verifybail <txhash>` - Verify your on-chain bail payment
-- `/verifybailfor <@username|userId> <txhash>` - Verify an on-chain bail payment made for another user
+- `/paybail [<@username|userId>]` - Pay your own bail, or another user's bail; in a group, you can reply `/paybail` to their message
+- `/verifybail <txhash>` - Verify your own bail payment
+- `/verifybail <@username|userId> <txhash>` - Verify another user's bail payment, or reply `/verifybail <txhash>` to their group message
 
 ### Moderation and Restrictions
 - `/jail <@username|userId> <minutes> ["reason"]` or `/silence <@username|userId> <minutes> ["reason"]` - Jail a user for a fixed duration, optionally recording a quoted reason (`admin+`)
