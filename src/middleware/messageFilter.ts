@@ -8,6 +8,7 @@
 import type { Context, MiddlewareFn } from "telegraf";
 import { get } from "../database";
 import { ChatIndexerService } from "../services/chatIndexerService";
+import { RateLimitService } from "../services/rateLimitService";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
@@ -108,6 +109,59 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 				);
 			}
 			return; // Don't continue regardless of deletion success
+		}
+
+		const rateMute = get<{ muted_until: number }>(
+			"SELECT muted_until FROM user_rate_limit_mutes WHERE user_id = ?",
+			[ctx.from.id],
+		);
+		if (isGroupChat && rateMute && rateMute.muted_until > Date.now() / 1000) {
+			await ctx.deleteMessage().catch(() => {});
+			return;
+		}
+
+		if (isGroupChat) {
+			const admission = RateLimitService.admitMessage(
+				ctx.from.id,
+				msg.message_id,
+				RateLimitService.countMessageCharacters(msg),
+			);
+			if (!admission.allowed) {
+				await ctx.deleteMessage().catch(() => {});
+				const now = Math.floor(Date.now() / 1000);
+				const until = Math.max(
+					...admission.violated.map((window) =>
+						Math.max(
+							admission.status.resetsAt[window],
+							now + RateLimitService.windowSeconds(window),
+						),
+					),
+				);
+				const windows = (["15m", "1h", "24h"] as const)
+					.map(
+						(window) =>
+							`${window}: ${admission.status.usage[window]}/${admission.status.limits[window]}`,
+					)
+					.join(" | ");
+				try {
+					await RateLimitService.muteUser(
+						ctx.telegram as any,
+						ctx.chat?.id as number,
+						ctx.from.id,
+						until,
+						admission.violated[0],
+					);
+				} catch (error) {
+					logger.error("Failed to apply rate-limit mute", {
+						userId: ctx.from.id,
+						error,
+					});
+				}
+				await ctx.reply(
+					`Oops! You don't have enough tendie points to send that message right now, @${ctx.from.username || ctx.from.first_name}. Try again in ${Math.max(1, until - now)} seconds.\nRate limit status: ${windows}`,
+				);
+				return;
+			}
 		}
 
 		// Block all commands from target user except gambling/games

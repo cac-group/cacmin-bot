@@ -2,12 +2,13 @@
 
 import { config } from "../config";
 import { logger, StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 
 export class JunoService {
 	private static apiEndpoint =
 		config.junoApiUrl || "https://api.juno.basementnodes.ca";
 
-	/** Verify payment tx sent to treasury with expected amount (0.01 JUNO tolerance) */
+	/** Verify a successful exact-microJUNO transfer to the configured treasury. */
 	static async verifyPayment(
 		txHash: string,
 		expectedAmount: number,
@@ -64,22 +65,23 @@ export class JunoService {
 						);
 
 						if (junoAmount) {
-							const amount = parseFloat(junoAmount.amount) / 1_000_000;
+							const amountMicro = Number(junoAmount.amount);
+							const expectedMicro = AmountPrecision.toDbMicro(expectedAmount);
 
-							// Allow small difference for rounding (0.01 JUNO tolerance)
-							const difference = Math.abs(amount - expectedAmount);
-
-							if (difference < 0.01) {
+							if (
+								Number.isSafeInteger(amountMicro) &&
+								amountMicro === expectedMicro
+							) {
 								StructuredLogger.logTransaction("Payment verified", {
 									txHash,
-									amount: amount.toString(),
+									amount: AmountPrecision.fromDbMicro(amountMicro).toString(),
 									operation: "verify_success",
 								});
 								return true;
 							} else {
 								StructuredLogger.logTransaction("Amount mismatch", {
 									txHash,
-									amount: amount.toString(),
+									amount: AmountPrecision.fromDbMicro(amountMicro).toString(),
 									operation: "verify_mismatch",
 								});
 							}

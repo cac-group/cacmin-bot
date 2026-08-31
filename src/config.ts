@@ -120,6 +120,9 @@ interface Config {
 
 	/** Interval in ms between embedding batch runs (default: 5 min) */
 	embedBatchIntervalMs: number;
+
+	/** JUNO fees for clearing each message rate-limit window */
+	rateLimitResetFees: { "15m": number; "1h": number; "24h": number };
 }
 
 function parseNonNegativeInteger(
@@ -129,6 +132,15 @@ function parseNonNegativeInteger(
 	if (!value) return fallback;
 	const parsed = parseInt(value, 10);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parsePositiveNumber(
+	value: string | undefined,
+	fallback: number,
+): number {
+	if (!value) return fallback;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 interface TelegramEndpointConfig {
@@ -238,6 +250,11 @@ export const config: Config = {
 		process.env.EMBED_BATCH_INTERVAL_MS,
 		300000,
 	),
+	rateLimitResetFees: {
+		"15m": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_15M, 1),
+		"1h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_1H, 3),
+		"24h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_24H, 10),
+	},
 };
 
 /**

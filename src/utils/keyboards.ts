@@ -307,3 +307,14 @@ export const autoJailKeyboard: InlineKeyboardMarkup = {
 		[{ text: "Cancel", callback_data: "cancel" }],
 	],
 };
+
+/** Reset-window choices shown by /ratelimitreset in private chats. */
+export const rateLimitResetKeyboard: InlineKeyboardMarkup = {
+	inline_keyboard: [
+		[
+			{ text: "Reset 15m", callback_data: "ratelimit_reset_15m" },
+			{ text: "Reset 1h", callback_data: "ratelimit_reset_1h" },
+		],
+		[{ text: "Reset 24h", callback_data: "ratelimit_reset_24h" }],
+	],
+};

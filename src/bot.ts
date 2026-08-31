@@ -19,6 +19,7 @@ import { registerHelpCommand } from "./commands/help";
 import { registerJailCommands } from "./commands/jail";
 import { registerModerationCommands } from "./commands/moderation";
 import { registerPaymentCommands } from "./commands/payment";
+import { registerRateLimitCommands } from "./commands/rateLimit";
 import { registerSharedAccountCommands } from "./commands/sharedAccounts";
 import { registerStickerCommands } from "./commands/sticker";
 import { registerWalletCommands } from "./commands/wallet";
@@ -47,6 +48,7 @@ import { DuelService } from "./services/duelService";
 import { JailService } from "./services/jailService";
 import { LedgerService } from "./services/ledgerService";
 import { PriceService } from "./services/priceService";
+import { RateLimitService } from "./services/rateLimitService";
 import { RestrictionService } from "./services/restrictionService";
 import { TransactionLockService } from "./services/transactionLock";
 import { UnifiedWalletService } from "./services/unifiedWalletService";
@@ -172,6 +174,7 @@ async function main() {
 		registerRestrictionHandlers(bot);
 		registerModerationCommands(bot);
 		registerPaymentCommands(bot);
+		registerRateLimitCommands(bot);
 		registerJailCommands(bot);
 		registerGiveawayCommands(bot);
 		registerDepositCommands(bot); // Deposit management commands
@@ -223,6 +226,14 @@ async function main() {
 				},
 				60 * 60 * 1000,
 			),
+		);
+
+		intervals.push(
+			setInterval(() => {
+				RateLimitService.cleanExpiredMutes(bot, config.groupChatId).catch(
+					(error) => logger.error("Error cleaning rate-limit mutes", { error }),
+				);
+			}, 60 * 1000),
 		);
 
 		// Periodic cleanup of expired jails (every 5 minutes)
