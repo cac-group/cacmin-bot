@@ -130,11 +130,8 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 				await ctx.deleteMessage().catch(() => {});
 				const now = Math.floor(Date.now() / 1000);
 				const until = Math.max(
-					...admission.violated.map((window) =>
-						Math.max(
-							admission.status.resetsAt[window],
-							now + RateLimitService.windowSeconds(window),
-						),
+					...admission.violated.map(
+						(window) => admission.status.resetsAt[window],
 					),
 				);
 				const windows = (["15m", "1h", "24h"] as const)

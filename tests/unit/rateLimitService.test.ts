@@ -15,8 +15,9 @@ describe("RateLimitService", () => {
 	});
 
 	it("admits inclusive limits and rejects the next character", () => {
-		expect(RateLimitService.admitMessage(99101, 1, 10, 1).allowed).toBe(true);
-		const rejected = RateLimitService.admitMessage(99101, 2, 1, 2);
+		RateLimitService.admitMessage(99101, 1, 10, -1);
+		expect(RateLimitService.admitMessage(99101, 2, 10, 1).allowed).toBe(true);
+		const rejected = RateLimitService.admitMessage(99101, 3, 1, 2);
 		expect(rejected.allowed).toBe(false);
 		expect(rejected.violated).toContain("15m");
 	});
@@ -24,7 +25,7 @@ describe("RateLimitService", () => {
 	it("applies all active windows cumulatively", () => {
 		RateLimitService.setLimits(99101, 10);
 		const status = RateLimitService.getStatus(99101);
-		expect(status?.limits).toEqual({ "15m": 10, "1h": 40, "24h": 960 });
+		expect(status?.limits).toEqual({ "15m": 20, "1h": 80, "24h": 1920 });
 	});
 
 	it("clears a selected window and its overlapping shorter usage", () => {
@@ -42,5 +43,16 @@ describe("RateLimitService", () => {
 	it("weights emoji as two and stickers as five characters", () => {
 		expect(RateLimitService.countMessageCharacters({ text: "a😀" })).toBe(3);
 		expect(RateLimitService.countMessageCharacters({ sticker: {} })).toBe(5);
+	});
+
+	it("carries only the immediately previous bucket into the current bucket", () => {
+		RateLimitService.admitMessage(99101, 1, 5, 899);
+		const status = RateLimitService.getStatus(99101, 1000);
+		expect(status?.rollover["15m"]).toBe(5);
+		expect(status?.limits["15m"]).toBe(15);
+		expect(RateLimitService.admitMessage(99101, 2, 15, 1000).allowed).toBe(
+			true,
+		);
+		expect(RateLimitService.getStatus(99101, 1000)?.rollover["15m"]).toBe(0);
 	});
 });

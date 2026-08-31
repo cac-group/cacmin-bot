@@ -30,7 +30,7 @@ function statusText(userId: number): string {
 	return windows
 		.map(
 			(window) =>
-				`${window}: ${status.usage[window]}/${status.limits[window]} characters (resets ${new Date(status.resetsAt[window] * 1000).toLocaleString()})`,
+				`${window}: ${status.usage[window]}/${status.limits[window]} characters (rollover ${status.rollover[window]}, resets ${new Date(status.resetsAt[window] * 1000).toLocaleString()})`,
 		)
 		.join("\n");
 }

@@ -230,7 +230,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/viewwhitelist` - View whitelisted users
 - `/viewblacklist` - View blacklisted users
 - `/viewactions` - View active global restrictions
-- `/ratelimit` - View your 15-minute, 1-hour, and 24-hour character usage
+- `/ratelimit` - View your 15-minute, 1-hour, and 24-hour character usage, including rollover capacity
 - `/ratelimitreset <15m|1h|24h>` - Purchase a JUNO reset for one usage window
 - `/verifyratelimitreset <txhash>` - Verify a purchased rate-limit reset
 - `/listadmins` - View all elevated, admin, and owner users (`elevated+`)
@@ -274,7 +274,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/regexhelp` - Show regex restriction examples (`admin+`)
 - `/addaction <restriction> [restrictedAction]` - Add a global restriction (`admin+`)
 - `/removeaction <restriction>` - Remove a global restriction (`admin+`)
-- `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 4x and 24-hour is 24x the hourly limit (`admin+`)
+- `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 4x and 24-hour is 24x the hourly limit. One period of unused capacity rolls over without compounding (`admin+`)
 - `/clearratelimit <user>` - Remove a user's character rate limit (`admin+`)
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 - `/addblacklist <@username|userId>` and `/removeblacklist <@username|userId>` - Manage blacklist entries (`admin+`)

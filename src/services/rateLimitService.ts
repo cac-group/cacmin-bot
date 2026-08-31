@@ -14,7 +14,9 @@ const WINDOWS: Record<RateLimitWindow, number> = {
 export interface RateLimitStatus {
 	userId: number;
 	limits: Record<RateLimitWindow, number>;
+	baseLimits: Record<RateLimitWindow, number>;
 	usage: Record<RateLimitWindow, number>;
+	rollover: Record<RateLimitWindow, number>;
 	resetsAt: Record<RateLimitWindow, number>;
 }
 
@@ -70,7 +72,7 @@ export class RateLimitService {
 		});
 	}
 
-	/** Return current usage and the next expiry for every configured window. */
+	/** Return current bucket usage, one-period rollover, and the next bucket reset. */
 	static getStatus(
 		userId: number,
 		now = Math.floor(Date.now() / 1000),
@@ -80,24 +82,38 @@ export class RateLimitService {
 			[userId],
 		);
 		if (!row) return null;
-		const limits = {
+		const baseLimits = {
 			"15m": row.limit_15m,
 			"1h": row.limit_1h,
 			"24h": row.limit_24h,
 		};
+		const limits = { ...baseLimits };
 		const usage = {} as Record<RateLimitWindow, number>;
+		const rollover = {} as Record<RateLimitWindow, number>;
 		const resetsAt = {} as Record<RateLimitWindow, number>;
 		for (const window of Object.keys(WINDOWS) as RateLimitWindow[]) {
 			const seconds = WINDOWS[window];
-			const rows = query<{ total: number; first: number | null }>(
-				`SELECT COALESCE(SUM(characters), 0) AS total, MIN(created_at) AS first
-				 FROM user_rate_limit_usage WHERE user_id = ? AND created_at > ?`,
-				[userId, now - seconds],
+			const periodStart = Math.floor(now / seconds) * seconds;
+			const current =
+				query<{ total: number }>(
+					"SELECT COALESCE(SUM(characters), 0) AS total FROM user_rate_limit_usage WHERE user_id = ? AND created_at >= ?",
+					[userId, periodStart],
+				)[0]?.total || 0;
+			const previous =
+				query<{ total: number }>(
+					"SELECT COALESCE(SUM(characters), 0) AS total FROM user_rate_limit_usage WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+					[userId, periodStart - seconds, periodStart],
+				)[0]?.total || 0;
+			usage[window] = current;
+			const carriedCapacity = Math.max(0, baseLimits[window] - previous);
+			rollover[window] = Math.max(
+				0,
+				carriedCapacity - Math.max(0, current - baseLimits[window]),
 			);
-			usage[window] = rows[0]?.total || 0;
-			resetsAt[window] = rows[0]?.first ? rows[0].first + seconds : now;
+			limits[window] = baseLimits[window] + carriedCapacity;
+			resetsAt[window] = periodStart + seconds;
 		}
-		return { userId, limits, usage, resetsAt };
+		return { userId, limits, baseLimits, usage, rollover, resetsAt };
 	}
 
 	/** Atomically admit a message or reject it without counting its characters. */
@@ -132,15 +148,17 @@ export class RateLimitService {
 		});
 	}
 
-	/** Clear usage in a selected window; clearing 24h naturally clears all shorter windows. */
+	/** Clear current and immediately previous usage buckets for a selected window. */
 	static resetWindow(
 		userId: number,
 		window: RateLimitWindow,
 		now = Math.floor(Date.now() / 1000),
 	): void {
+		const seconds = WINDOWS[window];
+		const periodStart = Math.floor(now / seconds) * seconds;
 		execute(
-			"DELETE FROM user_rate_limit_usage WHERE user_id = ? AND created_at > ?",
-			[userId, now - WINDOWS[window]],
+			"DELETE FROM user_rate_limit_usage WHERE user_id = ? AND created_at >= ?",
+			[userId, periodStart - seconds],
 		);
 	}
 
