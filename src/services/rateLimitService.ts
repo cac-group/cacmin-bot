@@ -32,6 +32,22 @@ export interface AdmissionResult {
 	violated: RateLimitWindow[];
 }
 
+/** Calculate one-period carry without allowing unused capacity to compound. */
+export function calculateRolloverCapacity(
+	baseLimit: number,
+	previousUsage: number,
+	currentUsage: number,
+): { limit: number; rollover: number } {
+	const carriedCapacity = Math.max(0, baseLimit - previousUsage);
+	return {
+		limit: baseLimit + carriedCapacity,
+		rollover: Math.max(
+			0,
+			carriedCapacity - Math.max(0, currentUsage - baseLimit),
+		),
+	};
+}
+
 interface LimitRow {
 	limit_15m: number;
 	limit_1h: number;
@@ -117,12 +133,13 @@ export class RateLimitService {
 					[userId, periodStart - seconds, periodStart],
 				)[0]?.total || 0;
 			usage[window] = current;
-			const carriedCapacity = Math.max(0, baseLimits[window] - previous);
-			rollover[window] = Math.max(
-				0,
-				carriedCapacity - Math.max(0, current - baseLimits[window]),
+			const capacity = calculateRolloverCapacity(
+				baseLimits[window],
+				previous,
+				current,
 			);
-			limits[window] = baseLimits[window] + carriedCapacity;
+			rollover[window] = capacity.rollover;
+			limits[window] = capacity.limit;
 			resetsAt[window] = periodStart + seconds;
 		}
 		return { userId, limits, baseLimits, usage, rollover, resetsAt };
