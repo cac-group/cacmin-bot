@@ -90,7 +90,8 @@ If a message would exceed any active window, it is deleted and the user is muted
 				`1-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["1h"]} characters\n` +
 				`24-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["24h"]} characters\n\n` +
 				"Rollover: one unused previous window; rollover does not compound.\n" +
-				"Emoji count as 2 characters; stickers count as 5.",
+				"Emoji count as 2 characters; stickers count as 5.\n" +
+				"Changing an existing limit resets that user's accumulated counts.",
 		);
 	});
 

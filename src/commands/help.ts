@@ -502,7 +502,7 @@ export const helpContent: Record<string, FmtString> = {
 		"/removeaction <type>\n",
 		"  Remove a global restriction.\n\n",
 		"/setratelimit <user> <15m_chars>\n",
-		"  Configure a user's base limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding. Emoji count as 2 and stickers as 5 characters.\n\n",
+		"  Configure a user's base limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding. Changing an existing limit resets accumulated counts. Emoji count as 2 and stickers as 5 characters.\n\n",
 		"/clearratelimit <user>\n",
 		"  Remove a user's character rate limit.\n\n",
 		bold("Deposit Recovery:"),

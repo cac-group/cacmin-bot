@@ -14,6 +14,13 @@ import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
 import { logger } from "../utils/logger";
 
+function formatRateLimitDuration(seconds: number): string {
+	const hours = Math.floor(seconds / 3600);
+	const minutes = Math.floor((seconds % 3600) / 60);
+	const remainingSeconds = seconds % 60;
+	return `${String(hours).padStart(2, "0")}h${String(minutes).padStart(2, "0")}m${String(remainingSeconds).padStart(2, "0")}s`;
+}
+
 /**
  * Middleware that filters messages based on user restrictions and mute status.
  * Runs on every message to enforce restrictions like:
@@ -155,7 +162,7 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 					});
 				}
 				await ctx.reply(
-					`Oops! You don't have enough tendie points to send that message right now, @${ctx.from.username || ctx.from.first_name}. Try again in ${Math.max(1, until - now)} seconds.\nRate limit status: ${windows}`,
+					`Oops! You don't have enough tendie points to send that message right now, @${ctx.from.username || ctx.from.first_name}. Try again in ${formatRateLimitDuration(Math.max(1, until - now))}.\nRate limit status: ${windows}`,
 				);
 				return;
 			}

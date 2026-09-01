@@ -65,19 +65,34 @@ export class RateLimitService {
 	/** Configure a user's base limit; hourly is 2x and daily is 4x the hourly limit. */
 	static setLimits(userId: number, baseLimit: number): void {
 		const now = Math.floor(Date.now() / 1000);
-		execute(
-			`INSERT INTO user_rate_limits (user_id, limit_15m, limit_1h, limit_24h, updated_at)
-			 VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT(user_id) DO UPDATE SET limit_15m=excluded.limit_15m,
-			 limit_1h=excluded.limit_1h, limit_24h=excluded.limit_24h, updated_at=excluded.updated_at`,
-			[
-				userId,
+		transaction(() => {
+			const previous = get<LimitRow>(
+				"SELECT limit_15m, limit_1h, limit_24h FROM user_rate_limits WHERE user_id = ?",
+				[userId],
+			);
+			const next = [
 				baseLimit * RATE_LIMIT_MULTIPLIERS["15m"],
 				baseLimit * RATE_LIMIT_MULTIPLIERS["1h"],
 				baseLimit * RATE_LIMIT_MULTIPLIERS["24h"],
-				now,
-			],
-		);
+			];
+			execute(
+				`INSERT INTO user_rate_limits (user_id, limit_15m, limit_1h, limit_24h, updated_at)
+				 VALUES (?, ?, ?, ?, ?)
+				 ON CONFLICT(user_id) DO UPDATE SET limit_15m=excluded.limit_15m,
+				 limit_1h=excluded.limit_1h, limit_24h=excluded.limit_24h, updated_at=excluded.updated_at`,
+				[userId, ...next, now],
+			);
+			if (
+				previous &&
+				[previous.limit_15m, previous.limit_1h, previous.limit_24h].some(
+					(value, index) => value !== next[index],
+				)
+			) {
+				execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [
+					userId,
+				]);
+			}
+		});
 	}
 
 	/** Count plain text, emoji, and sticker content using the bot's policy weights. */
