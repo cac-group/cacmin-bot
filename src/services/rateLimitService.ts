@@ -256,10 +256,10 @@ export class RateLimitService {
 		);
 		for (const mute of mutes) {
 			try {
-				const user = get<{ muted_until: number | null }>(
-					"SELECT muted_until FROM users WHERE id = ?",
-					[mute.user_id],
-				);
+				const user = get<{
+					muted_until: number | null;
+					username: string | null;
+				}>("SELECT muted_until FROM users WHERE id = ?", [mute.user_id]);
 				if (!user?.muted_until || user.muted_until <= now) {
 					await bot.telegram.restrictChatMember(chatId, mute.user_id, {
 						permissions: JSON.parse(mute.permission_snapshot),
@@ -268,6 +268,10 @@ export class RateLimitService {
 				execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [
 					mute.user_id,
 				]);
+				await bot.telegram.sendMessage(
+					chatId,
+					`Rate-limit mute expired for ${user?.username ? `@${user.username}` : `user ${mute.user_id}`}. ${user?.muted_until && user.muted_until > now ? "Your separate jail restriction is still active." : "Your previous group permissions have been restored."}`,
+				);
 			} catch (error) {
 				logger.error("Failed to restore rate-limit permissions", {
 					userId: mute.user_id,
@@ -300,6 +304,14 @@ export class RateLimitService {
 			permissions: JSON.parse(mute.permission_snapshot),
 		});
 		execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
+		const user = get<{ username: string | null }>(
+			"SELECT username FROM users WHERE id = ?",
+			[userId],
+		);
+		await bot.telegram.sendMessage(
+			chatId,
+			`Rate-limit mute removed for ${user?.username ? `@${user.username}` : `user ${userId}`}. Your previous group permissions have been restored.`,
+		);
 		return true;
 	}
 
