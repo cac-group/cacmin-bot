@@ -274,7 +274,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/regexhelp` - Show regex restriction examples (`admin+`)
 - `/addaction <restriction> [restrictedAction]` - Add a global restriction (`admin+`)
 - `/removeaction <restriction>` - Remove a global restriction (`admin+`)
-- `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 4x and 24-hour is 24x the hourly limit. One period of unused capacity rolls over without compounding (`admin+`)
+- `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding (`admin+`)
 - `/clearratelimit <user>` - Remove a user's character rate limit (`admin+`)
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 - `/addblacklist <@username|userId>` and `/removeblacklist <@username|userId>` - Manage blacklist entries (`admin+`)

@@ -5,6 +5,12 @@ import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
 export type RateLimitWindow = "15m" | "1h" | "24h";
+/** Default tier multipliers: 15m base, 1h 2x base, 24h 4x hourly. */
+export const RATE_LIMIT_MULTIPLIERS = {
+	"15m": 1,
+	"1h": 2,
+	"24h": 8,
+} as const;
 const WINDOWS: Record<RateLimitWindow, number> = {
 	"15m": 900,
 	"1h": 3600,
@@ -40,7 +46,7 @@ interface MuteRow {
 
 /** Persistent character accounting and enforcement state for configured users. */
 export class RateLimitService {
-	/** Configure a user's base limit; hourly is 4x and daily is 24x the hourly limit. */
+	/** Configure a user's base limit; hourly is 2x and daily is 4x the hourly limit. */
 	static setLimits(userId: number, baseLimit: number): void {
 		const now = Math.floor(Date.now() / 1000);
 		execute(
@@ -48,7 +54,13 @@ export class RateLimitService {
 			 VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(user_id) DO UPDATE SET limit_15m=excluded.limit_15m,
 			 limit_1h=excluded.limit_1h, limit_24h=excluded.limit_24h, updated_at=excluded.updated_at`,
-			[userId, baseLimit, baseLimit * 4, baseLimit * 96, now],
+			[
+				userId,
+				baseLimit * RATE_LIMIT_MULTIPLIERS["15m"],
+				baseLimit * RATE_LIMIT_MULTIPLIERS["1h"],
+				baseLimit * RATE_LIMIT_MULTIPLIERS["24h"],
+				now,
+			],
 		);
 	}
 

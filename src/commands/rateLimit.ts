@@ -64,7 +64,7 @@ export function registerRateLimitCommands(bot: Telegraf<Context>): void {
 			limits.some((value) => !Number.isSafeInteger(value) || value < 1)
 		)
 			return ctx.reply(
-				"Usage: /setratelimit <user> <15m_chars> (1h=4x, 24h=24x)",
+				"Usage: /setratelimit <user> <15m_chars> (1h=2x, 24h=8x)",
 			);
 		const targetUser = get<User>("SELECT * FROM users WHERE id = ?", [target]);
 		if (!targetUser) return ctx.reply("User not found in database.");
@@ -72,7 +72,7 @@ export function registerRateLimitCommands(bot: Telegraf<Context>): void {
 			return ctx.reply("Admins and owners are immune to rate limits.");
 		RateLimitService.setLimits(target, limits[0]);
 		return ctx.reply(
-			`Rate limit set for ${formatUserIdDisplay(target)}: ${limits[0]} / ${limits[0] * 4} / ${limits[0] * 96} characters (15m / 1h / 24h).`,
+			`Rate limit set for ${formatUserIdDisplay(target)}: ${limits[0]} / ${limits[0] * 2} / ${limits[0] * 8} characters (15m / 1h / 24h).`,
 		);
 	});
 

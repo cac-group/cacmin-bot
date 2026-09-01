@@ -25,7 +25,7 @@ describe("RateLimitService", () => {
 	it("applies all active windows cumulatively", () => {
 		RateLimitService.setLimits(99101, 10);
 		const status = RateLimitService.getStatus(99101);
-		expect(status?.limits).toEqual({ "15m": 20, "1h": 80, "24h": 1920 });
+		expect(status?.limits).toEqual({ "15m": 20, "1h": 40, "24h": 160 });
 	});
 
 	it("clears a selected window and its overlapping shorter usage", () => {
