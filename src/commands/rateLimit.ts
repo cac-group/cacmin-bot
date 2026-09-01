@@ -5,8 +5,8 @@ import { execute, get, query } from "../database";
 import { adminOrHigher } from "../middleware/index";
 import { JunoService } from "../services/junoService";
 import {
-	RateLimitService,
 	RATE_LIMIT_MULTIPLIERS,
+	RateLimitService,
 	type RateLimitWindow,
 } from "../services/rateLimitService";
 import { ensureUserExists, getUserById } from "../services/userService";
