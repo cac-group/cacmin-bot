@@ -24,4 +24,5 @@ describe("RateLimitService", () => {
 		expect(RateLimitService.countMessageCharacters({ text: "a😀" })).toBe(3);
 		expect(RateLimitService.countMessageCharacters({ sticker: {} })).toBe(5);
 	});
+
 });

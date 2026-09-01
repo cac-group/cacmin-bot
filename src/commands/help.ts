@@ -329,6 +329,8 @@ export const helpContent: Record<string, FmtString> = {
 		"  View all currently active global restrictions (no stickers, no URLs, etc) applied to the chat.\n\n",
 		"/ratelimit\n",
 		"  View your current 15-minute, 1-hour, and 24-hour character usage, including one-period rollover capacity.\n\n",
+		"/ratelimits\n",
+		"  Explain rate-limit windows, rollover, enforcement, and paid resets.\n\n",
 		"/ratelimitreset <15m|1h|24h>\n",
 		"  Purchase a JUNO reset for one usage window. Reply to the instructions with the transaction hash or send it in a DM.\n\n",
 		"/verifyratelimitreset <txhash>\n",

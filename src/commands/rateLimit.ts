@@ -38,6 +38,18 @@ function statusText(userId: number): string {
 
 /** Register rate-limit status, administration, and JUNO reset commands. */
 export function registerRateLimitCommands(bot: Telegraf<Context>): void {
+	bot.command("ratelimits", async (ctx) => {
+		await ctx.reply(
+			fmt`${bold("Message Rate Limits")}
+
+Each configured user has a character budget for 15 minutes, 1 hour, and 24 hours. The 1-hour limit is 2x the 15-minute base; the 24-hour limit is 4x the hourly limit.
+
+Unused capacity rolls into only the next matching window and never compounds. Emoji count as 2 characters and stickers as 5.
+
+If a message would exceed any active window, it is deleted and the user is muted until the limiting window resets. Use ${code("/ratelimit")} to view usage. Paid resets are available with ${code("/ratelimitreset 15m|1h|24h")}.`,
+		);
+	});
+
 	bot.command("ratelimit", async (ctx) => {
 		const requester = ctx.from?.id;
 		if (!requester) return;

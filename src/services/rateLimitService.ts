@@ -214,18 +214,18 @@ export class RateLimitService {
 		const member = await bot.telegram.getChatMember(chatId, userId);
 		const permissions =
 			"permissions" in member && member.permissions ? member.permissions : {};
-		execute(
-			`INSERT INTO user_rate_limit_mutes (user_id, muted_until, limiting_window, permission_snapshot)
-			VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET muted_until=excluded.muted_until,
-			limiting_window=excluded.limiting_window`,
-			[userId, until, window, JSON.stringify(permissions)],
-		);
 		await bot.telegram.restrictChatMember(chatId, userId, {
 			permissions: Object.fromEntries(
 				Object.keys(permissions).map((key) => [key, false]),
 			) as any,
 			until_date: until,
 		});
+		execute(
+			`INSERT INTO user_rate_limit_mutes (user_id, muted_until, limiting_window, permission_snapshot)
+			VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET muted_until=excluded.muted_until,
+			limiting_window=excluded.limiting_window`,
+			[userId, until, window, JSON.stringify(permissions)],
+		);
 	}
 
 	/** Restore expired rate-limit mutes without overriding an active jail. */

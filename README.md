@@ -231,10 +231,30 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/viewblacklist` - View blacklisted users
 - `/viewactions` - View active global restrictions
 - `/ratelimit` - View your 15-minute, 1-hour, and 24-hour character usage, including rollover capacity
+- `/ratelimits` - Explain rate-limit windows, rollover, enforcement, and paid resets
 - `/ratelimitreset <15m|1h|24h>` - Purchase a JUNO reset for one usage window
 - `/verifyratelimitreset <txhash>` - Verify a purchased rate-limit reset
 - `/listadmins` - View all elevated, admin, and owner users (`elevated+`)
 - `/jailstats [@user|userId]` - View active jail info or a specific user's jail history (`elevated+`)
+
+### Message Rate Limits
+Rate limits are opt-in per-user moderation controls. Configure a user's 15-minute base
+character budget with `/setratelimit <user> <15m_chars>` (`admin+`). The default derived
+budgets are 2x the base for one hour and 4x the hourly budget for 24 hours. Emoji count as
+2 characters and stickers as 5 characters.
+
+Each window can carry unused capacity into only its immediately following matching window.
+Current-period capacity is consumed first; rollover never compounds. A message that would
+exceed any active window is deleted, the user's current Telegram permissions are captured,
+and the user is muted until the relevant window resets. The scheduled cleanup restores the
+captured permissions without overriding an active jail.
+
+Use `/ratelimit` for current usage and `/ratelimits` for a concise explanation. Users can
+purchase a reset with `/ratelimitreset <15m|1h|24h>` in a DM or group. A reset request may
+target another configured user, so anyone can pay the applicable JUNO fee. Reply to the
+payment instructions with the transaction hash, or send it in a DM. The bot verifies an
+exact successful transfer to the treasury and rejects transaction-hash reuse before clearing
+the selected window.
 
 ### Stickers
 - `/cac` - Send the first sticker from the CACGifs pack
