@@ -6,6 +6,7 @@ import { adminOrHigher } from "../middleware/index";
 import { JunoService } from "../services/junoService";
 import {
 	RateLimitService,
+	RATE_LIMIT_MULTIPLIERS,
 	type RateLimitWindow,
 } from "../services/rateLimitService";
 import { ensureUserExists, getUserById } from "../services/userService";
@@ -72,7 +73,12 @@ export function registerRateLimitCommands(bot: Telegraf<Context>): void {
 			return ctx.reply("Admins and owners are immune to rate limits.");
 		RateLimitService.setLimits(target, limits[0]);
 		return ctx.reply(
-			`Rate limit set for ${formatUserIdDisplay(target)}: ${limits[0]} / ${limits[0] * 2} / ${limits[0] * 8} characters (15m / 1h / 24h).`,
+			`Rate limit applied to ${formatUserIdDisplay(target)}.\n\n` +
+				`15-minute limit: ${limits[0]} characters\n` +
+				`1-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["1h"]} characters\n` +
+				`24-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["24h"]} characters\n\n` +
+				"Rollover: one unused previous window; rollover does not compound.\n" +
+				"Emoji count as 2 characters; stickers count as 5.",
 		);
 	});
 
