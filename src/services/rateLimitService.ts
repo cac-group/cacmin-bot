@@ -193,6 +193,14 @@ export class RateLimitService {
 		});
 	}
 
+	/** Clear a user's accumulated usage and any active rate-limit mute without altering their configured limits. */
+	static clearUsage(userId: number): void {
+		transaction(() => {
+			execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [userId]);
+			execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
+		});
+	}
+
 	/** Clear current and immediately previous usage buckets for a selected window. */
 	static resetWindow(
 		userId: number,

@@ -505,6 +505,8 @@ export const helpContent: Record<string, FmtString> = {
 		"  Configure a user's base limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding. Changing an existing limit resets accumulated counts. Emoji count as 2 and stickers as 5 characters.\n\n",
 		"/clearratelimit <user>\n",
 		"  Remove a user's character rate limit.\n\n",
+		"/resetratelimit <user>\n",
+		"  Clear a user's accumulated rate-limit usage and any active rate-limit mute without changing their configured limits.\n\n",
 		bold("Deposit Recovery:"),
 		"\n",
 		"/claimdeposit <txhash> <userId|@username>\n",

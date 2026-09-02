@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execute } from "../../src/database";
 import {
 	calculateRolloverCapacity,
 	RateLimitService,
@@ -31,5 +32,20 @@ describe("RateLimitService", () => {
 		expect(
 			RateLimitService.countMessageCharacters({ photo: {}, caption: "a😀" }),
 		).toBe(28);
+	});
+
+	it("clears usage and the active mute without altering configured limits", () => {
+		const userId = 99002;
+		execute(
+			"INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'pleb')",
+			[userId, `user_${userId}`],
+		);
+		RateLimitService.setLimits(userId, 10);
+		RateLimitService.admitMessage(userId, 1, 5);
+		RateLimitService.clearUsage(userId);
+		const status = RateLimitService.getStatus(userId);
+		expect(status).not.toBeNull();
+		expect(status!.usage["15m"]).toBe(0);
+		expect(status!.baseLimits["15m"]).toBe(10);
 	});
 });

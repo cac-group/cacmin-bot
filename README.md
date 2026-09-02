@@ -241,7 +241,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 Rate limits are opt-in per-user moderation controls. Configure a user's 15-minute base
 character budget with `/setratelimit <user> <15m_chars>` (`admin+`). The default derived
 budgets are 2x the base for one hour and 4x the hourly budget for 24 hours. Emoji count as
-2 characters and stickers as 5 characters.
+2 characters, stickers as 5 characters, and a shared image (photo or file) as 25 characters.
 
 Each window can carry unused capacity into only its immediately following matching window.
 Current-period capacity is consumed first; rollover never compounds. A message that would
@@ -296,6 +296,7 @@ the selected window.
 - `/removeaction <restriction>` - Remove a global restriction (`admin+`)
 - `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding (`admin+`)
 - `/clearratelimit <user>` - Remove a user's character rate limit (`admin+`)
+- `/resetratelimit <user>` - Clear a user's accumulated rate-limit usage and any active rate-limit mute without changing their configured limits (`admin+`)
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 - `/addblacklist <@username|userId>` and `/removeblacklist <@username|userId>` - Manage blacklist entries (`admin+`)
 
