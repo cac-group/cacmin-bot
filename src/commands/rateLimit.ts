@@ -29,11 +29,33 @@ function statusText(userId: number): string {
 	const status = RateLimitService.getStatus(userId);
 	if (!status) return "No message rate limit is configured for this user.";
 	return windows
-		.map(
-			(window) =>
-				`${window}: ${status.usage[window]}/${status.limits[window]} characters (rollover ${status.rollover[window]}, resets ${new Date(status.resetsAt[window] * 1000).toLocaleString()})`,
-		)
+		.map((window) => {
+			const remaining = status.limits[window] - status.usage[window];
+			const resets = new Date(status.resetsAt[window] * 1000)
+				.toISOString()
+				.slice(11, 16);
+			const rollover =
+				status.rollover[window] > 0
+					? ` (incl. ${status.rollover[window]} rollover)`
+					: "";
+			return `${window}: ${remaining} remaining${rollover} \u00b7 resets ${resets} UTC`;
+		})
 		.join("\n");
+}
+
+function userDisplay(userId: number): string {
+	const user = get<User>("SELECT username FROM users WHERE id = ?", [userId]);
+	return user?.username ? `@${user.username}` : `(${userId})`;
+}
+
+/** UTC "HH:MM" at which the next window period starts. */
+function windowResetsAt(
+	window: RateLimitWindow,
+	now = Math.floor(Date.now() / 1000),
+): string {
+	const seconds = RateLimitService.windowSeconds(window);
+	const periodStart = Math.floor(now / seconds) * seconds;
+	return new Date((periodStart + seconds) * 1000).toISOString().slice(11, 16);
 }
 
 /** Register rate-limit status, administration, and JUNO reset commands. */
@@ -63,7 +85,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 				"Only admins and owners can view another user's rate limit.",
 			);
 		return ctx.reply(
-			fmt`${bold(`Rate limit status for ${formatUserIdDisplay(target)}`)}\n\n${statusText(target)}`,
+			fmt`${bold(`Rate limit for ${userDisplay(target)}`)}\n\n${statusText(target)}`,
 		);
 	});
 
@@ -110,6 +132,41 @@ If a message would exceed any active window, it is deleted and the user is muted
 		RateLimitService.clearUsage(target);
 		return ctx.reply(
 			`Accumulated rate-limit usage and mute cleared for ${formatUserIdDisplay(target)}.`,
+		);
+	});
+
+	bot.command("listratelimits", adminOrHigher, async (ctx) => {
+		const rows = query<{ user_id: number; username: string | null }>(
+			`SELECT rl.user_id, u.username
+			 FROM user_rate_limits rl
+			 LEFT JOIN users u ON u.id = rl.user_id
+			 ORDER BY u.username COLLATE NOCASE`,
+		);
+		if (rows.length === 0)
+			return ctx.reply("No users currently have a rate limit configured.");
+		const now = Math.floor(Date.now() / 1000);
+		const lines = rows.map((row) => {
+			const status = RateLimitService.getStatus(row.user_id, now);
+			if (!status) return null;
+			const remaining = windows
+				.map(
+					(window) =>
+						`${window}: ${status.limits[window] - status.usage[window]} remaining`,
+				)
+				.join(" \u00b7 ");
+			const name = row.username ? `@${row.username}` : `(${row.user_id})`;
+			return `${name}: ${remaining}`;
+		});
+		const valid = lines.filter(
+			(line): line is string => line !== null,
+		);
+		if (valid.length === 0)
+			return ctx.reply("No users currently have a rate limit configured.");
+		const resets = windows
+			.map((window) => `${window} ${windowResetsAt(window, now)} UTC`)
+			.join(" \u00b7 ");
+		return ctx.reply(
+			fmt`${bold(`Active rate limits (${valid.length} user${valid.length === 1 ? "" : "s"})`)}\n\n${valid.join("\n")}\n\nResets: ${resets}`,
 		);
 	});
 
