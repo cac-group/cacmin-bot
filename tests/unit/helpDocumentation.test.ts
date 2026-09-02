@@ -12,7 +12,11 @@ vi.mock("../../src/services/userService", () => ({
 	ensureUserExists: vi.fn(),
 }));
 
-import { helpContent } from "../../src/commands/help";
+import {
+	findHelpNode,
+	helpTree,
+	type HelpNode,
+} from "../../src/commands/helpTree";
 import { buildWalletHelpText } from "../../src/commands/wallet";
 
 const repoRoot = path.resolve(__dirname, "../..");
@@ -59,6 +63,23 @@ function extractDocumentedCommands(text: string): Set<string> {
 	return commands;
 }
 
+/** Collect the plain text of every leaf node in the tree. */
+function collectLeafText(nodes: readonly HelpNode[]): string[] {
+	const texts: string[] = [];
+	for (const node of nodes) {
+		if (node.content) texts.push(node.content.text);
+		if (node.children) texts.push(...collectLeafText(node.children));
+	}
+	return texts;
+}
+
+/** Concatenated leaf text of a node and its entire subtree. */
+function textForSection(key: string): string {
+	const node = findHelpNode(helpTree, key);
+	if (!node) return "";
+	return collectLeafText([node]).join("\n");
+}
+
 function getReadmeCommandsSection(): string {
 	const readme = fs.readFileSync(readmePath, "utf8");
 	const startMarker = "## Commands";
@@ -79,8 +100,8 @@ describe("help documentation coverage", () => {
 		registeredCommands.delete("help");
 
 		const documentedCommands = new Set<string>();
-		for (const content of Object.values(helpContent)) {
-			for (const command of extractDocumentedCommands(content.text)) {
+		for (const text of collectLeafText(helpTree)) {
+			for (const command of extractDocumentedCommands(text)) {
 				documentedCommands.add(command);
 			}
 		}
@@ -115,45 +136,46 @@ describe("help documentation coverage", () => {
 
 	it("keeps key usage signatures aligned with the live handlers", () => {
 		const readmeCommands = getReadmeCommandsSection();
+		const payments = textForSection("payments");
+		const shared = textForSection("shared");
+		const owner = textForSection("owner");
 
-		expect(helpContent.payments.text).toContain("/payfine [id]");
-		expect(helpContent.payments.text).toContain(
-			"/verifypayment <violationId> <txhash>",
-		);
-		expect(helpContent.games_duel.text).toContain("/duelhistory [limit]");
-		expect(helpContent.elevated.text).toContain(
+		expect(payments).toContain("/payfine [id]");
+		expect(payments).toContain("/verifypayment <violationId> <txhash>");
+		expect(textForSection("games:duel")).toContain("/duelhistory [limit]");
+		expect(textForSection("elevated")).toContain(
 			"/createshared <name> <display_name> [description]",
 		);
-		expect(helpContent.shared.text).toContain(
+		expect(shared).toContain(
 			"/grantaccess <account_name> <@username|user_id> <level> [spend_limit]",
 		);
-		expect(helpContent.shared.text).toContain(
+		expect(shared).toContain(
 			"/updateaccess <account_name> <@username|user_id> <level> [spend_limit]",
 		);
-		expect(helpContent.admin.text).toContain(
+		expect(textForSection("admin")).toContain(
 			"/claimdeposit <txhash> <userId|@username>",
 		);
-		expect(helpContent.owner.text).toContain(
+		expect(owner).toContain(
 			"/claimdeposit <txhash> <userId|@username>",
 		);
-		expect(helpContent.payments.text).toContain("/paybail <@username|userId>");
-		expect(helpContent.payments.text).toContain(
+		expect(payments).toContain("/paybail <@username|userId>");
+		expect(payments).toContain(
 			"/verifybail <@username|userId> <txhash>",
 		);
-		expect(helpContent.payments.text).toContain("/bailhelp");
-		expect(helpContent.shared.text).toContain(
+		expect(payments).toContain("/bailhelp");
+		expect(shared).toContain(
 			"/sharedsend <name> <@username|user_id> <amount> [description]",
 		);
-		expect(helpContent.shared.text).toContain(
+		expect(shared).toContain(
 			"/revokeaccess <account_name> <@username|user_id>",
 		);
-		expect(helpContent.owner.text).toContain(
+		expect(owner).toContain(
 			"/setfine <type> <amount_usd> [description]",
 		);
-		expect(helpContent.owner.text).toContain(
+		expect(owner).toContain(
 			"/customjail <@username|userId> <minutes> <juno_amount> <reason>",
 		);
-		expect(helpContent.owner.text).toContain(
+		expect(owner).toContain(
 			"/addidentityblock <pattern> [name|username|both]",
 		);
 		expect(readmeCommands).toContain(

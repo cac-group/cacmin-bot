@@ -184,7 +184,7 @@ sudo journalctl -u cacmin-bot -f
 
 ## Commands
 
-Use `/help` in a DM with the bot for the interactive, role-based reference. The list below is the full current slash-command surface.
+Use `/help` in a DM with the bot for the interactive, role-based reference. The menu is keyboard-navigated: categories split into subcategories, and each section renders with a back button to the parent menu. Content is filtered by role, so sensitive topics and functions (treasury operations, wallet tests, moderation tools, and the like) are only visible to the tiers that may use them. The list below is the full current slash-command surface.
 
 ### Core Help
 - `/help` - Open the DM help menu
@@ -295,6 +295,7 @@ the selected window.
 - `/addaction <restriction> [restrictedAction]` - Add a global restriction (`admin+`)
 - `/removeaction <restriction>` - Remove a global restriction (`admin+`)
 - `/setratelimit <user> <15m_chars>` - Configure a user's base character limit; 1-hour is 2x and 24-hour is 4x the hourly limit. One period of unused capacity rolls over without compounding (`admin+`)
+- `/listratelimits` - List every user with an active rate limit and how much of each window remains (`admin+`)
 - `/clearratelimit <user>` - Remove a user's character rate limit (`admin+`)
 - `/resetratelimit <user>` - Clear a user's accumulated rate-limit usage and any active rate-limit mute without changing their configured limits (`admin+`)
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
