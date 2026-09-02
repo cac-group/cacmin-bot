@@ -397,12 +397,25 @@ export class ChatIndexerService {
 		const previous = db
 			.prepare("SELECT top_words FROM authors WHERE name = ?")
 			.get(author) as { top_words: string | null } | undefined;
-		db.prepare("DELETE FROM authors WHERE name = ?").run(author);
-		db.prepare(`
-			INSERT INTO authors (name, message_count, first_seen, last_seen, top_words)
-			SELECT author, COUNT(*), MIN(timestamp), MAX(timestamp), ?
-			FROM messages WHERE author = ? GROUP BY author
-		`).run(previous?.top_words ?? null, author);
+		const changed = db
+			.prepare(`
+				INSERT INTO authors (
+					name, message_count, first_seen, last_seen, top_words, top_words_refreshed_at
+				)
+				SELECT author, COUNT(*), MIN(timestamp), MAX(timestamp), ?, NULL
+				FROM messages WHERE author = ? GROUP BY author
+				ON CONFLICT(name) DO UPDATE SET
+					message_count = excluded.message_count,
+					first_seen = excluded.first_seen,
+					last_seen = excluded.last_seen,
+					top_words = excluded.top_words,
+					top_words_refreshed_at = NULL
+			`)
+			.run(previous?.top_words ?? null, author);
+		if (changed.changes === 0) {
+			// The author no longer has any messages.
+			db.prepare("DELETE FROM authors WHERE name = ?").run(author);
+		}
 	}
 
 	/**
@@ -930,8 +943,8 @@ export class ChatIndexerService {
 			logger.info("Embedding batch started", { count: messages.length });
 
 			const insertEmbedding = db.prepare(`
-				INSERT OR REPLACE INTO embeddings (message_id, vector)
-				VALUES (?, ?)
+				INSERT OR IGNORE INTO embeddings (message_id, vector, model, dimensions)
+				VALUES (?, ?, ?, ?)
 			`);
 
 			const batchSize = 100;
@@ -968,10 +981,18 @@ export class ChatIndexerService {
 					}
 				}
 
-				// Insert batch in a transaction
+				// Insert batch in a transaction. Use INSERT OR IGNORE so this CPU
+				// Ollama fallback never clobbers a provenance-tagged embedding the
+				// GPU sidecar wrote in the race window; the distinct model label
+				// keeps these rows out of the pgvector export.
 				const insertBatch = db.transaction(() => {
 					for (const emb of embeddings) {
-						insertEmbedding.run(emb.messageId, emb.vector);
+						insertEmbedding.run(
+							emb.messageId,
+							emb.vector,
+							config.embedModel,
+							emb.vector.length / 4,
+						);
 					}
 				});
 				insertBatch();

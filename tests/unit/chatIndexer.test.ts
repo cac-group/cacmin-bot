@@ -72,7 +72,8 @@ function createExplorerSchema(db: Database): void {
 			message_count INTEGER DEFAULT 0,
 			first_seen TEXT,
 			last_seen TEXT,
-			top_words TEXT
+			top_words TEXT,
+			top_words_refreshed_at TEXT
 		)
 	`);
 
@@ -647,8 +648,10 @@ describe("ChatIndexerService", () => {
 			)
 			.run();
 		setupDb
-			.prepare("UPDATE authors SET top_words = ? WHERE name = 'Editor'")
-			.run('["preserved"]');
+			.prepare(
+				"UPDATE authors SET top_words = ?, top_words_refreshed_at = ? WHERE name = 'Editor'",
+			)
+			.run('["preserved"]', '2026-01-01T00:00:00.000Z');
 		setupDb
 			.prepare(
 				"INSERT INTO image_descriptions (message_id, description) VALUES (900, 'old')",
@@ -701,9 +704,11 @@ describe("ChatIndexerService", () => {
 		).toEqual({ message_count: 0 });
 		expect(
 			verifyDb
-				.prepare("SELECT top_words FROM authors WHERE name = 'Editor'")
+				.prepare(
+					"SELECT top_words, top_words_refreshed_at FROM authors WHERE name = 'Editor'",
+				)
 				.get(),
-		).toEqual({ top_words: '["preserved"]' });
+		).toEqual({ top_words: '["preserved"]', top_words_refreshed_at: null });
 		verifyDb.close();
 	});
 
