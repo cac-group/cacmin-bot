@@ -37,23 +37,25 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 	bot.command("sendsticker", async (ctx) => {
 		try {
 			const args = ctx.message?.text.split(" ").slice(1);
-			const _stickerName = args?.[0] || "first";
+			const stickerName = args?.[0] || "first";
 
-			// For now, send a message with the sticker pack link
-			// Once we have the file_id, we can send the actual sticker
-			await ctx.reply(
-				fmt`${bold("CACGifs Sticker Pack")}
+			const fileId =
+				STICKER_PACK.cacgifs[
+					stickerName as keyof typeof STICKER_PACK.cacgifs
+				];
 
-To send stickers from this pack, I need the sticker file_id.
+			if (!fileId) {
+				const available = Object.keys(STICKER_PACK.cacgifs);
+				return ctx.reply(
+					fmt`${bold("CACGifs Sticker Pack")}
 
-Pack link: https://t.me/addstickers/CACGifs
+Unknown sticker "${stickerName}". Available stickers: ${available.length > 0 ? available.map((name) => code(name)).join(", ") : "none"}.
 
-To get the file_id:
-1. Send me any sticker from this pack in a DM
-2. I will log the file_id
-3. Update the code with the file_id
-4. Then I can send stickers directly!`,
-			);
+Use ${code("/sendsticker first")} or ${code("/cac")} to send the first sticker.`,
+				);
+			}
+
+			await ctx.replyWithSticker(fileId);
 		} catch (error) {
 			logger.error("Error sending sticker", { error });
 			await ctx.reply("Failed to send sticker.");

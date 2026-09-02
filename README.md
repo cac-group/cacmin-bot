@@ -224,15 +224,15 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/deleteshared <account>` - Delete an empty shared account
 
 ### User Status and Visibility
-- `/mystatus` - View your role, warnings, jail state, and restrictions
+- `/mystatus` - View your role, warnings, jail status and bail, activity stats, and unpaid fines
 - `/jails` - View currently jailed users
 - `/violations` - View your violation history
 - `/viewwhitelist` - View whitelisted users
 - `/viewblacklist` - View blacklisted users
 - `/viewactions` - View active global restrictions
-- `/ratelimit` - View your 15-minute, 1-hour, and 24-hour character usage, including rollover capacity
+- `/ratelimit [user]` - View your 15-minute, 1-hour, and 24-hour character usage, including rollover capacity (admins may pass a user to view another user's usage)
 - `/ratelimits` - Explain rate-limit windows, rollover, enforcement, and paid resets
-- `/ratelimitreset <15m|1h|24h>` - Purchase a JUNO reset for one usage window
+- `/ratelimitreset [user] <15m|1h|24h>` - Purchase a JUNO reset for one usage window
 - `/verifyratelimitreset <txhash>` - Verify a purchased rate-limit reset
 - `/listadmins` - View all elevated, admin, and owner users (`elevated+`)
 - `/jailstats [@user|userId]` - View active jail info or a specific user's jail history (`elevated+`)
@@ -258,7 +258,7 @@ the selected window.
 
 ### Stickers
 - `/cac` - Send the first sticker from the CACGifs pack
-- `/sendsticker [name]` - Send a named sticker from the pack
+- `/sendsticker [name]` - Send a sticker from the CACGifs pack by name (currently only `first` is configured; `/sendsticker first` matches `/cac`)
 - `/getsticker` - Reply to a sticker to get its `file_id`
 
 ### Giveaways and Games
@@ -308,7 +308,7 @@ the selected window.
 - `/treasury` - View treasury and ledger status (`owner`)
 - `/walletstats` - View wallet and reconciliation stats (`owner`)
 - `/reconcile` - Force a reconciliation check (`owner`)
-- `/adjustbalance <amount> <debit|credit> [reason]` - Correct internal ledger drift (`owner`)
+- `/adjustbalance <amount> <debit|credit> [reason]` - Correct ledger discrepancies by adjusting the bot treasury balance (`owner`)
 
 ### Roles and Ownership
 - `/setowner` - Register yourself as owner if your Telegram ID is already configured in `OWNER_ID/OWNER_IDs`

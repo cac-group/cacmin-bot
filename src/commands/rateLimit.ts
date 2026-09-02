@@ -66,7 +66,7 @@ export function registerRateLimitCommands(bot: Telegraf<Context>): void {
 
 Each configured user has a character budget for 15 minutes, 1 hour, and 24 hours. The 1-hour limit is 2x the 15-minute base; the 24-hour limit is 4x the hourly limit.
 
-Unused capacity rolls into only the next matching window and never compounds. Emoji count as 2 characters, stickers as 5, and a shared image as 25.
+Unused capacity rolls into only the next matching window and never compounds. Emoji count as 2 characters, stickers as 5, and a shared image or file as 25.
 
 If a message would exceed any active window, it is deleted and the user is muted until the limiting window resets. Use ${code("/ratelimit")} to view usage. Paid resets are available with ${code("/ratelimitreset 15m|1h|24h")}.`,
 		);
@@ -112,7 +112,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 				`1-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["1h"]} characters\n` +
 				`24-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["24h"]} characters\n\n` +
 				"Rollover: one unused previous window; rollover does not compound.\n" +
-				"Emoji count as 2 characters; stickers count as 5; a shared image counts as 25.\n" +
+				"Emoji count as 2 characters; stickers count as 5; a shared image or file counts as 25.\n" +
 				"Changing an existing limit resets that user's accumulated counts.",
 		);
 	});
