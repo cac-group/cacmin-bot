@@ -95,7 +95,7 @@ export class RateLimitService {
 		});
 	}
 
-	/** Count plain text, emoji, and sticker content using the bot's policy weights. */
+	/** Count plain text, emoji, sticker, and shared-image content using the bot's policy weights. */
 	static countMessageCharacters(message: any): number {
 		const text: string = message?.text || message?.caption || "";
 		const textCharacters = Array.from(text).reduce<number>(
@@ -103,7 +103,8 @@ export class RateLimitService {
 				total + (/\p{Extended_Pictographic}/u.test(character) ? 2 : 1),
 			0,
 		);
-		return textCharacters + (message?.sticker ? 5 : 0);
+		const sharedImage = message?.photo || message?.document ? 25 : 0;
+		return textCharacters + (message?.sticker ? 5 : 0) + sharedImage;
 	}
 
 	/** Remove a user's rate limit configuration and active rate-limit state. */

@@ -24,4 +24,12 @@ describe("RateLimitService", () => {
 		expect(RateLimitService.countMessageCharacters({ text: "a😀" })).toBe(3);
 		expect(RateLimitService.countMessageCharacters({ sticker: {} })).toBe(5);
 	});
+
+	it("counts a shared image as twenty-five characters", () => {
+		expect(RateLimitService.countMessageCharacters({ photo: {} })).toBe(25);
+		expect(RateLimitService.countMessageCharacters({ document: {} })).toBe(25);
+		expect(
+			RateLimitService.countMessageCharacters({ photo: {}, caption: "a😀" }),
+		).toBe(28);
+	});
 });
