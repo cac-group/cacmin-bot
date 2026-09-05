@@ -157,9 +157,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 			const name = row.username ? `@${row.username}` : `(${row.user_id})`;
 			return `${name}: ${remaining}`;
 		});
-		const valid = lines.filter(
-			(line): line is string => line !== null,
-		);
+		const valid = lines.filter((line): line is string => line !== null);
 		if (valid.length === 0)
 			return ctx.reply("No users currently have a rate limit configured.");
 		const resets = windows
