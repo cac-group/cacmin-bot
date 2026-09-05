@@ -18,6 +18,57 @@ interface TrackedResponse {
 
 const recentResponses = new Map<string, TrackedResponse>();
 
+function responseKey(chatId: number, userId: number, eventKey: string): string {
+	return `${chatId}:${userId}:${eventKey}`;
+}
+
+/**
+ * Remove a recent response before sending its replacement.
+ *
+ * @param telegram - Telegram instance for API calls
+ * @param chatId - Chat containing the response
+ * @param userId - User addressed by the response
+ * @param eventKey - Command or event identity
+ */
+export async function prepareResponse(
+	telegram: Telegram,
+	chatId: number,
+	userId: number,
+	eventKey: string,
+): Promise<void> {
+	const key = responseKey(chatId, userId, eventKey);
+	const previous = recentResponses.get(key);
+	if (!previous || Date.now() - previous.sentAt > DEDUPE_WINDOW_MS) return;
+
+	try {
+		await telegram.deleteMessage(previous.chatId, previous.messageId);
+	} catch {
+		// If deletion fails, the old message is likely no longer prominent.
+	}
+	recentResponses.delete(key);
+}
+
+/**
+ * Record a newly sent response for later duplicate suppression.
+ *
+ * @param chatId - Chat containing the response
+ * @param userId - User addressed by the response
+ * @param eventKey - Command or event identity
+ * @param messageId - New bot response message ID
+ */
+export function recordResponse(
+	chatId: number,
+	userId: number,
+	eventKey: string,
+	messageId: number,
+): void {
+	recentResponses.set(responseKey(chatId, userId, eventKey), {
+		chatId,
+		messageId,
+		sentAt: Date.now(),
+	});
+}
+
 /**
  * Delete the previous response for an event when it is repeated shortly after.
  * @param telegram - Telegram instance for API calls
@@ -33,19 +84,8 @@ export async function dedupeResponse(
 	eventKey: string,
 	messageId: number,
 ): Promise<void> {
-	const key = `${chatId}:${userId}:${eventKey}`;
-	const previous = recentResponses.get(key);
-	const now = Date.now();
-
-	if (previous && now - previous.sentAt <= DEDUPE_WINDOW_MS) {
-		try {
-			await telegram.deleteMessage(previous.chatId, previous.messageId);
-		} catch {
-			// The previous response may already be gone or too old to delete.
-		}
-	}
-
-	recentResponses.set(key, { chatId, messageId, sentAt: now });
+	await prepareResponse(telegram, chatId, userId, eventKey);
+	recordResponse(chatId, userId, eventKey, messageId);
 }
 
 /**
