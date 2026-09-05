@@ -1,59 +1,9 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { execute } from "../../src/database";
 import {
 	calculateRolloverCapacity,
 	RateLimitService,
 } from "../../src/services/rateLimitService";
-
-beforeAll(() => {
-	// Create the tables the service needs so the test is independent of the
-	// shared database schema state (a fresh CI checkout has none).
-	execute(`
-		CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY,
-			username TEXT,
-			role TEXT DEFAULT 'pleb',
-			whitelist INTEGER DEFAULT 0,
-			blacklist INTEGER DEFAULT 0,
-			warning_count INTEGER DEFAULT 0,
-			muted_until INTEGER,
-			created_at INTEGER DEFAULT (strftime('%s', 'now')),
-			updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-		)
-	`);
-	execute(`
-		CREATE TABLE IF NOT EXISTS user_rate_limits (
-			user_id INTEGER PRIMARY KEY,
-			limit_15m INTEGER NOT NULL,
-			limit_1h INTEGER NOT NULL,
-			limit_24h INTEGER NOT NULL,
-			created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-			updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)
-	`);
-	execute(`
-		CREATE TABLE IF NOT EXISTS user_rate_limit_usage (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			message_id INTEGER NOT NULL,
-			characters INTEGER NOT NULL CHECK (characters >= 0),
-			created_at INTEGER NOT NULL,
-			UNIQUE (user_id, message_id),
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)
-	`);
-	execute(`
-		CREATE TABLE IF NOT EXISTS user_rate_limit_mutes (
-			user_id INTEGER PRIMARY KEY,
-			muted_until INTEGER NOT NULL,
-			limiting_window TEXT NOT NULL,
-			permission_snapshot TEXT NOT NULL,
-			created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)
-	`);
-});
 
 describe("RateLimitService", () => {
 	it("calculates one-period rollover without compounding", () => {
