@@ -12,6 +12,7 @@ import { RateLimitService } from "../services/rateLimitService";
 import { RestrictionService } from "../services/restrictionService";
 import { ensureUserExists } from "../services/userService";
 import type { User } from "../types";
+import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
 
 function formatRateLimitDuration(seconds: number): string {
@@ -161,8 +162,21 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 						error,
 					});
 				}
-				await ctx.reply(
+				const responseKey = "rate-limit-warning";
+				await prepareResponse(
+					ctx.telegram,
+					ctx.chat?.id as number,
+					ctx.from.id,
+					responseKey,
+				);
+				const response = await ctx.reply(
 					`Oops! You don't have enough tendie points to send that message right now, @${ctx.from.username || ctx.from.first_name}. Try again in ${formatRateLimitDuration(Math.max(1, until - now))}.\nRate limit status: ${windows}`,
+				);
+				recordResponse(
+					ctx.chat?.id as number,
+					ctx.from.id,
+					responseKey,
+					response.message_id,
 				);
 				return;
 			}

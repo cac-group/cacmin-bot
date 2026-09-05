@@ -23,12 +23,8 @@ export default defineConfig({
 				statements: 4
 			}
 		},
-		// Run tests serially to avoid database conflicts
-		pool: 'forks',
-		poolOptions: {
-			forks: {
-				singleFork: true
-			}
-		}
+		// Run test files serially to avoid database conflicts.
+		fileParallelism: false,
+		pool: 'forks'
 	}
 });

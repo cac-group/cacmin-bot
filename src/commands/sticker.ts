@@ -40,9 +40,7 @@ export function registerStickerCommands(bot: Telegraf<Context>): void {
 			const stickerName = args?.[0] || "first";
 
 			const fileId =
-				STICKER_PACK.cacgifs[
-					stickerName as keyof typeof STICKER_PACK.cacgifs
-				];
+				STICKER_PACK.cacgifs[stickerName as keyof typeof STICKER_PACK.cacgifs];
 
 			if (!fileId) {
 				const available = Object.keys(STICKER_PACK.cacgifs);

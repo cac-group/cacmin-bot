@@ -4,7 +4,7 @@ import { bold, code, fmt } from "telegraf/format";
 import type { Message } from "telegraf/typings/core/types/typegram";
 import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
-import { dedupeResponse } from "../utils/autoDelete";
+import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
 import {
 	getRandomDeleteProbability,
@@ -196,6 +196,9 @@ export class RestrictionService {
 		replyToMessageId?: number,
 	): Promise<void> {
 		if (!ctx.from || !ctx.chat) return;
+		const responseText = typeof message === "string" ? message : message.text;
+		const eventKey = `restriction:${restriction}:${responseText}`;
+		await prepareResponse(ctx.telegram, ctx.chat.id, ctx.from.id, eventKey);
 
 		// Send new response, replying to violating message if provided
 		const sentMessage = replyToMessageId
@@ -203,13 +206,7 @@ export class RestrictionService {
 					reply_parameters: { message_id: replyToMessageId },
 				})
 			: await ctx.reply(message);
-		await dedupeResponse(
-			ctx.telegram,
-			ctx.chat.id,
-			ctx.from.id,
-			`restriction:${restriction}`,
-			sentMessage.message_id,
-		);
+		recordResponse(ctx.chat.id, ctx.from.id, eventKey, sentMessage.message_id);
 	}
 
 	/**

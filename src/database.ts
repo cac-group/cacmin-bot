@@ -6,6 +6,8 @@
  * @module database
  */
 
+import * as fs from "fs";
+import * as path from "path";
 import { config } from "./config";
 import { runMigrations } from "./migrations";
 import { type Changes, Database } from "./sqlite";
@@ -15,6 +17,10 @@ import { logger } from "./utils/logger";
  * SQLite database instance.
  * Configured with foreign key enforcement enabled.
  */
+const databaseDirectory = path.dirname(config.databasePath);
+if (databaseDirectory && !fs.existsSync(databaseDirectory)) {
+	fs.mkdirSync(databaseDirectory, { recursive: true });
+}
 const db = new Database(config.databasePath);
 
 // Enable foreign keys for referential integrity
