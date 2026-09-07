@@ -702,6 +702,8 @@ export class UnifiedWalletService {
 			);
 
 			logger.info("Deposit processed successfully", {
+				tag: "transaction",
+				subtag: "deposit",
 				userId: targetUserId,
 				amount: deposit.amount,
 				txHash: deposit.txHash,
@@ -998,6 +1000,8 @@ export class UnifiedWalletService {
 			}
 
 			logger.info("Withdrawal completed", {
+				tag: "transaction",
+				subtag: "withdrawal",
 				userId,
 				toAddress,
 				amount,

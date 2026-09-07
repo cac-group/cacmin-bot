@@ -102,6 +102,8 @@ export class TransactionLockService {
 			);
 
 			logger.info("Withdrawal lock acquired", {
+				tag: "transaction",
+				subtag: "lock_acquire",
 				userId,
 				amount,
 				targetAddress,
@@ -336,6 +338,8 @@ export class TransactionLockService {
 		execute("DELETE FROM transaction_locks WHERE user_id = ?", [userId]);
 
 		logger.info("Withdrawal lock released", {
+			tag: "transaction",
+			subtag: "lock_release",
 			userId,
 			txHash,
 			forced: forceRelease,
@@ -599,6 +603,8 @@ export class TransactionLockService {
 
 		if (lock) {
 			logger.warn("Force unlocking user", {
+				tag: "admin",
+				subtag: "lock_force_unlock",
 				userId,
 				lockType: lock.lockType,
 				amount: lock.amount,

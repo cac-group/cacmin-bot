@@ -37,10 +37,13 @@ export const logPrivilegedCommands: MiddlewareFn<Context> = async (
 	) {
 		return next();
 	}
+	const command = commandName(ctx);
 	StructuredLogger.logSecurityEvent("Admin command executed", {
+		tag: "admin",
+		subtag: command?.slice(1) || "command",
 		grantedBy: userId,
 		actorUsername: ctx.from?.username,
-		command: commandName(ctx),
+		command,
 		args: text.slice(text.indexOf(" ") + 1),
 		chatType: ctx.chat?.type,
 		chatId: ctx.chat?.id,
@@ -141,6 +144,8 @@ export const ownerOnly: MiddlewareFn<Context> = (ctx, next) => {
 	}
 
 	StructuredLogger.logSecurityEvent("Denied owner-only command", {
+		tag: "admin",
+		subtag: "denied",
 		grantedBy: userId,
 		actorUsername: ctx.from?.username,
 		command: commandName(ctx),
@@ -184,6 +189,8 @@ export const adminOrHigher: MiddlewareFn<Context> = (ctx, next) => {
 	}
 
 	StructuredLogger.logSecurityEvent("Denied admin command", {
+		tag: "admin",
+		subtag: "denied",
 		grantedBy: userId,
 		actorUsername: ctx.from?.username,
 		command: commandName(ctx),
@@ -232,6 +239,8 @@ export const elevatedOrHigher: MiddlewareFn<Context> = (ctx, next) => {
 	}
 
 	StructuredLogger.logSecurityEvent("Denied elevated command", {
+		tag: "admin",
+		subtag: "denied",
 		grantedBy: userId,
 		actorUsername: ctx.from?.username,
 		command: commandName(ctx),

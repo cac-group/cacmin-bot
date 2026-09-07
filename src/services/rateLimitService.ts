@@ -93,6 +93,8 @@ export class RateLimitService {
 				]);
 			}
 			logger.info("Rate-limit config set", {
+				tag: "config",
+				subtag: "set_limits",
 				userId,
 				baseLimit,
 				limits: { "15m": next[0], "1h": next[1], "24h": next[2] },
@@ -124,7 +126,11 @@ export class RateLimitService {
 			execute("DELETE FROM user_rate_limits WHERE user_id = ?", [userId]);
 			execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [userId]);
 			execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
-			logger.info("Rate-limit config and state cleared", { userId });
+			logger.info("Rate-limit config and state cleared", {
+				tag: "config",
+				subtag: "clear_limits",
+				userId,
+			});
 		});
 	}
 
@@ -210,7 +216,11 @@ export class RateLimitService {
 		transaction(() => {
 			execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [userId]);
 			execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
-			logger.info("Rate-limit usage and mute cleared", { userId });
+			logger.info("Rate-limit usage and mute cleared", {
+				tag: "config",
+				subtag: "clear_usage",
+				userId,
+			});
 		});
 	}
 
@@ -226,7 +236,13 @@ export class RateLimitService {
 			"DELETE FROM user_rate_limit_usage WHERE user_id = ? AND created_at >= ?",
 			[userId, periodStart - seconds],
 		);
-		logger.info("Rate-limit window reset", { userId, window, periodStart });
+		logger.info("Rate-limit window reset", {
+			tag: "config",
+			subtag: "reset_window",
+			userId,
+			window,
+			periodStart,
+		});
 	}
 
 	/** Check whether a transaction hash has already been consumed by any payment flow. */
@@ -265,6 +281,8 @@ export class RateLimitService {
 			[userId, until, window, JSON.stringify(permissions)],
 		);
 		logger.warn("Rate-limit mute applied", {
+			tag: "moderation",
+			subtag: "mute_applied",
 			userId,
 			chatId,
 			until,
@@ -303,6 +321,8 @@ export class RateLimitService {
 					`Rate-limit mute expired for ${user?.username ? `@${user.username}` : `user ${mute.user_id}`}. ${user?.muted_until && user.muted_until > now ? "Your separate jail restriction is still active." : "Your previous group permissions have been restored."}`,
 				);
 				logger.info("Rate-limit mute expired, permissions restored", {
+					tag: "moderation",
+					subtag: "mute_expired",
 					userId: mute.user_id,
 					chatId,
 					window: mute.limiting_window,
@@ -348,7 +368,12 @@ export class RateLimitService {
 			chatId,
 			`Rate-limit mute removed for ${user?.username ? `@${user.username}` : `user ${userId}`}. Your previous group permissions have been restored.`,
 		);
-		logger.info("Rate-limit mute removed after reset", { userId, chatId });
+		logger.info("Rate-limit mute removed after reset", {
+			tag: "moderation",
+			subtag: "mute_removed",
+			userId,
+			chatId,
+		});
 		return true;
 	}
 

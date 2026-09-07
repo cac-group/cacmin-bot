@@ -28,15 +28,20 @@ if (!fs.existsSync(logDir)) {
 const logFormat = winston.format.combine(
 	winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
 	winston.format.errors({ stack: true }),
-	winston.format.printf(({ timestamp, level, message, ...meta }) => {
-		let msg = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
-		if (Object.keys(meta).length > 0 && meta.stack) {
-			msg += `\n${meta.stack}`;
-		} else if (Object.keys(meta).length > 0) {
-			msg += ` ${JSON.stringify(meta)}`;
-		}
-		return msg;
-	}),
+	winston.format.printf(
+		({ timestamp, level, message, tag, subtag, ...meta }) => {
+			let msg = `[${timestamp}] [${level.toUpperCase()}]`;
+			if (tag) msg += ` [${String(tag).toUpperCase()}]`;
+			if (subtag) msg += `[${String(subtag).toUpperCase()}]`;
+			msg += ` ${message}`;
+			if (Object.keys(meta).length > 0 && meta.stack) {
+				msg += `\n${meta.stack}`;
+			} else if (Object.keys(meta).length > 0) {
+				msg += ` ${JSON.stringify(meta)}`;
+			}
+			return msg;
+		},
+	),
 );
 
 /**
@@ -146,9 +151,13 @@ export interface LogContext {
 	/** Transaction hash */
 	txHash?: string;
 	/** Amount involved */
-	amount?: string;
+	amount?: string | number;
 	/** Operation type */
 	operation?: string;
+	/** Primary log category, rendered as [TAG] (e.g. admin, user, security, transaction, config, moderation, system). */
+	tag?: string;
+	/** Specific action type, rendered as [SUBTAG] after the tag (e.g. setratelimit, deposit, jail). */
+	subtag?: string;
 	/** Additional metadata */
 	[key: string]: unknown;
 }
@@ -175,7 +184,10 @@ export class StructuredLogger {
 	 * ```
 	 */
 	static logUserAction(action: string, context: LogContext): void {
-		logger.info(action, StructuredLogger.sanitizeContext(context));
+		logger.info(
+			action,
+			StructuredLogger.sanitizeContext({ tag: "user", ...context }),
+		);
 	}
 
 	/**
@@ -196,8 +208,8 @@ export class StructuredLogger {
 	 */
 	static logTransaction(event: string, context: LogContext): void {
 		logger.info(
-			`[TRANSACTION] ${event}`,
-			StructuredLogger.sanitizeContext(context),
+			event,
+			StructuredLogger.sanitizeContext({ tag: "transaction", ...context }),
 		);
 	}
 
@@ -219,8 +231,8 @@ export class StructuredLogger {
 	 */
 	static logSecurityEvent(event: string, context: LogContext): void {
 		logger.warn(
-			`[SECURITY] ${event}`,
-			StructuredLogger.sanitizeContext(context),
+			event,
+			StructuredLogger.sanitizeContext({ tag: "security", ...context }),
 		);
 	}
 

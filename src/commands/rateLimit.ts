@@ -108,6 +108,8 @@ If a message would exceed any active window, it is deleted and the user is muted
 			return ctx.reply("Admins and owners are immune to rate limits.");
 		RateLimitService.setLimits(target, limits[0]);
 		StructuredLogger.logSecurityEvent("Rate limit applied", {
+			tag: "admin",
+			subtag: "setratelimit",
 			grantedBy: ctx.from.id,
 			actorUsername: ctx.from.username,
 			targetUserId: target,
@@ -130,6 +132,8 @@ If a message would exceed any active window, it is deleted and the user is muted
 		if (!target) return ctx.reply("Usage: /clearratelimit <user>");
 		RateLimitService.clearLimits(target);
 		StructuredLogger.logSecurityEvent("Rate limit config cleared", {
+			tag: "admin",
+			subtag: "clearratelimit",
 			grantedBy: ctx.from.id,
 			actorUsername: ctx.from.username,
 			targetUserId: target,
@@ -145,6 +149,8 @@ If a message would exceed any active window, it is deleted and the user is muted
 			return ctx.reply("That user has no configured rate limit.");
 		RateLimitService.clearUsage(target);
 		StructuredLogger.logSecurityEvent("Rate limit usage and mute reset", {
+			tag: "admin",
+			subtag: "resetratelimit",
 			grantedBy: ctx.from.id,
 			actorUsername: ctx.from.username,
 			targetUserId: target,

@@ -1,6 +1,6 @@
 import { config } from "../config";
 import { execute, get, query, withTransaction } from "../database";
-import { logger } from "../utils/logger";
+import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
 // Transaction types
@@ -334,7 +334,8 @@ export class LedgerService {
 			// Convert back to JUNO for return
 			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
-			logger.info("Deposit processed", {
+			StructuredLogger.logTransaction("Deposit processed", {
+				subtag: "deposit",
 				userId,
 				amount,
 				amountMicro,
@@ -412,7 +413,8 @@ export class LedgerService {
 			const transactionId = result.transactionId;
 			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
-			logger.info("Withdrawal processed", {
+			StructuredLogger.logTransaction("Withdrawal processed", {
+				subtag: "withdrawal",
 				userId,
 				amount,
 				amountMicro,
@@ -474,7 +476,8 @@ export class LedgerService {
 
 			const newBalance = AmountPrecision.fromDbMicro(result.next);
 
-			logger.info("Fee processed", {
+			StructuredLogger.logTransaction("Fee processed", {
+				subtag: "fee",
 				userId,
 				amount,
 				amountMicro,
@@ -561,7 +564,8 @@ export class LedgerService {
 			const newFromBalance = AmountPrecision.fromDbMicro(newFromMicro);
 			const newToBalance = AmountPrecision.fromDbMicro(newToMicro);
 
-			logger.info("Internal transfer completed", {
+			StructuredLogger.logTransaction("Internal transfer completed", {
+				subtag: "transfer",
 				fromUserId,
 				toUserId,
 				amount,
@@ -637,7 +641,8 @@ export class LedgerService {
 
 			const newBalance = AmountPrecision.fromDbMicro(result.next);
 
-			logger.info("Fine processed", {
+			StructuredLogger.logTransaction("Fine processed", {
+				subtag: "fine",
 				userId,
 				amount,
 				newBalance,
@@ -700,7 +705,8 @@ export class LedgerService {
 
 			const newBalance = AmountPrecision.fromDbMicro(result.next);
 
-			logger.info("Bail processed", {
+			StructuredLogger.logTransaction("Bail processed", {
+				subtag: "bail",
 				paidByUserId,
 				bailedUserId,
 				amount,
@@ -757,7 +763,8 @@ export class LedgerService {
 
 			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
-			logger.info("Giveaway processed", {
+			StructuredLogger.logTransaction("Giveaway processed", {
+				subtag: "giveaway",
 				userId,
 				amount,
 				amountMicro,
@@ -1064,7 +1071,8 @@ export class LedgerService {
 			const currentBalance = AmountPrecision.fromDbMicro(currentMicro);
 			const newBalance = AmountPrecision.fromDbMicro(newMicro);
 
-			logger.info("Balance adjustment processed", {
+			StructuredLogger.logTransaction("Balance adjustment processed", {
+				subtag: "adjustment",
 				userId,
 				amount,
 				absAmountMicro,
