@@ -6,7 +6,49 @@ import { query } from "../database";
 import { LedgerService } from "../services/ledgerService";
 import { ensureUserExists, getUserRestrictions } from "../services/userService";
 import type { User } from "../types";
-import { logger } from "../utils/logger";
+import { logger, StructuredLogger } from "../utils/logger";
+
+/** Extract the leading "/command" (stripping @bot suffix) from a message, if any. */
+function commandName(ctx: Context): string | undefined {
+	const text =
+		ctx.message && "text" in ctx.message ? ctx.message.text : undefined;
+	if (!text || !text.startsWith("/")) return undefined;
+	return text.split(/\s+/)[0].split("@")[0];
+}
+
+/**
+ * Logs every command invoked by a privileged user (owner/admin/elevated).
+ * Central visibility for all admin actions, independent of whether the
+ * individual command handler logs anything itself.
+ */
+export const logPrivilegedCommands: MiddlewareFn<Context> = async (
+	ctx,
+	next,
+) => {
+	const userId = ctx.from?.id;
+	const text = ctx.message && "text" in ctx.message ? ctx.message.text : "";
+	if (!userId || !text.startsWith("/")) return next();
+	const user = query<User>("SELECT role FROM users WHERE id = ?", [userId])[0];
+	const role = user?.role || "";
+	if (
+		!["owner", "admin", "elevated"].includes(role) &&
+		!config.ownerIds.includes(userId) &&
+		!config.adminIds.includes(userId)
+	) {
+		return next();
+	}
+	StructuredLogger.logSecurityEvent("Admin command executed", {
+		grantedBy: userId,
+		actorUsername: ctx.from?.username,
+		command: commandName(ctx),
+		args: text.slice(text.indexOf(" ") + 1),
+		chatType: ctx.chat?.type,
+		chatId: ctx.chat?.id,
+		role,
+		operation: "admin_command",
+	});
+	return next();
+};
 
 /**
  * Middleware that ensures users exist in the database, initializes their wallet balance,
@@ -98,6 +140,15 @@ export const ownerOnly: MiddlewareFn<Context> = (ctx, next) => {
 		return next();
 	}
 
+	StructuredLogger.logSecurityEvent("Denied owner-only command", {
+		grantedBy: userId,
+		actorUsername: ctx.from?.username,
+		command: commandName(ctx),
+		role: user?.role,
+		chatType: ctx.chat?.type,
+		chatId: ctx.chat?.id,
+		operation: "denied_owner_command",
+	});
 	return ctx.reply("Only owners can use this command.");
 };
 
@@ -132,6 +183,15 @@ export const adminOrHigher: MiddlewareFn<Context> = (ctx, next) => {
 		return next();
 	}
 
+	StructuredLogger.logSecurityEvent("Denied admin command", {
+		grantedBy: userId,
+		actorUsername: ctx.from?.username,
+		command: commandName(ctx),
+		role: user?.role,
+		chatType: ctx.chat?.type,
+		chatId: ctx.chat?.id,
+		operation: "denied_admin_command",
+	});
 	return ctx.reply("You do not have permission to use this command.");
 };
 
@@ -171,6 +231,15 @@ export const elevatedOrHigher: MiddlewareFn<Context> = (ctx, next) => {
 		return next();
 	}
 
+	StructuredLogger.logSecurityEvent("Denied elevated command", {
+		grantedBy: userId,
+		actorUsername: ctx.from?.username,
+		command: commandName(ctx),
+		role: user?.role,
+		chatType: ctx.chat?.type,
+		chatId: ctx.chat?.id,
+		operation: "denied_elevated_command",
+	});
 	return ctx.reply("You do not have permission to use this command.");
 };
 

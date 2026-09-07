@@ -12,6 +12,7 @@ import {
 import { ensureUserExists, getUserById } from "../services/userService";
 import type { User } from "../types";
 import { rateLimitResetKeyboard } from "../utils/keyboards";
+import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
@@ -106,6 +107,13 @@ If a message would exceed any active window, it is deleted and the user is muted
 		if (["admin", "owner"].includes(targetUser.role))
 			return ctx.reply("Admins and owners are immune to rate limits.");
 		RateLimitService.setLimits(target, limits[0]);
+		StructuredLogger.logSecurityEvent("Rate limit applied", {
+			grantedBy: ctx.from.id,
+			actorUsername: ctx.from.username,
+			targetUserId: target,
+			baseLimit: limits[0],
+			operation: "set_rate_limit",
+		});
 		return ctx.reply(
 			`Rate limit applied to ${formatUserIdDisplay(target)}.\n\n` +
 				`15-minute limit: ${limits[0]} characters\n` +
@@ -121,6 +129,12 @@ If a message would exceed any active window, it is deleted and the user is muted
 		const target = resolveUserId(ctx.message?.text.split(/\s+/)[1] || "");
 		if (!target) return ctx.reply("Usage: /clearratelimit <user>");
 		RateLimitService.clearLimits(target);
+		StructuredLogger.logSecurityEvent("Rate limit config cleared", {
+			grantedBy: ctx.from.id,
+			actorUsername: ctx.from.username,
+			targetUserId: target,
+			operation: "clear_rate_limit",
+		});
 		return ctx.reply(`Rate limit cleared for ${formatUserIdDisplay(target)}.`);
 	});
 
@@ -130,6 +144,12 @@ If a message would exceed any active window, it is deleted and the user is muted
 		if (!RateLimitService.getStatus(target))
 			return ctx.reply("That user has no configured rate limit.");
 		RateLimitService.clearUsage(target);
+		StructuredLogger.logSecurityEvent("Rate limit usage and mute reset", {
+			grantedBy: ctx.from.id,
+			actorUsername: ctx.from.username,
+			targetUserId: target,
+			operation: "reset_rate_limit",
+		});
 		return ctx.reply(
 			`Accumulated rate-limit usage and mute cleared for ${formatUserIdDisplay(target)}.`,
 		);

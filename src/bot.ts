@@ -41,6 +41,7 @@ import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
 import { registerSpamReactHandlers } from "./handlers/spamReacts";
 import { registerViolationHandlers } from "./handlers/violations";
+import { logPrivilegedCommands } from "./middleware/index";
 import { messageFilterMiddleware } from "./middleware/messageFilter";
 import { ChatIndexerService } from "./services/chatIndexerService";
 import { ChatInteractionIndexerService } from "./services/chatInteractionIndexerService";
@@ -164,6 +165,9 @@ async function main() {
 
 		// Apply global middleware
 		bot.use(messageFilterMiddleware);
+
+		// Log every command executed by a privileged user (central admin audit trail)
+		bot.use(logPrivilegedCommands);
 
 		// Register command handlers
 		registerHelpCommand(bot);
