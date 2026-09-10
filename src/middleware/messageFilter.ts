@@ -163,12 +163,13 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 					});
 				}
 				const responseKey = "rate-limit-warning";
-				await prepareResponse(
+				const shouldSend = await prepareResponse(
 					ctx.telegram,
 					ctx.chat?.id as number,
 					ctx.from.id,
 					responseKey,
 				);
+				if (!shouldSend) return;
 				const response = await ctx.reply(
 					`Oops! You don't have enough tendie points to send that message right now, @${ctx.from.username || ctx.from.first_name}. Try again in ${formatRateLimitDuration(Math.max(1, until - now))}.\nRate limit status: ${windows}`,
 				);

@@ -25,27 +25,39 @@ function responseKey(chatId: number, userId: number, eventKey: string): string {
 /**
  * Remove a recent response before sending its replacement.
  *
+ * Claims the response slot synchronously and returns `false` when a fresh
+ * response is already visible or in flight, so concurrent handlers for the
+ * same key skip posting instead of piling up messages.
+ *
  * @param telegram - Telegram instance for API calls
  * @param chatId - Chat containing the response
  * @param userId - User addressed by the response
  * @param eventKey - Command or event identity
+ * @returns `false` when a recent response exists (caller should skip sending), `true` otherwise
  */
 export async function prepareResponse(
 	telegram: Telegram,
 	chatId: number,
 	userId: number,
 	eventKey: string,
-): Promise<void> {
+): Promise<boolean> {
 	const key = responseKey(chatId, userId, eventKey);
 	const previous = recentResponses.get(key);
-	if (!previous || Date.now() - previous.sentAt > DEDUPE_WINDOW_MS) return;
-
-	try {
-		await telegram.deleteMessage(previous.chatId, previous.messageId);
-	} catch {
-		// If deletion fails, the old message is likely no longer prominent.
+	// A response is already visible or being sent for this key.
+	if (previous && Date.now() - previous.sentAt <= DEDUPE_WINDOW_MS) {
+		// A messageId of 0 marks a slot claimed by an in-flight send.
+		if (previous.messageId === 0) return false;
 	}
-	recentResponses.delete(key);
+	// Claim the slot before any await so concurrent sends for this key are skipped.
+	recentResponses.set(key, { chatId, messageId: 0, sentAt: Date.now() });
+	if (previous && previous.messageId !== 0) {
+		try {
+			await telegram.deleteMessage(previous.chatId, previous.messageId);
+		} catch {
+			// If deletion fails, the old message is likely no longer prominent.
+		}
+	}
+	return true;
 }
 
 /**

@@ -198,7 +198,13 @@ export class RestrictionService {
 		if (!ctx.from || !ctx.chat) return;
 		const responseText = typeof message === "string" ? message : message.text;
 		const eventKey = `restriction:${restriction}:${responseText}`;
-		await prepareResponse(ctx.telegram, ctx.chat.id, ctx.from.id, eventKey);
+		const shouldSend = await prepareResponse(
+			ctx.telegram,
+			ctx.chat.id,
+			ctx.from.id,
+			eventKey,
+		);
+		if (!shouldSend) return;
 
 		// Send new response, replying to violating message if provided
 		const sentMessage = replyToMessageId
