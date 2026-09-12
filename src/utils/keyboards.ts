@@ -68,23 +68,6 @@ export const jailDurationKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
- * Giveaway slot count options (how many users can claim)
- */
-export const giveawaySlotKeyboard: InlineKeyboardMarkup = {
-	inline_keyboard: [
-		[
-			{ text: "10 slots", callback_data: "giveaway_slots_10" },
-			{ text: "25 slots", callback_data: "giveaway_slots_25" },
-		],
-		[
-			{ text: "50 slots", callback_data: "giveaway_slots_50" },
-			{ text: "100 slots", callback_data: "giveaway_slots_100" },
-		],
-		[{ text: "Cancel", callback_data: "cancel" }],
-	],
-};
-
-/**
  * Generate claim button for active giveaway
  */
 export function giveawayClaimKeyboard(
@@ -139,43 +122,6 @@ export const globalActionKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
- * Restriction duration presets
- */
-export const durationKeyboard: InlineKeyboardMarkup = {
-	inline_keyboard: [
-		[
-			{ text: "1 hour", callback_data: "duration_3600" },
-			{ text: "6 hours", callback_data: "duration_21600" },
-			{ text: "12 hours", callback_data: "duration_43200" },
-		],
-		[
-			{ text: "1 day", callback_data: "duration_86400" },
-			{ text: "3 days", callback_data: "duration_259200" },
-			{ text: "7 days", callback_data: "duration_604800" },
-		],
-		[
-			{ text: "30 days", callback_data: "duration_2592000" },
-			{ text: "Permanent", callback_data: "duration_permanent" },
-		],
-		[{ text: "Cancel", callback_data: "cancel" }],
-	],
-};
-
-/**
- * Yes/No confirmation keyboard
- */
-export function confirmationKeyboard(action: string): InlineKeyboardMarkup {
-	return {
-		inline_keyboard: [
-			[
-				{ text: "Confirm", callback_data: `confirm_${action}` },
-				{ text: "Cancel", callback_data: "cancel" },
-			],
-		],
-	};
-}
-
-/**
  * Role assignment keyboard
  */
 export const roleKeyboard: InlineKeyboardMarkup = {
@@ -211,18 +157,10 @@ export const listActionKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
- * Shared account permission levels
+ * Inline markup that removes any existing keyboard from an edited message.
+ * Pass explicitly when editing a menu to a state that has no buttons.
  */
-export const sharedPermissionKeyboard: InlineKeyboardMarkup = {
-	inline_keyboard: [
-		[
-			{ text: "View Only", callback_data: "perm_view" },
-			{ text: "Can Spend", callback_data: "perm_spend" },
-		],
-		[{ text: "Admin", callback_data: "perm_admin" }],
-		[{ text: "Cancel", callback_data: "cancel" }],
-	],
-};
+export const noKeyboard: InlineKeyboardMarkup = { inline_keyboard: [] };
 
 /**
  * Main menu keyboard for bot commands

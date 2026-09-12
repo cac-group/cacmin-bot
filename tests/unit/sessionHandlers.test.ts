@@ -28,6 +28,8 @@ vi.mock("../../src/database", () => ({
 // Mock the roles module
 vi.mock("../../src/utils/roles", () => ({
 	isImmuneToModeration: vi.fn((userId: number) => userId === 111111111),
+	isAdmin: vi.fn((userId: number) => userId === 222222222),
+	isOwner: vi.fn((userId: number) => userId === 111111111),
 	checkIsElevated: vi.fn((userId: number) => userId === 222222222),
 }));
 

@@ -12,6 +12,7 @@ import { execute, get } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware/index";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
+import { jailDurationKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
 import {
@@ -72,6 +73,15 @@ export function registerModerationCommands(bot: Telegraf<Context>): void {
 		const target = resolveTargetUser(ctx, args);
 
 		if (!target) {
+			if (args.length === 0) {
+				await ctx.reply(
+					fmt`${bold("Jail User")}
+
+Select a duration, then reply with the user to jail.`,
+					{ reply_markup: jailDurationKeyboard },
+				);
+				return;
+			}
 			await ctx.reply(
 				fmt`⚠️ ${bold("Usage:")}
 • Reply to a user: ${code('/jail <minutes> ["reason"]')}

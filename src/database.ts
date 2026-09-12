@@ -188,11 +188,19 @@ export const initDb = (): void => {
       whitelist INTEGER DEFAULT 0,
       blacklist INTEGER DEFAULT 0,
       warning_count INTEGER DEFAULT 0,
+      message_count INTEGER DEFAULT 0,
       muted_until INTEGER,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
       updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
   `);
+
+	// Add message_count to pre-existing users tables
+	try {
+		db.exec(`ALTER TABLE users ADD COLUMN message_count INTEGER DEFAULT 0`);
+	} catch (_e) {
+		// Column already exists, ignore
+	}
 
 	// NOTE: user_wallets table (from old HD wallet system) has been removed
 	// If migrating from an old database, that table may still exist with historical data

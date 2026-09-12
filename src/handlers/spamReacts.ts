@@ -11,7 +11,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
-import { bold, code, fmt } from "telegraf/format";
+import { bold, code, type FmtString, fmt } from "telegraf/format";
 import { execute, get, query } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware";
 import { spamReactFieldKeyboard } from "../utils/keyboards";
@@ -384,11 +384,13 @@ export async function addPattern(
 	pattern: string,
 	field: SpamReactField,
 	description?: string,
+	respond: (text: string | FmtString) => Promise<unknown> = (text) =>
+		ctx.reply(text),
 ): Promise<void> {
 	// Validate the pattern
 	const validation = validatePattern(pattern);
 	if (!validation.isValid || !validation.sanitized) {
-		await ctx.reply(`Invalid pattern: ${validation.error || "unknown"}`);
+		await respond(`Invalid pattern: ${validation.error || "unknown"}`);
 		return;
 	}
 
@@ -398,7 +400,7 @@ export async function addPattern(
 	try {
 		compileSafeRegex(sanitized);
 	} catch (error) {
-		await ctx.reply(
+		await respond(
 			`Pattern compilation failed: ${error instanceof Error ? error.message : "unknown"}`,
 		);
 		return;
@@ -410,7 +412,7 @@ export async function addPattern(
 		[sanitized],
 	);
 	if (existing) {
-		await ctx.reply(
+		await respond(
 			fmt`Pattern already exists as #${existing.id} [${existing.match_field}].`,
 		);
 		return;
@@ -437,7 +439,7 @@ export async function addPattern(
 		description,
 	});
 
-	await ctx.reply(
+	await respond(
 		fmt`Spam react pattern added (#${inserted?.id || "?"}).
 Pattern: ${code(sanitized)}
 Field: ${field}${description ? `\nDescription: ${description}` : ""}

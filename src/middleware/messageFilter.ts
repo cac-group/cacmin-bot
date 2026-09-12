@@ -6,11 +6,17 @@
  */
 
 import type { Context, MiddlewareFn } from "telegraf";
+import { config } from "../config";
 import { get } from "../database";
 import { ChatIndexerService } from "../services/chatIndexerService";
+import { JailService } from "../services/jailService";
 import { RateLimitService } from "../services/rateLimitService";
 import { RestrictionService } from "../services/restrictionService";
-import { ensureUserExists } from "../services/userService";
+import * as SpamLimiterService from "../services/spamLimiterService";
+import {
+	ensureUserExists,
+	incrementMessageCount,
+} from "../services/userService";
 import type { User } from "../types";
 import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
@@ -95,6 +101,12 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		// Check if user is muted - ONLY apply in group chats, not DMs
 		const isGroupChat =
 			ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
+
+		// Track lifetime group messages for new-user classification
+		if (isGroupChat) {
+			incrementMessageCount(ctx.from.id);
+		}
+
 		if (
 			isGroupChat &&
 			user?.muted_until &&
@@ -126,6 +138,70 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		if (isGroupChat && rateMute && rateMute.muted_until > Date.now() / 1000) {
 			await ctx.deleteMessage().catch(() => {});
 			return;
+		}
+
+		// Flood limiter: delete the burst and jail the sender. Elevated users
+		// (owners/admins already returned above) are never jailed. No chat
+		// message is sent; only the offending messages are removed.
+		if (isGroupChat && user?.role !== "elevated") {
+			const floodUserId = ctx.from.id;
+			const burst = SpamLimiterService.recordMessage(
+				floodUserId,
+				ctx.chat?.id as number,
+				msg.message_id,
+				config.spamLimit,
+			);
+			if (burst) {
+				const chatId = ctx.chat?.id as number;
+				await Promise.all(
+					burst.messageIds.map((messageId) =>
+						ctx.telegram.deleteMessage(chatId, messageId).catch(() => {}),
+					),
+				);
+
+				const until =
+					Math.floor(Date.now() / 1000) + config.spamLimit.jailMinutes * 60;
+				JailService.jailUser({
+					userId: floodUserId,
+					durationMinutes: config.spamLimit.jailMinutes,
+					metadata: { reason: "message_flood" },
+				});
+				await ctx.telegram
+					.restrictChatMember(chatId, floodUserId, {
+						permissions: {
+							can_send_messages: false,
+							can_send_audios: false,
+							can_send_documents: false,
+							can_send_photos: false,
+							can_send_videos: false,
+							can_send_video_notes: false,
+							can_send_voice_notes: false,
+							can_send_polls: false,
+							can_send_other_messages: false,
+							can_add_web_page_previews: false,
+							can_change_info: false,
+							can_invite_users: false,
+							can_pin_messages: false,
+							can_manage_topics: false,
+						},
+						until_date: until,
+					})
+					.catch((error) =>
+						logger.error("Failed to restrict flooding user", {
+							userId: floodUserId,
+							chatId,
+							error,
+						}),
+					);
+
+				logger.warn("Flood limiter jailed user", {
+					userId: floodUserId,
+					chatId,
+					deleted: burst.messageIds.length,
+					jailMinutes: config.spamLimit.jailMinutes,
+				});
+				return; // Do not process the flooding message further
+			}
 		}
 
 		if (isGroupChat) {

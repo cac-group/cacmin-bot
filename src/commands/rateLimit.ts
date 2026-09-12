@@ -11,7 +11,7 @@ import {
 } from "../services/rateLimitService";
 import { ensureUserExists, getUserById } from "../services/userService";
 import type { User } from "../types";
-import { rateLimitResetKeyboard } from "../utils/keyboards";
+import { noKeyboard, rateLimitResetKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
@@ -238,13 +238,17 @@ If a message would exceed any active window, it is deleted and the user is muted
 		if (!payer || !window) return;
 		await ctx.answerCbQuery();
 		if (!RateLimitService.getStatus(payer)) {
-			await ctx.editMessageText("You have no configured rate limit.");
+			await ctx.editMessageText("You have no configured rate limit.", {
+				reply_markup: noKeyboard,
+			});
 			return;
 		}
 		const fee = config.rateLimitResetFees[window];
 		ensureUserExists(payer, ctx.from.username || `user_${payer}`);
-		const message = await ctx.reply(
+		const instructionMessageId = ctx.callbackQuery?.message?.message_id ?? null;
+		await ctx.editMessageText(
 			fmt`${bold(`Reset ${windowText(window)} rate-limit usage`)}\n\nSend exactly ${fee.toFixed(6)} JUNO to:\n${code(JunoService.getPaymentAddress())}\n\nThen reply to this message with the transaction hash, or send the hash in a DM.`,
+			{ reply_markup: noKeyboard },
 		);
 		execute(
 			"INSERT INTO rate_limit_reset_payments (payer_user_id, target_user_id, window, amount_micro, instruction_chat_id, instruction_message_id) VALUES (?, ?, ?, ?, ?, ?)",
@@ -254,7 +258,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 				window,
 				RateLimitService.feeMicro(window),
 				ctx.chat?.id || null,
-				message.message_id,
+				instructionMessageId,
 			],
 		);
 	});

@@ -123,6 +123,18 @@ interface Config {
 
 	/** JUNO fees for clearing each message rate-limit window */
 	rateLimitResetFees: { "15m": number; "1h": number; "24h": number };
+
+	/** Group flood limiter settings (delete recent burst and jail the sender) */
+	spamLimit: {
+		/** Messages allowed within the window before enforcement (0 disables) */
+		maxMessages: number;
+		/** Sliding window length in milliseconds */
+		windowMs: number;
+		/** Number of the sender's most recent messages to delete on a burst */
+		deleteCount: number;
+		/** Jail duration in minutes */
+		jailMinutes: number;
+	};
 }
 
 function parseNonNegativeInteger(
@@ -254,6 +266,18 @@ export const config: Config = {
 		"15m": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_15M, 1),
 		"1h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_1H, 3),
 		"24h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_24H, 10),
+	},
+	spamLimit: {
+		maxMessages: parseNonNegativeInteger(
+			process.env.SPAM_LIMIT_MAX_MESSAGES,
+			5,
+		),
+		windowMs: parseNonNegativeInteger(process.env.SPAM_LIMIT_WINDOW_MS, 5000),
+		deleteCount: parseNonNegativeInteger(
+			process.env.SPAM_LIMIT_DELETE_COUNT,
+			5,
+		),
+		jailMinutes: parsePositiveNumber(process.env.SPAM_LIMIT_JAIL_MINUTES, 5),
 	},
 };
 

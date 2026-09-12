@@ -7,6 +7,7 @@ export interface User {
 	blacklist: boolean; // Blocked from group
 	role: "owner" | "admin" | "elevated" | "pleb";
 	warning_count: number;
+	message_count: number; // Lifetime group messages, used to identify new users
 	muted_until?: number; // Unix timestamp
 	created_at: number;
 	updated_at: number;

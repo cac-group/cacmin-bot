@@ -42,6 +42,7 @@ export function initTestDatabase(): Database {
       whitelist INTEGER DEFAULT 0,
       blacklist INTEGER DEFAULT 0,
       warning_count INTEGER DEFAULT 0,
+      message_count INTEGER DEFAULT 0,
       muted_until INTEGER,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
       updated_at INTEGER DEFAULT (strftime('%s', 'now'))

@@ -63,6 +63,17 @@ export function parentHelpKey(key: string): string | null {
 /** The role-gated, categorized help tree. */
 export const helpTree: readonly HelpNode[] = [
 	{
+		key: "menu",
+		title: "Main Menu",
+		roles: ALL_ROLES,
+		content: fmt([
+			bold("Main Menu"),
+			"\n\n",
+			"/menu\n",
+			"  Open the button menu for Wallet, Shared Accounts, Moderation, Lists, Roles, Statistics, and Help.\n",
+		]),
+	},
+	{
 		key: "wallet",
 		title: "Wallet",
 		roles: ALL_ROLES,

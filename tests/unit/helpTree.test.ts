@@ -78,6 +78,7 @@ describe("helpTree structure", () => {
 				.map((node) => node.key);
 
 		expect(visibleTopLevel("pleb")).toEqual([
+			"menu",
 			"wallet",
 			"shared",
 			"user",
@@ -89,6 +90,7 @@ describe("helpTree structure", () => {
 		expect(visibleTopLevel("elevated")).not.toContain("owner");
 		expect(visibleTopLevel("admin")).not.toContain("owner");
 		expect(visibleTopLevel("owner")).toEqual([
+			"menu",
 			"wallet",
 			"shared",
 			"user",

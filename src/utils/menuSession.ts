@@ -7,6 +7,8 @@
  */
 
 import type { Context } from "telegraf";
+import type { FmtString } from "telegraf/format";
+import type { InlineKeyboardMarkup } from "telegraf/types";
 
 export interface MenuSession {
 	userId: number;
@@ -15,6 +17,48 @@ export interface MenuSession {
 	menuType: string;
 	createdAt: number;
 	expiresAt: number;
+}
+
+/** Reference to the single message that drives an interactive flow. */
+export interface MenuRef {
+	chatId: number;
+	messageId: number;
+}
+
+/** Capture the originating menu message from a callback context. */
+export function menuRefFromContext(ctx: Context): MenuRef | null {
+	const chatId = ctx.chat?.id;
+	const messageId = ctx.callbackQuery?.message?.message_id;
+	return chatId && messageId ? { chatId, messageId } : null;
+}
+
+/**
+ * Render a flow step into its originating menu message. The keyboard is
+ * removed unless an explicit replacement is supplied, so a flow never leaves
+ * stale buttons behind. Falls back to a fresh reply when the menu message is
+ * gone or the update did not originate from a button.
+ */
+export async function editMenu(
+	ctx: Context,
+	ref: MenuRef | null | undefined,
+	text: string | FmtString,
+	replyMarkup: InlineKeyboardMarkup = { inline_keyboard: [] },
+): Promise<void> {
+	if (ref) {
+		try {
+			await ctx.telegram.editMessageText(
+				ref.chatId,
+				ref.messageId,
+				undefined,
+				text,
+				{ reply_markup: replyMarkup },
+			);
+			return;
+		} catch {
+			// Menu message may have been deleted or is too old.
+		}
+	}
+	await ctx.reply(text);
 }
 
 // Menu expiry time in milliseconds (30 seconds)

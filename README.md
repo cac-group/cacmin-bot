@@ -188,6 +188,7 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 
 ### Core Help
 - `/help` - Open the DM help menu
+- `/menu` - Open the DM button menu (Wallet, Shared Accounts, Moderation, Lists, Roles, Statistics, Help)
 - `/wallethelp` - Show detailed wallet and treasury help
 
 ### Wallet and Deposits (All Users unless noted)

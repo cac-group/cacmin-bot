@@ -7,9 +7,11 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { bold, fmt } from "telegraf/format";
 import { execute, query } from "../database";
 import { adminOrHigher } from "../middleware";
 import type { GlobalAction } from "../types";
+import { globalActionKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 
 /**
@@ -87,7 +89,12 @@ export const registerActionHandlers = (bot: Telegraf<Context>) => {
 			ctx.message?.text.split(" ").slice(1) || [];
 
 		if (!restriction) {
-			return ctx.reply("Usage: /addaction <restriction> [restrictedAction]");
+			return ctx.reply(
+				fmt`${bold("Add Global Action")}
+
+Select a restriction to apply to all non-elevated users:`,
+				{ reply_markup: globalActionKeyboard },
+			);
 		}
 
 		try {

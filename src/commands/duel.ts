@@ -16,6 +16,7 @@ import {
 } from "../services/duelService";
 import { LedgerService } from "../services/ledgerService";
 import { ensureUserExists } from "../services/userService";
+import { noKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import {
 	cleanupMenuByMessage,
@@ -400,6 +401,7 @@ ${historyLines.join("\n\n")}`,
 					fmt`${bold("Duel Cancelled")}
 
 The duel challenge has been cancelled by the challenger.`,
+					{ reply_markup: noKeyboard },
 				);
 			} catch {
 				// Message may have been deleted or too old
@@ -465,7 +467,9 @@ function registerDuelCallbacks(bot: Telegraf<Context>): void {
 		);
 
 		if (!result.success || !result.duel) {
-			await ctx.editMessageText(result.error || "Failed to create duel.");
+			await ctx.editMessageText(result.error || "Failed to create duel.", {
+				reply_markup: noKeyboard,
+			});
 			return;
 		}
 
@@ -546,6 +550,7 @@ This challenge expires in 5 minutes.`,
 					fmt`${bold("Duel Failed")}
 
 ${result.error || "An error occurred."}`,
+					{ reply_markup: noKeyboard },
 				);
 			} catch {
 				// Message may have been deleted
@@ -574,6 +579,7 @@ ${bold(formatUserIdDisplay(duel.opponentId))} rolled: ${code(result.opponentRoll
 
 ${bold("Winner:")} ${formatUserIdDisplay(duel.winnerId || 0)}
 ${bold("Net Winnings:")} ${code(AmountPrecision.format(duel.wagerAmount))} JUNO${consequenceText}`,
+			{ reply_markup: noKeyboard },
 		);
 
 		// Notify the challenger if they weren't the one who clicked
@@ -616,6 +622,7 @@ You ${challengerWon ? "won" : "lost"} ${AmountPrecision.format(duel.wagerAmount)
 ${bold(formatUserIdDisplay(userId))} declined the duel challenge.
 
 No funds were exchanged.`,
+			{ reply_markup: noKeyboard },
 		);
 
 		// Notify the challenger
@@ -652,6 +659,7 @@ No funds were exchanged.`,
 			fmt`${bold("Duel Cancelled")}
 
 The duel challenge has been cancelled by the challenger.`,
+			{ reply_markup: noKeyboard },
 		);
 
 		// Try to update the challenge message too
@@ -664,6 +672,7 @@ The duel challenge has been cancelled by the challenger.`,
 					fmt`${bold("Duel Cancelled")}
 
 This challenge was cancelled by ${formatUserIdDisplay(userId)}.`,
+					{ reply_markup: noKeyboard },
 				);
 			} catch {
 				// Message may have been deleted or too old

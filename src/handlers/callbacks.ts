@@ -6,8 +6,8 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
-import { bold, code, fmt } from "telegraf/format";
-import type { CallbackQuery } from "telegraf/types";
+import { bold, code, type FmtString, fmt } from "telegraf/format";
+import type { CallbackQuery, InlineKeyboardMarkup } from "telegraf/types";
 import { execute, get } from "../database";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { LedgerService } from "../services/ledgerService";
@@ -23,18 +23,24 @@ import {
 import {
 	autoJailKeyboard,
 	giveawayClaimKeyboard,
+	listActionKeyboard,
 	mainMenuKeyboard,
+	noKeyboard,
+	roleKeyboard,
 	severityKeyboard,
 } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import {
 	cleanupMenuByMessage,
+	editMenu,
 	getMenuSessionByMessage,
+	type MenuRef,
+	menuRefFromContext,
 	validateMenuInteraction,
 } from "../utils/menuSession";
 import { AmountPrecision } from "../utils/precision";
 import { normalizeRandomDeleteChance } from "../utils/randomDelete";
-import { checkIsElevated, isImmuneToModeration } from "../utils/roles";
+import { isAdmin, isImmuneToModeration, isOwner } from "../utils/roles";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 import { addPattern, type SpamReactField } from "./spamReacts";
 
@@ -114,11 +120,42 @@ export function clearSession(userId: number): void {
 }
 
 /**
- * Verify user still has admin or higher role.
- * Used in session handlers since role could change between session creation and execution.
+ * Attach the originating menu message to new session data so later steps can
+ * render into it instead of sending follow-up messages.
+ */
+function withMenuRef(
+	ctx: Context,
+	data: Record<string, any> = {},
+): Record<string, any> {
+	const ref = menuRefFromContext(ctx);
+	if (ref) data.menuRef = ref;
+	return data;
+}
+
+/**
+ * Render a terminal result into the flow's originating menu message,
+ * falling back to a reply if there was no menu (e.g. a text-initiated step).
+ */
+async function finishMenu(
+	ctx: Context,
+	session: SessionData | null,
+	text: string | FmtString,
+): Promise<void> {
+	await editMenu(ctx, session?.data?.menuRef as MenuRef | undefined, text);
+}
+
+/**
+ * Verify user still has admin or owner role. Used in session handlers since a
+ * role could change between session creation and execution. Mirrors the
+ * `adminOrHigher` middleware used by the originating commands.
  */
 function verifyAdminRole(userId: number): boolean {
-	return checkIsElevated(userId);
+	return isAdmin(userId) || isOwner(userId);
+}
+
+/** Verify user still has owner role (owner-only interactive flows). */
+function verifyOwner(userId: number): boolean {
+	return isOwner(userId);
 }
 
 /**
@@ -139,18 +176,13 @@ const callbackHandlers: Array<{ prefix: string; handler: CallbackHandler }> = [
 	{ prefix: "severity_", handler: handleSeverityCallback },
 	{ prefix: "autojail_", handler: handleAutoJailCallback },
 	{ prefix: "jail_", handler: handleJailCallback },
-	{ prefix: "duration_", handler: handleDurationCallback },
 	{ prefix: "giveaway_fund_", handler: handleGiveawayFundCallback },
 	{ prefix: "giveaway_create_", handler: handleGiveawayCreateCallback },
 	{ prefix: "claim_giveaway_", handler: handleGiveawayClaimCallback },
-	{ prefix: "give_", handler: handleGiveawayCallback },
 	{ prefix: "action_", handler: handleGlobalActionCallback },
 	{ prefix: "role_", handler: handleRoleCallback },
 	{ prefix: "list_", handler: handleListCallback },
-	{ prefix: "perm_", handler: handlePermissionCallback },
-	{ prefix: "confirm_", handler: handleConfirmationCallback },
 	{ prefix: "menu_", handler: handleMenuCallback },
-	{ prefix: "select_user_", handler: handleUserSelectionCallback },
 	{ prefix: "spamfield_", handler: handleSpamFieldCallback },
 ];
 
@@ -161,6 +193,17 @@ export function registerCallbackHandlers(bot: Telegraf<Context>): void {
 	/**
 	 * Handle all callback queries
 	 */
+	// Interactive main menu (DM only), the entry point for menu_* callbacks.
+	bot.command("menu", async (ctx) => {
+		if (ctx.chat?.type !== "private") {
+			return ctx.reply("Use /menu in a direct message with me.");
+		}
+		await ctx.reply(
+			fmt`${bold("CAC Admin Bot")}\n\nSelect a category to view commands:`,
+			{ reply_markup: mainMenuKeyboard },
+		);
+	});
+
 	bot.on("callback_query", async (ctx) => {
 		const callbackQuery = ctx.callbackQuery as CallbackQuery.DataQuery;
 		const data = callbackQuery.data;
@@ -178,37 +221,42 @@ export function registerCallbackHandlers(bot: Telegraf<Context>): void {
 				if (chatId && messageId) {
 					const menuSession = getMenuSessionByMessage(chatId, messageId);
 					if (menuSession && menuSession.userId !== userId) {
-						await ctx.answerCbQuery(
-							"Only the person who started this can cancel it.",
-						);
+						await ctx
+							.answerCbQuery("Only the person who started this can cancel it.")
+							.catch(() => {});
 						return;
 					}
 					cleanupMenuByMessage(chatId, messageId);
 				}
 				clearSession(userId);
-				await ctx.answerCbQuery();
-				await ctx.editMessageText("Action cancelled.");
+				await ctx.answerCbQuery().catch(() => {});
+				await ctx
+					.editMessageText("Action cancelled.", { reply_markup: noKeyboard })
+					.catch(() => {});
 				return;
 			}
 
 			if (data === "noop") {
-				await ctx.answerCbQuery();
+				await ctx.answerCbQuery().catch(() => {});
 				return;
 			}
 
-			// Answer the callback to remove loading state
-			await ctx.answerCbQuery();
-
-			// Route using dispatch table
+			// Route using dispatch table. Handlers may answer with a toast;
+			// if they don't, the finally block dismisses the loading state.
 			for (const { prefix, handler } of callbackHandlers) {
 				if (data.startsWith(prefix)) {
-					await handler(ctx, data, userId);
+					try {
+						await handler(ctx, data, userId);
+					} finally {
+						await ctx.answerCbQuery().catch(() => {});
+					}
 					return;
 				}
 			}
+			await ctx.answerCbQuery().catch(() => {});
 		} catch (error) {
 			logger.error("Error handling callback query", { userId, data, error });
-			await ctx.answerCbQuery("An error occurred. Please try again.");
+			await ctx.answerCbQuery().catch(() => {});
 		}
 	});
 }
@@ -224,7 +272,12 @@ async function handleRestrictionCallback(
 	const restrictionType = data.replace("restrict_", "");
 
 	// Store the restriction type in session
-	setSession(userId, "add_restriction", 1, { restrictionType });
+	setSession(
+		userId,
+		"add_restriction",
+		1,
+		withMenuRef(ctx, { restrictionType }),
+	);
 
 	await ctx.editMessageText(
 		fmt`${bold(`Add Restriction: ${restrictionType}`)}
@@ -232,6 +285,7 @@ async function handleRestrictionCallback(
 Please reply with the user ID or @username to restrict.
 
 Format: ${code("userId")} or ${code("@username")}`,
+		{ reply_markup: noKeyboard },
 	);
 }
 
@@ -257,7 +311,9 @@ async function handleSeverityCallback(
 ): Promise<void> {
 	const session = getSession(userId);
 	if (!session || session.action !== "add_restriction" || session.step !== 2) {
-		await ctx.editMessageText("Session expired. Please start over.");
+		await ctx.editMessageText("Session expired. Please start over.", {
+			reply_markup: noKeyboard,
+		});
 		return;
 	}
 
@@ -265,6 +321,7 @@ async function handleSeverityCallback(
 	if (!verifyAdminRole(userId)) {
 		await ctx.editMessageText(
 			"Your admin privileges have been revoked. Action cancelled.",
+			{ reply_markup: noKeyboard },
 		);
 		clearSession(userId);
 		return;
@@ -301,6 +358,7 @@ ${bold("Select auto-jail settings:")}
  */
 async function applyRestriction(
 	ctx: Context,
+	session: SessionData | null,
 	adminId: number,
 	targetId: number,
 	restrictionType: string,
@@ -349,7 +407,9 @@ async function applyRestriction(
 				: fmt`Action: ${code(action)}`
 		: null;
 
-	await ctx.reply(
+	await finishMenu(
+		ctx,
+		session,
 		fmt`${bold("Restriction Applied")}
 
 Type: ${restrictionType}
@@ -388,7 +448,9 @@ async function handleAutoJailCallback(
 ): Promise<void> {
 	const session = getSession(userId);
 	if (!session || session.action !== "add_restriction" || session.step !== 3) {
-		await ctx.editMessageText("Session expired. Please start over.");
+		await ctx.editMessageText("Session expired. Please start over.", {
+			reply_markup: noKeyboard,
+		});
 		return;
 	}
 
@@ -396,6 +458,7 @@ async function handleAutoJailCallback(
 	if (!verifyAdminRole(userId)) {
 		await ctx.editMessageText(
 			"Your admin privileges have been revoked. Action cancelled.",
+			{ reply_markup: noKeyboard },
 		);
 		clearSession(userId);
 		return;
@@ -455,6 +518,21 @@ ${code("/\\b(word1|word2)\\b/i")} - regex pattern
 
 Multiple words can be combined with | in regex:
 ${code("/\\b(fa99ot|fa990t)\\b/i")}`,
+				{ reply_markup: noKeyboard },
+			);
+			return;
+		}
+
+		if (restrictionType === "no_specific_gif") {
+			await ctx.editMessageText(
+				fmt`${bold("Specific GIF Block")}
+
+Reply with the GIF file\\_unique\\_id to block.
+
+Get it by replying to the target GIF with ${code("/getgifid")}.
+
+If you want to block ALL GIFs instead, use ${code("no_gifs")}.`,
+				{ reply_markup: noKeyboard },
 			);
 			return;
 		}
@@ -469,26 +547,15 @@ ${code("10%")} - ten percent chance
 ${code("25")} - twenty-five percent chance
 ${code("0.1")} - ten percent chance
 ${code("default")} - use the standard ${code("10%")} chance`,
-		);
-		return;
-	}
-
-	if (restrictionType === "no_specific_gif") {
-		await ctx.editMessageText(
-			fmt`${bold("Specific GIF Block")}
-
-Reply with the GIF file\\_unique\\_id to block.
-
-Get it by replying to the target GIF with ${code("/getgifid")}.
-
-If you want to block ALL GIFs instead, use ${code("no_gifs")}.`,
+			{ reply_markup: noKeyboard },
 		);
 		return;
 	}
 
 	// Apply the restriction (non-regex types)
-	applyRestriction(
+	await applyRestriction(
 		ctx,
+		session,
 		userId,
 		targetId,
 		restrictionType,
@@ -509,8 +576,15 @@ async function handleJailCallback(
 	data: string,
 	userId: number,
 ): Promise<void> {
+	if (!verifyAdminRole(userId)) {
+		await ctx.editMessageText("You need admin permissions for that action.", {
+			reply_markup: noKeyboard,
+		});
+		return;
+	}
+
 	if (data === "jail_custom") {
-		setSession(userId, "jail", 1, {});
+		setSession(userId, "jail", 1, withMenuRef(ctx, {}));
 		await ctx.editMessageText(
 			fmt`${bold("Custom Jail Duration")}
 
@@ -519,12 +593,13 @@ Please reply with:
 2. Duration in minutes
 
 Format: ${code("@username 45")} or ${code("123456 30")}`,
+			{ reply_markup: noKeyboard },
 		);
 		return;
 	}
 
 	const minutes = parseInt(data.replace("jail_", ""), 10);
-	setSession(userId, "jail", 1, { minutes });
+	setSession(userId, "jail", 1, withMenuRef(ctx, { minutes }));
 
 	await ctx.editMessageText(
 		fmt`${bold(`Jail User for ${minutes} minutes`)}
@@ -532,80 +607,12 @@ Format: ${code("@username 45")} or ${code("123456 30")}`,
 Please reply with the user ID or @username to jail.
 
 Format: ${code("userId")} or ${code("@username")}`,
+		{ reply_markup: noKeyboard },
 	);
 }
 
 /**
- * Handle duration selection for restrictions
- */
-async function handleDurationCallback(
-	ctx: Context,
-	data: string,
-	userId: number,
-): Promise<void> {
-	const session = getSession(userId);
-	if (!session) {
-		await ctx.editMessageText("Session expired. Please start over.");
-		return;
-	}
-
-	let duration: number | null;
-	if (data === "duration_permanent") {
-		duration = null;
-	} else {
-		duration = parseInt(data.replace("duration_", ""), 10);
-	}
-
-	session.data.duration = duration;
-	setSession(userId, session.action, session.step + 1, session.data);
-
-	const durationText = duration ? `${duration / 3600} hours` : "permanent";
-	await ctx.editMessageText(
-		`Duration set to: ${durationText}
-
-Restriction will be applied. Use /listrestrictions <userId> to verify.`,
-	);
-
-	// Clear session after completion
-	clearSession(userId);
-}
-
-/**
- * Handle giveaway amount selection
- */
-async function handleGiveawayCallback(
-	ctx: Context,
-	data: string,
-	userId: number,
-): Promise<void> {
-	if (data === "give_custom") {
-		setSession(userId, "giveaway", 1, {});
-		await ctx.editMessageText(
-			fmt`${bold("Custom Giveaway Amount")}
-
-Please reply with:
-1. User ID or @username
-2. Amount in JUNO
-
-Format: ${code("@username 15.5")} or ${code("123456 20")}`,
-		);
-		return;
-	}
-
-	const amount = parseFloat(data.replace("give_", ""));
-	setSession(userId, "giveaway", 1, { amount });
-
-	await ctx.editMessageText(
-		fmt`${bold(`Giveaway: ${amount} JUNO`)}
-
-Please reply with the user ID or @username to receive the giveaway.
-
-Format: ${code("userId")} or ${code("@username")}`,
-	);
-}
-
-/**
- * Handle global action selection
+ * Handle global action selection (/addaction interactive).
  */
 async function handleGlobalActionCallback(
 	ctx: Context,
@@ -614,7 +621,7 @@ async function handleGlobalActionCallback(
 ): Promise<void> {
 	const actionType = data.replace("action_", "");
 
-	setSession(userId, "add_global_action", 1, { actionType });
+	setSession(userId, "add_global_action", 1, withMenuRef(ctx, { actionType }));
 
 	await ctx.editMessageText(
 		fmt`${bold(`Add Global Action: ${actionType}`)}
@@ -623,11 +630,13 @@ This will restrict ALL users from: ${actionType}
 
 Optionally, reply with a specific action to restrict (e.g., specific sticker pack name, domain, etc.)
 Or type "apply" to apply globally.`,
+		{ reply_markup: noKeyboard },
 	);
 }
 
 /**
- * Handle role assignment selection
+ * Handle role assignment selection. Per-action permissions mirror the
+ * dedicated commands: admins may elevate/revoke, only owners may make admins.
  */
 async function handleRoleCallback(
 	ctx: Context,
@@ -636,7 +645,21 @@ async function handleRoleCallback(
 ): Promise<void> {
 	const roleAction = data.replace("role_", "");
 
-	setSession(userId, `role_${roleAction}`, 1, {});
+	if (roleAction === "admin" && !isOwner(userId)) {
+		await ctx.editMessageText("Only owners can promote admins.", {
+			reply_markup: noKeyboard,
+		});
+		return;
+	}
+	if (
+		(roleAction === "elevated" || roleAction === "revoke") &&
+		!(isAdmin(userId) || isOwner(userId))
+	) {
+		await ctx.editMessageText("You need admin permissions for that action.", {
+			reply_markup: noKeyboard,
+		});
+		return;
+	}
 
 	let message = "";
 	if (roleAction === "admin") {
@@ -651,23 +674,38 @@ Please reply with the user ID or @username to elevate.`;
 		message = `${bold("Revoke Role")}
 
 Please reply with the user ID or @username to demote.`;
+	} else {
+		await ctx.editMessageText("Unknown role action.", {
+			reply_markup: noKeyboard,
+		});
+		return;
 	}
+
+	setSession(userId, `role_${roleAction}`, 1, withMenuRef(ctx, {}));
 
 	await ctx.editMessageText(
 		fmt`${message}
 
 Format: ${code("@username")} or ${code("userId")}`,
+		{ reply_markup: noKeyboard },
 	);
 }
 
 /**
- * Handle list management callback
+ * Handle list management callback. Requires admin or owner.
  */
 async function handleListCallback(
 	ctx: Context,
 	data: string,
 	userId: number,
 ): Promise<void> {
+	if (!(isAdmin(userId) || isOwner(userId))) {
+		await ctx.editMessageText("You need admin permissions for that action.", {
+			reply_markup: noKeyboard,
+		});
+		return;
+	}
+
 	const action = data.replace("list_", "");
 
 	if (action === "view_white" || action === "view_black") {
@@ -682,7 +720,9 @@ async function handleListCallback(
 		);
 
 		if (users.length === 0) {
-			await ctx.editMessageText(`The ${listType} is empty.`);
+			await ctx.editMessageText(`The ${listType} is empty.`, {
+				reply_markup: noKeyboard,
+			});
 			return;
 		}
 
@@ -695,11 +735,12 @@ async function handleListCallback(
 			fmt`${bold(`${listType.charAt(0).toUpperCase() + listType.slice(1)}:`)}
 
 ${message}`,
+			{ reply_markup: noKeyboard },
 		);
 		return;
 	}
 
-	setSession(userId, `list_${action}`, 1, {});
+	setSession(userId, `list_${action}`, 1, withMenuRef(ctx, {}));
 
 	await ctx.editMessageText(
 		fmt`${bold("List Management")}
@@ -709,54 +750,8 @@ Action: ${action}
 Please reply with the user ID or @username.
 
 Format: ${code("@username")} or ${code("userId")}`,
+		{ reply_markup: noKeyboard },
 	);
-}
-
-/**
- * Handle permission level selection for shared accounts
- */
-async function handlePermissionCallback(
-	ctx: Context,
-	data: string,
-	userId: number,
-): Promise<void> {
-	const permission = data.replace("perm_", "");
-	const session = getSession(userId);
-
-	if (!session) {
-		await ctx.editMessageText("Session expired. Please start over.");
-		return;
-	}
-
-	session.data.permission = permission;
-	setSession(userId, session.action, session.step + 1, session.data);
-
-	await ctx.editMessageText(
-		`Permission level set to: ${permission}
-
-Access will be granted when you confirm.`,
-	);
-}
-
-/**
- * Handle confirmation callbacks
- */
-async function handleConfirmationCallback(
-	ctx: Context,
-	data: string,
-	userId: number,
-): Promise<void> {
-	const action = data.replace("confirm_", "");
-	const session = getSession(userId);
-
-	if (!session) {
-		await ctx.editMessageText("Session expired. Please start over.");
-		return;
-	}
-
-	// Execute the confirmed action
-	await ctx.editMessageText(`${action} confirmed and executed!`);
-	clearSession(userId);
 }
 
 /**
@@ -804,46 +799,56 @@ const menuContent: Record<string, ReturnType<typeof fmt>> = {
 Use /help in a DM for comprehensive command reference.`,
 };
 
+const mainMenuText = fmt`${bold("CAC Admin Bot")}
+
+Select a category to view commands:`;
+
+/** Append a back-to-menu row to a management keyboard. */
+function withMenuBack(keyboard: InlineKeyboardMarkup): InlineKeyboardMarkup {
+	return {
+		inline_keyboard: [
+			...keyboard.inline_keyboard,
+			[{ text: "<- Back", callback_data: "menu_home" }],
+		],
+	};
+}
+
 /**
- * Handle main menu navigation
+ * Handle main menu navigation. Lists and Roles open their management
+ * keyboards (admin/owner only); every management keyboard has a Back button.
  */
 async function handleMenuCallback(
 	ctx: Context,
 	data: string,
-	_userId: number,
+	userId: number,
 ): Promise<void> {
 	const menuItem = data.replace("menu_", "");
-	const message = menuContent[menuItem];
 
+	if (menuItem === "home" || menuItem === "back") {
+		await ctx.editMessageText(mainMenuText, { reply_markup: mainMenuKeyboard });
+		return;
+	}
+
+	if (menuItem === "roles" || menuItem === "lists") {
+		if (!(isAdmin(userId) || isOwner(userId))) {
+			await ctx.editMessageText("You need admin permissions for that.", {
+				reply_markup: mainMenuKeyboard,
+			});
+			return;
+		}
+		const keyboard = menuItem === "roles" ? roleKeyboard : listActionKeyboard;
+		await ctx.editMessageText(menuContent[menuItem], {
+			reply_markup: withMenuBack(keyboard),
+		});
+		return;
+	}
+
+	const message = menuContent[menuItem];
 	if (message) {
 		await ctx.editMessageText(message, {
 			reply_markup: mainMenuKeyboard,
 		});
 	}
-}
-
-/**
- * Handle user selection from paginated list
- */
-async function handleUserSelectionCallback(
-	ctx: Context,
-	data: string,
-	userId: number,
-): Promise<void> {
-	const selectedUserId = parseInt(data.replace("select_user_", ""), 10);
-	const session = getSession(userId);
-
-	if (!session) {
-		await ctx.editMessageText("Session expired. Please start over.");
-		return;
-	}
-
-	session.data.targetUserId = selectedUserId;
-	setSession(userId, session.action, session.step + 1, session.data);
-
-	await ctx.editMessageText(
-		`User ${selectedUserId} selected. Proceeding with ${session.action}...`,
-	);
 }
 
 /**
@@ -1045,6 +1050,7 @@ async function handleGiveawayCreateCallback(
 Total: ${totalAmount} JUNO (debited from ${sourceLabel})
 Slots: ${totalSlots}
 Per slot: ${amountPerSlot.toFixed(6)} JUNO`,
+			{ reply_markup: noKeyboard },
 		);
 
 		// Send the actual giveaway message with claim button
@@ -1261,8 +1267,6 @@ export async function handleSessionText(ctx: Context): Promise<boolean> {
 				return await processAddRestrictionSession(ctx, session, text);
 			case "jail":
 				return await processJailSession(ctx, session, text);
-			case "giveaway":
-				return await processGiveawaySession(ctx, session, text);
 			case "add_global_action":
 				return await processGlobalActionSession(ctx, session, text);
 			case "role_admin":
@@ -1348,6 +1352,7 @@ async function processAddRestrictionSession(
 
 			await applyRestriction(
 				ctx,
+				session,
 				userId,
 				targetId,
 				restrictionType,
@@ -1372,6 +1377,7 @@ async function processAddRestrictionSession(
 
 			await applyRestriction(
 				ctx,
+				session,
 				userId,
 				targetId,
 				restrictionType,
@@ -1394,6 +1400,7 @@ async function processAddRestrictionSession(
 
 			await applyRestriction(
 				ctx,
+				session,
 				userId,
 				targetId,
 				restrictionType,
@@ -1430,7 +1437,9 @@ async function processAddRestrictionSession(
 	setSession(userId, "add_restriction", 2, session.data);
 
 	const targetDisplay = formatUserIdDisplay(targetId);
-	await ctx.reply(
+	await editMenu(
+		ctx,
+		session.data.menuRef as MenuRef,
 		fmt`${bold(`Restriction: ${restrictionType}`)}
 Target: ${targetDisplay}
 
@@ -1438,9 +1447,7 @@ ${bold("Select severity level:")}
 • ${bold("Delete Only")} - Just delete the violating message
 • ${bold("Mute 30min")} - 30-minute mute on each violation
 • ${bold("Instant Jail")} - Immediate 1-hour jail with 5 JUNO fine`,
-		{
-			reply_markup: severityKeyboard,
-		},
+		severityKeyboard,
 	);
 
 	return true;
@@ -1502,7 +1509,9 @@ async function processJailSession(
 	});
 
 	const userDisplay = formatUserIdDisplay(targetId);
-	await ctx.reply(
+	await finishMenu(
+		ctx,
+		session,
 		fmt`User ${userDisplay} has been jailed for ${jailMinutes} minutes.\nBail amount: ${bailAmount.toFixed(3)} JUNO`,
 	);
 
@@ -1515,66 +1524,6 @@ async function processJailSession(
 	});
 
 	clearSession(adminId);
-	return true;
-}
-
-/**
- * Process giveaway session - user provided target and optionally amount
- */
-async function processGiveawaySession(
-	ctx: Context,
-	session: SessionData,
-	text: string,
-): Promise<boolean> {
-	const userId = ctx.from?.id;
-	if (!userId) return false;
-	const { amount } = session.data;
-
-	// Parse: "@username amount" or "userId amount" or just "@username" if amount preset
-	const parts = text.trim().split(/\s+/);
-	const targetId = resolveUserId(parts[0]);
-
-	if (!targetId) {
-		await ctx.reply(
-			"User not found. Please provide a valid userId or @username.",
-		);
-		return true;
-	}
-
-	const giveAmount = amount ?? (parts[1] ? parseFloat(parts[1]) : null);
-
-	if (!giveAmount || Number.isNaN(giveAmount) || giveAmount <= 0) {
-		await ctx.reply("Invalid amount. Please provide a positive JUNO amount.");
-		return true;
-	}
-
-	// Execute transfer
-	const result = await LedgerService.transferBetweenUsers(
-		userId,
-		targetId,
-		giveAmount,
-		"Giveaway via interactive flow",
-	);
-
-	if (!result.success) {
-		await ctx.reply(`Transfer failed: ${result.error || "Unknown error"}`);
-		clearSession(userId);
-		return true;
-	}
-
-	const userDisplay = formatUserIdDisplay(targetId);
-	await ctx.reply(
-		`Successfully sent ${giveAmount.toFixed(6)} JUNO to ${userDisplay}!`,
-	);
-
-	StructuredLogger.logTransaction("Giveaway via interactive flow", {
-		userId,
-		targetUserId: targetId,
-		amount: giveAmount.toString(),
-		operation: "giveaway_interactive",
-	});
-
-	clearSession(userId);
 	return true;
 }
 
@@ -1609,7 +1558,9 @@ async function processGlobalActionSession(
 	);
 
 	const actionDesc = action ? ` with action '${action}'` : "";
-	await ctx.reply(
+	await finishMenu(
+		ctx,
+		session,
 		`Global restriction '${actionType}'${actionDesc} has been added.`,
 	);
 
@@ -1638,9 +1589,15 @@ async function processRoleSession(
 	const adminId = ctx.from?.id;
 	if (!adminId) return false;
 
-	// Verify user still has admin privileges
-	if (!verifyAdminRole(adminId)) {
-		await ctx.reply(
+	// Re-verify the exact permission required by the chosen action.
+	const allowed =
+		session.action === "role_admin"
+			? isOwner(adminId)
+			: isAdmin(adminId) || isOwner(adminId);
+	if (!allowed) {
+		await finishMenu(
+			ctx,
+			session,
 			"Your admin privileges have been revoked. Action cancelled.",
 		);
 		clearSession(adminId);
@@ -1681,7 +1638,7 @@ async function processRoleSession(
 
 	setUserRole(targetId, username, role);
 
-	await ctx.reply(message);
+	await finishMenu(ctx, session, message);
 
 	StructuredLogger.logSecurityEvent("Role changed via interactive flow", {
 		adminId,
@@ -1705,9 +1662,10 @@ async function processListSession(
 	const adminId = ctx.from?.id;
 	if (!adminId) return false;
 
-	// Verify user still has admin privileges
-	if (!verifyAdminRole(adminId)) {
-		await ctx.reply(
+	if (!(isAdmin(adminId) || isOwner(adminId))) {
+		await finishMenu(
+			ctx,
+			session,
 			"Your admin privileges have been revoked. Action cancelled.",
 		);
 		clearSession(adminId);
@@ -1731,7 +1689,9 @@ async function processListSession(
 			break;
 		case "list_add_black":
 			if (isImmuneToModeration(targetId)) {
-				await ctx.reply(
+				await finishMenu(
+					ctx,
+					session,
 					"Cannot blacklist this user - admins and owners are immune.",
 				);
 				clearSession(adminId);
@@ -1753,7 +1713,7 @@ async function processListSession(
 			return false;
 	}
 
-	await ctx.reply(message);
+	await finishMenu(ctx, session, message);
 
 	StructuredLogger.logSecurityEvent("List updated via interactive flow", {
 		adminId,
@@ -1778,9 +1738,10 @@ async function handleSpamFieldCallback(
 	data: string,
 	userId: number,
 ): Promise<void> {
-	if (!verifyAdminRole(userId)) {
+	if (!verifyOwner(userId)) {
 		await ctx.editMessageText(
 			"Your privileges have been revoked. Action cancelled.",
+			{ reply_markup: noKeyboard },
 		);
 		return;
 	}
@@ -1789,7 +1750,7 @@ async function handleSpamFieldCallback(
 	const fieldLabel =
 		field === "bio" ? "Bio" : field === "channel" ? "Channel Title" : "Both";
 
-	setSession(userId, "add_spam_react", 1, { field });
+	setSession(userId, "add_spam_react", 1, withMenuRef(ctx, { field }));
 
 	await ctx.editMessageText(
 		fmt`${bold(`Add Spam Reaction Pattern [${fieldLabel}]`)}
@@ -1805,6 +1766,7 @@ ${bold("Examples:")}
 ${code("bonus 1000")} - matches "BONUS 1000$"
 ${code("/elon\\s*musk/i")} - matches "Elon Musk"
 ${code("*crypto*giveaway*")} - matches "Free Crypto Giveaway"`,
+		{ reply_markup: noKeyboard },
 	);
 }
 
@@ -1825,16 +1787,23 @@ async function processAddSpamReactSession(
 	const userId = ctx.from?.id;
 	if (!userId) return false;
 
-	if (!verifyAdminRole(userId)) {
-		await ctx.reply("Your privileges have been revoked. Action cancelled.");
+	if (!verifyOwner(userId)) {
+		await finishMenu(
+			ctx,
+			session,
+			"Your privileges have been revoked. Action cancelled.",
+		);
 		clearSession(userId);
 		return true;
 	}
 
 	const field = session.data.field as SpamReactField;
 	const pattern = text.trim();
+	const menuRef = session.data.menuRef as MenuRef | undefined;
 
 	clearSession(userId);
-	await addPattern(ctx, userId, pattern, field);
+	await addPattern(ctx, userId, pattern, field, undefined, (message) =>
+		editMenu(ctx, menuRef, message),
+	);
 	return true;
 }

@@ -2,7 +2,10 @@
  * Reaction-based spam detection handler for the CAC Admin Bot.
  * Monitors chat reactions and kicks users detected as spam bots via two methods:
  * 1. Bio pattern matching - immediate kick if bio matches known spam patterns
- * 2. Velocity detection - kick if a low-message user reacts to many messages rapidly
+ * 2. Velocity detection - kick if a new user reacts to many messages rapidly
+ *
+ * Only new users (fewer than NEW_USER_MESSAGE_LIMIT lifetime group messages)
+ * are checked; established and elevated users are exempt.
  *
  * @module handlers/reactionSpam
  */
@@ -12,11 +15,11 @@ import type { Chat, User } from "telegraf/types";
 import { get } from "../database";
 import { dedupeResponse } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
-import { isAdmin, isOwner } from "../utils/roles";
+import { checkIsElevated } from "../utils/roles";
 import { getDbSpamReacts } from "./spamReacts";
 
-/** Minimum account age (seconds) before a user is exempt from spam checks (14 days) */
-const MIN_ACCOUNT_AGE_SECONDS = 14 * 24 * 60 * 60;
+/** Lifetime group messages after which a user is exempt from spam checks */
+const NEW_USER_MESSAGE_LIMIT = 5;
 
 /** Max reactions allowed within the time window before triggering a velocity kick */
 const VELOCITY_REACTION_LIMIT = 3;
@@ -77,11 +80,11 @@ const reactionTracker = new Map<string, number[]>();
 const kickedUsers = new Set<string>();
 
 /**
- * In-memory cache of established users exempt from spam checks.
- * Key: userId -> last time the exemption was confirmed (ms epoch).
- * Established status only grows with time, so entries are pruned on a
- * 20-minute interval to keep the set bounded; re-checking a pruned user
- * is one cheap indexed lookup.
+ * In-memory cache of users exempt from spam checks (message count reached the
+ * new-user limit). Key: userId -> last time the exemption was confirmed (ms
+ * epoch). Message counts only grow, so entries are pruned on a 20-minute
+ * interval to keep the set bounded; re-checking a pruned user is one cheap
+ * indexed lookup.
  */
 const establishedUsers = new Map<number, number>();
 
@@ -273,30 +276,32 @@ async function kickUser(
 }
 
 /**
- * Returns true if the user's account is old enough to be considered established.
- * Results are cached in-memory so the DB is only hit once per user per cache window.
+ * Returns true if the user has sent fewer than NEW_USER_MESSAGE_LIMIT lifetime
+ * group messages, i.e. is still considered "new" and subject to spam checks.
+ * Exemptions are cached in-memory so the DB is only hit once per user per
+ * cache window.
  *
  * @param userId - The user ID to check
- * @returns True if the account age exceeds MIN_ACCOUNT_AGE_SECONDS
+ * @returns True if the user has not yet reached the message limit
  */
-function isEstablishedUser(userId: number): boolean {
-	if (establishedUsers.has(userId)) return true;
+function isNewUser(userId: number): boolean {
+	if (establishedUsers.has(userId)) return false;
 
-	const row = get<{ created_at: number }>(
-		"SELECT created_at FROM users WHERE id = ?",
+	const row = get<{ message_count: number }>(
+		"SELECT message_count FROM users WHERE id = ?",
 		[userId],
 	);
-	const ageSeconds = row?.created_at ? Date.now() / 1000 - row.created_at : 0;
+	const messageCount = row?.message_count ?? 0;
 
-	if (ageSeconds >= MIN_ACCOUNT_AGE_SECONDS) {
+	if (messageCount >= NEW_USER_MESSAGE_LIMIT) {
 		establishedUsers.set(userId, Date.now());
-		return true;
+		return false;
 	}
-	return false;
+	return true;
 }
 
 /**
- * Removes stale entries from the established-user exemption cache.
+ * Removes stale entries from the new-user exemption cache.
  * Re-checking a pruned user is one indexed lookup, so pruning keeps the set
  * bounded without leaving established users re-evaluated too aggressively.
  */
@@ -334,15 +339,15 @@ function pruneReactionTracker(): void {
  * and reaction velocity tracking.
  *
  * Detection methods:
- * 1. Bio check: If a reacting user's bio matches spam patterns, kick immediately
- * 2. Velocity check: If a user with few messages reacts to 3+ messages within
- *    60 seconds, kick for reaction spam
+ * 1. Bio check: If a new user's bio matches spam patterns, ban immediately
+ * 2. Velocity check: If a new user reacts to 3+ messages within 60 seconds,
+ *    kick for reaction spam
  *
  * Features:
  * - Logs all reactions for audit trail
  * - Kicks (not bans) so false positives can rejoin
  * - Sends a fun kick message to the chat
- * - Admins, owners, and established members are exempt
+ * - Elevated users and established members (5+ messages) are exempt
  * - Detailed logging for debugging detection failures
  *
  * Requirements:
@@ -395,9 +400,9 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			newReactions: reaction.new_reaction.length,
 		});
 
-		// Skip checks for owners and admins
-		if (isOwner(user.id) || isAdmin(user.id)) {
-			logger.debug("Skipping spam check for admin/owner", {
+		// Skip checks for elevated users (owner, admin, elevated)
+		if (checkIsElevated(user.id)) {
+			logger.debug("Skipping spam check for elevated user", {
 				userId: user.id,
 			});
 			return;
@@ -414,8 +419,8 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		// Skip checks for established users (account age exceeds exemption threshold)
-		if (isEstablishedUser(user.id)) {
+		// Skip checks for established users (message count reached the limit)
+		if (!isNewUser(user.id)) {
 			logger.debug("Skipping spam check for established user", {
 				userId: user.id,
 			});

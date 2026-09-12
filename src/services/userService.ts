@@ -66,6 +66,16 @@ export const ensureUserExists = (userId: number, username: string): void => {
 };
 
 /**
+ * Increment a user's lifetime group-message counter.
+ * Used to distinguish new users from established ones.
+ */
+export const incrementMessageCount = (userId: number): void => {
+	execute("UPDATE users SET message_count = message_count + 1 WHERE id = ?", [
+		userId,
+	]);
+};
+
+/**
  * Get userId by username (database lookup only)
  * Does NOT create users or query Telegram API
  * Returns null if username not found
