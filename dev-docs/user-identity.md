@@ -47,7 +47,9 @@ display name.
   (or merge when two users share a name). Migrating it to id-keyed
   `telegram_users` is a follow-up in the explorer repo.
 - `resolveUser` / `getUserIdByUsername`: resolve human `@username` input to an
-  id. These are necessary for command input but are not identity storage. Risk:
-  the bot stores only the current username, so a reused `@username` can resolve
-  to a different account. The explorer's `telegram_user_aliases` is the
-  id-stable source if we want to harden this.
+  id. Resolution is now id-stable: `ensureUserExists` records each previous
+  username in `user_aliases`, and `findUserIdByUsername` matches the current
+  username **union** the alias history. If a username maps to more than one id
+  (a reused username), resolution returns null so callers must use an explicit
+  numeric id rather than risk acting on the wrong account. Aliases are only
+  captured going forward, so names changed before this shipped are not matched.

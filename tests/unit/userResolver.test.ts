@@ -35,6 +35,9 @@ vi.mock("../../src/database", () => ({
 // Mock the userService module
 vi.mock("../../src/services/userService", () => ({
 	ensureUserExists: vi.fn(),
+	findUserIdByUsername: vi.fn((username: string) =>
+		username.toLowerCase() === "alice" ? 12345 : null,
+	),
 }));
 
 /**

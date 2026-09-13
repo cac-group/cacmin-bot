@@ -49,14 +49,21 @@ export const createUser = (
  * - User exists: Updates username (Telegram usernames are mutable)
  */
 export const ensureUserExists = (userId: number, username: string): void => {
-	const userExists = query<User>("SELECT id FROM users WHERE id = ?", [
-		userId,
-	])[0];
+	const existing = query<{ id: number; username: string | null }>(
+		"SELECT id, username FROM users WHERE id = ?",
+		[userId],
+	)[0];
 
-	if (!userExists) {
+	if (!existing) {
 		createUser(userId, username, "pleb", "ensure_exists");
-	} else {
-		// Update username if it changed (Telegram allows username changes)
+		return;
+	}
+
+	// Update username if it changed (Telegram allows username changes and the
+	// same username can later be reused by a different account). Keep the old
+	// value as an alias so the id stays resolvable from either name.
+	if (existing.username !== username) {
+		if (existing.username) recordUsernameAlias(userId, existing.username);
 		execute("UPDATE users SET username = ?, updated_at = ? WHERE id = ?", [
 			username,
 			Math.floor(Date.now() / 1000),
@@ -75,20 +82,46 @@ export const incrementMessageCount = (userId: number): void => {
 	]);
 };
 
+/** Record a username a user id has been seen with, for id-stable lookups. */
+export const recordUsernameAlias = (userId: number, username: string): void => {
+	const normalized = username.replace(/^@/, "").trim().toLowerCase();
+	if (!normalized) return;
+	execute(
+		`INSERT INTO user_aliases (user_id, alias_type, normalized_value)
+		 VALUES (?, 'username', ?)
+		 ON CONFLICT(user_id, alias_type, normalized_value)
+		 DO UPDATE SET last_seen = strftime('%s', 'now')`,
+		[userId, normalized],
+	);
+};
+
+/**
+ * Resolve a username to a single user id using the current username and the
+ * recorded alias history. Returns null when the username maps to more than one
+ * account (e.g. a reused username), so callers never act on the wrong user.
+ */
+export const findUserIdByUsername = (username: string): number | null => {
+	const normalized = username.replace(/^@/, "").trim().toLowerCase();
+	if (!normalized) return null;
+
+	const rows = query<{ id: number }>(
+		`SELECT id FROM users WHERE LOWER(username) = ?
+		 UNION
+		 SELECT user_id AS id FROM user_aliases
+		 WHERE alias_type = 'username' AND normalized_value = ?`,
+		[normalized, normalized],
+	);
+	const ids = Array.from(new Set(rows.map((row) => row.id)));
+	return ids.length === 1 ? ids[0] : null;
+};
+
 /**
  * Get userId by username (database lookup only)
  * Does NOT create users or query Telegram API
- * Returns null if username not found
+ * Returns null if not found or if the username is ambiguous (reused)
  */
-export const getUserIdByUsername = (username: string): number | null => {
-	const cleanUsername = username.replace(/^@/, "");
-
-	const user = query<User>("SELECT id FROM users WHERE username = ?", [
-		cleanUsername,
-	])[0];
-
-	return user?.id || null;
-};
+export const getUserIdByUsername = (username: string): number | null =>
+	findUserIdByUsername(username);
 
 /** Get user by userId (primary lookup method - userId is immutable) */
 export const getUserById = (userId: number): User | null => {

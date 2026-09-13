@@ -568,6 +568,25 @@ export const initDb = (): void => {
     );
   `);
 
+	// Username history. A Telegram username can be changed and later reused by
+	// another account, so it is never an identity key. This records every
+	// username a user id has been seen with so lookups stay id-stable and can
+	// detect ambiguity instead of silently resolving to the wrong account.
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS user_aliases (
+      user_id INTEGER NOT NULL,
+      alias_type TEXT NOT NULL DEFAULT 'username',
+      normalized_value TEXT NOT NULL,
+      first_seen INTEGER DEFAULT (strftime('%s', 'now')),
+      last_seen INTEGER DEFAULT (strftime('%s', 'now')),
+      PRIMARY KEY (user_id, alias_type, normalized_value)
+    );
+  `);
+	db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_user_aliases_lookup
+    ON user_aliases(alias_type, normalized_value, user_id);
+  `);
+
 	// Membership join tracking. Insert-only: the earliest recorded join wins,
 	// so a member's age is never reset by later re-joins or backfills.
 	db.exec(`

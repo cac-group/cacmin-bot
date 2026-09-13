@@ -8,7 +8,10 @@
 
 import type { Context } from "telegraf";
 import { get } from "../database";
-import { ensureUserExists } from "../services/userService";
+import {
+	ensureUserExists,
+	findUserIdByUsername,
+} from "../services/userService";
 import type { User } from "../types";
 
 /**
@@ -42,13 +45,13 @@ export function resolveUser(userIdentifier: string): User | null {
 		return user || null;
 	}
 
-	// Try to find by username (case-insensitive)
-	const user = get<User>(
-		"SELECT * FROM users WHERE LOWER(username) = LOWER(?)",
-		[cleanIdentifier],
-	);
+	// Resolve via the current username and recorded alias history. Ambiguous
+	// names (e.g. a reused username) resolve to null so callers must use an
+	// explicit user id rather than risk acting on the wrong account.
+	const userId = findUserIdByUsername(cleanIdentifier);
+	if (userId === null) return null;
 
-	return user || null;
+	return get<User>("SELECT * FROM users WHERE id = ?", [userId]) || null;
 }
 
 /**
