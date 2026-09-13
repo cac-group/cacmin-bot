@@ -382,14 +382,8 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			parts.push("Not currently jailed\n\n");
 		}
 
-		// Show active time stats (match historical messages by display name)
-		const firstName = ctx.from?.first_name || "";
-		const lastName = ctx.from?.last_name || "";
-		const authorName = lastName ? `${firstName} ${lastName}` : firstName;
-		const activeStats = ChatIndexerService.getActiveTimeStats(
-			userId,
-			authorName,
-		);
+		// Show active time stats (matched strictly by user id)
+		const activeStats = ChatIndexerService.getActiveTimeStats(userId);
 		if (activeStats) {
 			parts.push(bold("Activity"));
 			parts.push("\n");

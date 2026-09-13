@@ -122,9 +122,6 @@ export class ChatIndexerService {
 				// Column already exists — expected after first run
 			}
 
-			// Backfill user_id on historical messages using known author<->user_id mappings
-			ChatIndexerService.backfillUserIds();
-
 			// Keep app-visible dataset metadata and metrics state current.
 			ChatIndexerService.refreshDatasetMetricsState();
 
@@ -1221,66 +1218,15 @@ export class ChatIndexerService {
 	}
 
 	/**
-	 * Bulk backfills user_id on historical messages using known author<->user_id
-	 * mappings derived from messages that already have user_id set.
-	 * Runs once at startup. Only touches messages within the last 3 months.
-	 */
-	private static backfillUserIds(): void {
-		if (!ChatIndexerService.db) return;
-
-		try {
-			const threeMonthsAgo = Math.floor(Date.now() / 1000) - 90 * 86400;
-
-			// Get known author<->user_id mappings from messages that already have user_id
-			const mappings = ChatIndexerService.db
-				.prepare(
-					`SELECT DISTINCT user_id, author FROM messages
-					 WHERE user_id IS NOT NULL AND author IS NOT NULL`,
-				)
-				.all() as { user_id: number; author: string }[];
-
-			if (mappings.length === 0) return;
-
-			const stmt = ChatIndexerService.db.prepare(
-				`UPDATE messages SET user_id = ?
-				 WHERE author = ? AND user_id IS NULL AND timestamp_unix >= ?`,
-			);
-
-			const backfill = ChatIndexerService.db.transaction(() => {
-				let total = 0;
-				for (const { user_id, author } of mappings) {
-					const result = stmt.run(user_id, author, threeMonthsAgo);
-					total += result.changes;
-				}
-				return total;
-			});
-
-			const updated = backfill();
-			if (updated > 0) {
-				logger.info("Backfilled user_id on historical messages", {
-					mappings: mappings.length,
-					updated,
-				});
-			}
-		} catch (error) {
-			logger.error("Failed to backfill user_ids", { error });
-		}
-	}
-
-	/**
-	 * Computes active time statistics for a user based on their indexed messages.
-	 * Matches by user_id (for new messages) and author name (for historical messages
-	 * that predate the user_id column). Also backfills user_id on matched rows.
-	 * Limits historical lookup to 3 months.
+	 * Computes active time statistics for a user from their indexed messages.
+	 * Matches strictly by resolved user id (`author_user_id`, falling back to the
+	 * live `user_id`) — never by display name, which is mutable and not unique.
+	 * Limits the lookup to the last 3 months.
 	 *
 	 * @param userId - Telegram user ID
-	 * @param authorName - Display name to match historical messages (firstName + lastName)
 	 * @returns Active time stats or null if unavailable
 	 */
-	static getActiveTimeStats(
-		userId: number,
-		authorName?: string,
-	): {
+	static getActiveTimeStats(userId: number): {
 		totalSeconds: number;
 		last30dSeconds: number;
 		last7dSeconds: number;
@@ -1293,22 +1239,11 @@ export class ChatIndexerService {
 			const now = Math.floor(Date.now() / 1000);
 			const threeMonthsAgo = now - 90 * 86400;
 
-			// Backfill user_id on historical messages matched by author name
-			if (authorName) {
-				ChatIndexerService.db
-					.prepare(
-						`UPDATE messages SET user_id = ?
-						 WHERE author = ? AND user_id IS NULL
-						 AND timestamp_unix >= ?`,
-					)
-					.run(userId, authorName, threeMonthsAgo);
-			}
-
-			// Query all messages for this user (by user_id, which now includes backfilled rows)
+			// Query all messages for this user by id only.
 			const allTimestamps = ChatIndexerService.db
 				.prepare(
 					`SELECT timestamp_unix FROM messages
-					 WHERE user_id = ? AND timestamp_unix >= ?
+					 WHERE COALESCE(author_user_id, user_id) = ? AND timestamp_unix >= ?
 					 ORDER BY timestamp_unix`,
 				)
 				.all(userId, threeMonthsAgo) as { timestamp_unix: number }[];
