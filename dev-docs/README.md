@@ -9,6 +9,7 @@ that has no home beside the code.
   limits and restrictions, and how bot responses are deduplicated under
   concurrent updates.
 - `reaction-spam.md` — who reaction spam detection targets and how it enforces.
+- `identity-blocks.md` — name/username block matching and its temporary jail.
 - `interactive-menus.md` — the one-message rule, callback answering, entry
   points, permission model, and removed dead menu code.
 

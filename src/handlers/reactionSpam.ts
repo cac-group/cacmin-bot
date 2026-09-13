@@ -21,6 +21,13 @@ import { getDbSpamReacts } from "./spamReacts";
 /** Lifetime group messages after which a user is exempt from spam checks */
 const NEW_USER_MESSAGE_LIMIT = 5;
 
+/**
+ * Fallback exemption: account age (seconds) after which a member is treated as
+ * established even with few indexed messages. Covers long-time lurkers who
+ * have no group-message history to count.
+ */
+const NEW_USER_MAX_AGE_SECONDS = 14 * 24 * 60 * 60;
+
 /** Max reactions allowed within the time window before triggering a velocity kick */
 const VELOCITY_REACTION_LIMIT = 3;
 
@@ -276,24 +283,39 @@ async function kickUser(
 }
 
 /**
- * Returns true if the user has sent fewer than NEW_USER_MESSAGE_LIMIT lifetime
- * group messages, i.e. is still considered "new" and subject to spam checks.
- * Exemptions are cached in-memory so the DB is only hit once per user per
- * cache window.
+ * Returns true if the user is still considered "new" and subject to spam
+ * checks. A user is exempt (not new) when either:
+ * - they have sent at least NEW_USER_MESSAGE_LIMIT lifetime group messages, or
+ * - their tracked account is at least NEW_USER_MAX_AGE_SECONDS old.
+ *
+ * The age fallback only applies when `created_at` is known, so a user the bot
+ * has never recorded is still treated as new. Exemptions are cached in-memory
+ * so the DB is only hit once per user per cache window.
  *
  * @param userId - The user ID to check
- * @returns True if the user has not yet reached the message limit
+ * @returns True if the user is still new
  */
 function isNewUser(userId: number): boolean {
 	if (establishedUsers.has(userId)) return false;
 
-	const row = get<{ message_count: number }>(
-		"SELECT message_count FROM users WHERE id = ?",
+	const row = get<{ message_count: number; created_at: number }>(
+		"SELECT message_count, created_at FROM users WHERE id = ?",
+		[userId],
+	);
+	const membership = get<{ joined_at: number }>(
+		"SELECT joined_at FROM user_memberships WHERE user_id = ?",
 		[userId],
 	);
 	const messageCount = row?.message_count ?? 0;
+	// Prefer the recorded group-join time; fall back to first-seen for members
+	// who predate join tracking.
+	const ageBase = membership?.joined_at ?? row?.created_at ?? 0;
+	const ageSeconds = ageBase > 0 ? Date.now() / 1000 - ageBase : 0;
 
-	if (messageCount >= NEW_USER_MESSAGE_LIMIT) {
+	if (
+		messageCount >= NEW_USER_MESSAGE_LIMIT ||
+		ageSeconds >= NEW_USER_MAX_AGE_SECONDS
+	) {
 		establishedUsers.set(userId, Date.now());
 		return false;
 	}
@@ -339,7 +361,7 @@ function pruneReactionTracker(): void {
  * and reaction velocity tracking.
  *
  * Detection methods:
- * 1. Bio check: If a new user's bio matches spam patterns, ban immediately
+ * 1. Bio check: If a new user's bio matches spam patterns, kick immediately
  * 2. Velocity check: If a new user reacts to 3+ messages within 60 seconds,
  *    kick for reaction spam
  *
@@ -459,7 +481,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				});
 
 				try {
-					await ctx.telegram.banChatMember(chat.id, user.id);
+					await kickUser(ctx.telegram, chat.id, user.id);
 					kickedUsers.add(userChatKey);
 					reactionTracker.delete(userChatKey);
 
@@ -472,7 +494,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						reaction.message_id,
 					);
 
-					logger.info("[AUTO_BAN]", {
+					logger.info("[AUTO_KICK]", {
 						userId: user.id,
 						username: user.username,
 						firstName: user.first_name,
@@ -481,11 +503,11 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						patternSource: spamMatch.patternSource,
 						matchedValue: matchedValue?.substring(0, 100),
 					});
-				} catch (banError) {
-					logger.error("Failed to ban spam bot (profile)", {
+				} catch (kickError) {
+					logger.error("Failed to kick spam bot (profile)", {
 						userId: user.id,
 						chatId: chat.id,
-						error: banError,
+						error: kickError,
 					});
 				}
 				return; // Already handled

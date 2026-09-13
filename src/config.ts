@@ -124,6 +124,9 @@ interface Config {
 	/** JUNO fees for clearing each message rate-limit window */
 	rateLimitResetFees: { "15m": number; "1h": number; "24h": number };
 
+	/** Minutes an identity-blocked user is jailed instead of permanently banned */
+	identityBlockJailMinutes: number;
+
 	/** Group flood limiter settings (delete recent burst and jail the sender) */
 	spamLimit: {
 		/** Messages allowed within the window before enforcement (0 disables) */
@@ -267,6 +270,10 @@ export const config: Config = {
 		"1h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_1H, 3),
 		"24h": parsePositiveNumber(process.env.RATELIMIT_RESET_FEE_24H, 10),
 	},
+	identityBlockJailMinutes: parseNonNegativeInteger(
+		process.env.IDENTITY_BLOCK_JAIL_MINUTES,
+		1440,
+	),
 	spamLimit: {
 		maxMessages: parseNonNegativeInteger(
 			process.env.SPAM_LIMIT_MAX_MESSAGES,

@@ -568,6 +568,18 @@ export const initDb = (): void => {
     );
   `);
 
+	// Membership join tracking. Insert-only: the earliest recorded join wins,
+	// so a member's age is never reset by later re-joins or backfills.
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS user_memberships (
+      user_id INTEGER PRIMARY KEY,
+      chat_id INTEGER,
+      joined_at INTEGER NOT NULL,
+      source TEXT,
+      recorded_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+  `);
+
 	// Identity block pattern management table
 	db.exec(`
     CREATE TABLE IF NOT EXISTS identity_block_patterns (

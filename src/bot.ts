@@ -36,6 +36,7 @@ import {
 	registerIdentityBlockHandlers,
 	registerIdentityBlockModeration,
 } from "./handlers/identityBlocks";
+import { registerMembershipHandlers } from "./handlers/membership";
 import { registerReactionSpamHandler } from "./handlers/reactionSpam";
 import { registerRestrictionHandlers } from "./handlers/restrictions";
 import { registerRoleHandlers } from "./handlers/roles";
@@ -157,6 +158,7 @@ async function main() {
 
 		// Check visible identity before other message filtering or command handlers
 		registerIdentityBlockModeration(bot); // Name/username identity block moderation
+		registerMembershipHandlers(bot); // Record real group joins (insert-only)
 
 		// Apply global middleware
 		bot.use(messageFilterMiddleware);

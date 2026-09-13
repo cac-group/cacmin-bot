@@ -683,7 +683,7 @@ export const helpTree: readonly HelpNode[] = [
 				content: fmt([
 					bold("Spam & Identity Block Patterns"),
 					"\n\n",
-					"Patterns matched against profiles of users who react to messages. Matching users are permanently banned.\n\n",
+					"Patterns matched against profiles of users who react to messages. Matching users are kicked.\n\n",
 					"/addspamreact [pattern] [bio|channel|both]\n",
 					"  Add a spam reaction pattern. No args for interactive mode.\n\n",
 					"/removespamreact <id>\n",
@@ -694,7 +694,7 @@ export const helpTree: readonly HelpNode[] = [
 					"  View all active custom patterns.\n\n",
 					"/spamreacthelp\n",
 					"  Detailed guide with examples.\n\n",
-					"Patterns matched against first name, last name, full display name, and username. Matching non-admin users are permanently banned.\n\n",
+					"Patterns matched against first name, last name, full display name, and username. Matching non-admin users are jailed.\n\n",
 					"/addidentityblock <pattern> [name|username|both]\n",
 					"  Add an identity block pattern for join, message, and chat-member checks.\n\n",
 					"/removeidentityblock <id>\n",

@@ -1,5 +1,5 @@
 /**
- * Identity block handlers for banning users whose visible Telegram identity matches spam patterns.
+ * Identity block handlers for jailing users whose visible Telegram identity matches spam patterns.
  * Matches first name, last name, full display name, or username on joins, messages, and chat-member updates.
  *
  * @module handlers/identityBlocks
@@ -8,8 +8,11 @@
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import type { User } from "telegraf/types";
+import { config } from "../config";
 import { execute, get, query } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware";
+import { JailService } from "../services/jailService";
+import { ensureUserExists } from "../services/userService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isAdmin, isOwner } from "../utils/roles";
 import {
@@ -17,6 +20,24 @@ import {
 	compileSafeRegex,
 	validatePattern,
 } from "../utils/safeRegex";
+
+/** Permissions removed for an identity-blocked user (all sending disabled). */
+const IDENTITY_BLOCK_PERMISSIONS = {
+	can_send_messages: false,
+	can_send_audios: false,
+	can_send_documents: false,
+	can_send_photos: false,
+	can_send_videos: false,
+	can_send_video_notes: false,
+	can_send_voice_notes: false,
+	can_send_polls: false,
+	can_send_other_messages: false,
+	can_add_web_page_previews: false,
+	can_change_info: false,
+	can_invite_users: false,
+	can_pin_messages: false,
+	can_manage_topics: false,
+};
 
 export type IdentityBlockField = "name" | "username" | "both";
 
@@ -141,7 +162,7 @@ export function detectBlockedIdentity(user: User): IdentityMatch | null {
 	return null;
 }
 
-export async function banIfBlockedIdentity(
+export async function jailIfBlockedIdentity(
 	telegram: Telegraf<Context>["telegram"],
 	chatId: number,
 	user: User,
@@ -157,9 +178,25 @@ export async function banIfBlockedIdentity(
 	}
 
 	try {
-		await telegram.banChatMember(chatId, user.id);
+		const minutes = config.identityBlockJailMinutes;
+		ensureUserExists(user.id, user.username || `user_${user.id}`);
+		const { mutedUntil } = JailService.jailUser({
+			userId: user.id,
+			durationMinutes: minutes,
+			metadata: {
+				reason: "identity_block",
+				matchedField: match.field,
+				patternSource: match.patternSource,
+				source,
+			},
+		});
 
-		StructuredLogger.logSecurityEvent("User auto-banned via identity block", {
+		await telegram.restrictChatMember(chatId, user.id, {
+			permissions: IDENTITY_BLOCK_PERMISSIONS,
+			until_date: mutedUntil,
+		});
+
+		StructuredLogger.logSecurityEvent("User auto-jailed via identity block", {
 			userId: user.id,
 			username: user.username,
 			firstName: user.first_name,
@@ -168,11 +205,11 @@ export async function banIfBlockedIdentity(
 			matchedField: match.field,
 			matchedValue: match.matchedValue.substring(0, 200),
 			patternSource: match.patternSource,
-			operation: "identity_block_ban",
+			operation: "identity_block_jail",
 			source,
 		});
 
-		logger.info("[IDENTITY_BLOCK_BAN]", {
+		logger.info("[IDENTITY_BLOCK_JAIL]", {
 			userId: user.id,
 			username: user.username,
 			firstName: user.first_name,
@@ -181,11 +218,12 @@ export async function banIfBlockedIdentity(
 			matchedField: match.field,
 			patternSource: match.patternSource,
 			source,
+			minutes,
 		});
 
 		return true;
 	} catch (error) {
-		logger.error("Failed to ban identity-blocked user", {
+		logger.error("Failed to jail identity-blocked user", {
 			userId: user.id,
 			chatId,
 			error,
@@ -205,20 +243,20 @@ export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
 
 		if ("new_chat_members" in msg && msg.new_chat_members) {
 			for (const member of msg.new_chat_members) {
-				await banIfBlockedIdentity(ctx.telegram, chatId, member, "join");
+				await jailIfBlockedIdentity(ctx.telegram, chatId, member, "join");
 			}
 			return next();
 		}
 
 		if (ctx.from) {
-			const banned = await banIfBlockedIdentity(
+			const jailed = await jailIfBlockedIdentity(
 				ctx.telegram,
 				chatId,
 				ctx.from,
 				"message",
 			);
 
-			if (banned) {
+			if (jailed) {
 				try {
 					await ctx.deleteMessage();
 				} catch {
@@ -235,7 +273,7 @@ export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
 		const update = ctx.chatMember;
 		if (!update || update.chat.type === "private") return;
 
-		await banIfBlockedIdentity(
+		await jailIfBlockedIdentity(
 			ctx.telegram,
 			update.chat.id,
 			update.new_chat_member.user,
@@ -369,7 +407,7 @@ Result: ${matches ? "MATCH" : "no match"}`,
 		await ctx.reply(
 			fmt`${bold("Identity Block Guide")}
 
-Identity block patterns are matched against first name, last name, full display name, and username. Matching non-admin users are banned on join, message, or chat-member updates.
+Identity block patterns are matched against first name, last name, full display name, and username. Matching non-admin users are jailed (temporarily muted) on join, message, or chat-member updates.
 
 ${bold("Fields")}
 ${bold("name")} - first name, last name, or full display name
@@ -453,7 +491,7 @@ async function addIdentityBlockPattern(
 Pattern: ${code(sanitized)}
 Field: ${field}${description ? `\nDescription: ${description}` : ""}
 
-Matching users will be banned on join, message, or chat-member updates.`,
+Matching users will be jailed on join, message, or chat-member updates.`,
 	);
 }
 
