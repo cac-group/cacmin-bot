@@ -82,10 +82,19 @@ export const incrementMessageCount = (userId: number): void => {
 	]);
 };
 
+/**
+ * Generated fallbacks that are not real Telegram handles and must never be
+ * treated as or stored as usernames.
+ */
+const PLACEHOLDER_USERNAME = /^(unknown|user_\d+)$/;
+
+export const isPlaceholderUsername = (username: string): boolean =>
+	PLACEHOLDER_USERNAME.test(username.replace(/^@/, "").trim().toLowerCase());
+
 /** Record a username a user id has been seen with, for id-stable lookups. */
 export const recordUsernameAlias = (userId: number, username: string): void => {
 	const normalized = username.replace(/^@/, "").trim().toLowerCase();
-	if (!normalized) return;
+	if (!normalized || isPlaceholderUsername(normalized)) return;
 	execute(
 		`INSERT INTO user_aliases (user_id, alias_type, normalized_value)
 		 VALUES (?, 'username', ?)
@@ -95,6 +104,27 @@ export const recordUsernameAlias = (userId: number, username: string): void => {
 	);
 };
 
+/** Update a username for an existing user without creating a row. */
+export const updateExistingUserUsername = (
+	userId: number,
+	username: string,
+): void => {
+	if (isPlaceholderUsername(username)) return;
+	const existing = query<{ username: string | null }>(
+		"SELECT username FROM users WHERE id = ?",
+		[userId],
+	)[0];
+	if (!existing || existing.username === username) return;
+	if (existing.username && !isPlaceholderUsername(existing.username)) {
+		recordUsernameAlias(userId, existing.username);
+	}
+	execute("UPDATE users SET username = ?, updated_at = ? WHERE id = ?", [
+		username,
+		Math.floor(Date.now() / 1000),
+		userId,
+	]);
+};
+
 /**
  * Resolve a username to a single user id using the current username and the
  * recorded alias history. Returns null when the username maps to more than one
@@ -102,7 +132,7 @@ export const recordUsernameAlias = (userId: number, username: string): void => {
  */
 export const findUserIdByUsername = (username: string): number | null => {
 	const normalized = username.replace(/^@/, "").trim().toLowerCase();
-	if (!normalized) return null;
+	if (!normalized || isPlaceholderUsername(normalized)) return null;
 
 	const rows = query<{ id: number }>(
 		`SELECT id FROM users WHERE LOWER(username) = ?

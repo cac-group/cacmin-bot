@@ -325,6 +325,7 @@ the selected window.
 - `/customjail <@username|userId> <minutes> <juno_amount> <reason>` - Jail a user with a custom fine (`owner`)
 - `/junoprice` - View the current JUNO price (`owner`)
 - `/clearviolations <@username|userId>` - Clear all violations for a user (`owner`)
+- `/crawlidentities [count|reset]` - Backfill missing usernames and profiles for known members (`owner`)
 - `/stats` - View overall bot statistics (`owner`)
 
 ### Spam-Reaction Pattern Controls

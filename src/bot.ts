@@ -6,6 +6,7 @@
  * @module bot
  */
 
+import { registerCrawlCommands } from "./commands/crawl";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerDuelCommands } from "./commands/duel";
 import { registerFineConfigCommands } from "./commands/fineConfig";
@@ -47,6 +48,7 @@ import { messageFilterMiddleware } from "./middleware/messageFilter";
 import { ChatIndexerService } from "./services/chatIndexerService";
 import { ChatInteractionIndexerService } from "./services/chatInteractionIndexerService";
 import { DuelService } from "./services/duelService";
+import { IdentityCrawlService } from "./services/identityCrawlService";
 import { JailService } from "./services/jailService";
 import { LedgerService } from "./services/ledgerService";
 import { PriceService } from "./services/priceService";
@@ -184,6 +186,7 @@ async function main() {
 		registerSharedAccountCommands(bot); // Shared account management
 		registerStickerCommands(bot); // Sticker sending and management
 		registerFineConfigCommands(bot); // Fine configuration and custom jail commands
+		registerCrawlCommands(bot); // Owner-driven identity backfill crawl
 		registerGamblingCommands(bot); // Roll gambling game
 		registerDuelCommands(bot); // Duel 2-player game
 		registerCallbackHandlers(bot); // Inline keyboard callback handlers
@@ -235,6 +238,19 @@ async function main() {
 					(error) => logger.error("Error cleaning rate-limit mutes", { error }),
 				);
 			}, 60 * 1000),
+		);
+
+		// Gradually fill missing usernames/profiles for known group members.
+		// Idles once a full pass completes; reset with /crawlidentities reset.
+		intervals.push(
+			setInterval(
+				() => {
+					IdentityCrawlService.runBatch(bot, 200).catch((error) =>
+						logger.error("Identity crawl batch failed", { error }),
+					);
+				},
+				5 * 60 * 1000,
+			),
 		);
 
 		// Periodic cleanup of expired jails (every 5 minutes)

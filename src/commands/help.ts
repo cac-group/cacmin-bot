@@ -51,7 +51,7 @@ export function registerHelpCommand(bot: Telegraf<Context>): void {
 
 		try {
 			// Ensure user exists in database
-			ensureUserExists(userId, ctx.from?.username || "unknown");
+			ensureUserExists(userId, ctx.from?.username || `user_${userId}`);
 
 			const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
 			const role = (user?.role || "pleb") as HelpRole;

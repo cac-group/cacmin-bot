@@ -46,6 +46,34 @@ display name.
   remaining place where per-user statistics split when a display name changes
   (or merge when two users share a name). Migrating it to id-keyed
   `telegram_users` is a follow-up in the explorer repo.
+## Generated placeholders
+
+Users with no Telegram username are stored with a generated `user_<id>` value
+(never `"unknown"`). `isPlaceholderUsername` (`^(unknown|user_\d+)$`) is
+excluded from alias recording and from `findUserIdByUsername`, so placeholders
+never collide or resolve to a real account.
+
+## Identity crawl (`identityCrawlService`)
+
+Telegram exposes no member list and no join date, and the historical HTML/JSON
+exports contain almost no join events, so blanks can only be filled by querying
+Telegram directly. The crawl:
+
+- Iterates `telegram_users.user_id` where `current_username` is missing, after a
+  cursor stored in `system_state` (`identity_crawl_cursor`).
+- Calls `getChatMember(GROUP_CHAT_ID, id)` for each (throttled 60 ms) and
+  records the profile into the explorer identity tables
+  (`ChatInteractionIndexerService.recordProfile`, source `telegram-crawl`),
+  also updating an existing bot `users.username`.
+- Advances the cursor and sets `identity_crawl_done=1` when a pass completes, so
+  it never re-queries members who genuinely have no username. `/crawlidentities
+  reset` starts a fresh pass.
+- Runs automatically every 5 minutes (200 users) and on demand via
+  `/crawlidentities [count]` (owner only, max 1000). Skips users who left
+  (counted as unavailable).
+
+## Remaining name-based surfaces
+
 - `resolveUser` / `getUserIdByUsername`: resolve human `@username` input to an
   id. Resolution is now id-stable: `ensureUserExists` records each previous
   username in `user_aliases`, and `findUserIdByUsername` matches the current

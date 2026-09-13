@@ -86,7 +86,7 @@ export const userManagementMiddleware: MiddlewareFn<Context> = async (
 	}
 
 	const userId = ctx.from.id;
-	const username = ctx.from.username || "unknown";
+	const username = ctx.from.username || `user_${ctx.from.id}`;
 
 	try {
 		// Ensure the user is in the database

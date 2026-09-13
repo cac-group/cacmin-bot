@@ -82,7 +82,7 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 
 	try {
 		// Ensure user exists (synchronous operation)
-		ensureUserExists(ctx.from.id, ctx.from.username || "unknown");
+		ensureUserExists(ctx.from.id, ctx.from.username || `user_${ctx.from.id}`);
 
 		// Get user from database
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [ctx.from.id]);

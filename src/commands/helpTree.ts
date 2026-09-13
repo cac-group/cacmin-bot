@@ -673,7 +673,9 @@ export const helpTree: readonly HelpNode[] = [
 					bold("Moderation"),
 					"\n\n",
 					"/clearviolations <@username|userId>\n",
-					"  Clear all violations for a user and reset their warning count.",
+					"  Clear all violations for a user and reset their warning count.\n\n",
+					"/crawlidentities [count|reset]\n",
+					"  Probe known group members missing a username and record their current Telegram profile (default 100, max 1000). Use reset to start a fresh pass. Also runs automatically in the background.",
 				]),
 			},
 			{

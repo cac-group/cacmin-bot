@@ -70,7 +70,7 @@ export const registerRoleHandlers = (bot: Telegraf<Context>) => {
 
 		execute(
 			"INSERT OR REPLACE INTO users (id, username, role) VALUES (?, ?, ?)",
-			[userId, ctx.from.username || "unknown", "owner"],
+			[userId, ctx.from.username || `user_${userId}`, "owner"],
 		);
 
 		StructuredLogger.logSecurityEvent("Master owner initialized", {

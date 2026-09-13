@@ -24,6 +24,8 @@ vi.mock("../../src/utils/logger", () => ({
 import {
 	findUserIdByUsername,
 	getUserIdByUsername,
+	isPlaceholderUsername,
+	updateExistingUserUsername,
 } from "../../src/services/userService";
 
 describe("findUserIdByUsername", () => {
@@ -58,5 +60,37 @@ describe("findUserIdByUsername", () => {
 	it("getUserIdByUsername delegates to the same resolution", () => {
 		queryMock.mockReturnValue([{ id: 7 }]);
 		expect(getUserIdByUsername("bob")).toBe(7);
+	});
+
+	it("rejects generated placeholder usernames", () => {
+		expect(isPlaceholderUsername("unknown")).toBe(true);
+		expect(isPlaceholderUsername("@user_123")).toBe(true);
+		expect(isPlaceholderUsername("alice")).toBe(false);
+		expect(findUserIdByUsername("unknown")).toBeNull();
+		expect(findUserIdByUsername("user_123")).toBeNull();
+		expect(queryMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("updateExistingUserUsername", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("updates an existing user and keeps the old name as an alias", () => {
+		queryMock.mockReturnValue([{ username: "oldname" }]);
+		updateExistingUserUsername(5, "newname");
+		const sqls = executeMock.mock.calls.map((call) => String(call[0]));
+		expect(sqls.some((sql) => sql.includes("user_aliases"))).toBe(true);
+		expect(
+			executeMock.mock.calls.some((call) => call[1]?.[0] === "newname"),
+		).toBe(true);
+	});
+
+	it("does nothing for a missing user or a placeholder username", () => {
+		queryMock.mockReturnValue([]);
+		updateExistingUserUsername(5, "newname");
+		updateExistingUserUsername(5, "user_5");
+		expect(executeMock).not.toHaveBeenCalled();
 	});
 });

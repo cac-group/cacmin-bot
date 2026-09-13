@@ -223,6 +223,64 @@ export class ChatInteractionIndexerService {
 		}
 	}
 
+	/**
+	 * Record a profile fetched directly from Telegram (not from a message).
+	 * Used by the identity crawl to fill blanks for members who have not posted.
+	 * No-ops when the indexer is disabled.
+	 */
+	static recordProfile(
+		userId: number,
+		username: string | undefined,
+		firstName: string | undefined,
+		lastName: string | undefined,
+		source = "telegram-crawl",
+	): void {
+		if (
+			!ChatInteractionIndexerService.enabled ||
+			!ChatInteractionIndexerService.db
+		)
+			return;
+		try {
+			ChatInteractionIndexerService.recordIdentity(
+				{
+					id: userId,
+					username,
+					first_name: firstName,
+					last_name: lastName,
+					is_bot: false,
+				} as TelegramUserIdentity,
+				Math.floor(Date.now() / 1000),
+				0,
+				source,
+			);
+		} catch (error) {
+			logger.error("Failed to record crawled profile", { userId, error });
+		}
+	}
+
+	/**
+	 * List user ids with no recorded username, after a cursor, for the crawl.
+	 * Returns an empty array when the indexer is disabled.
+	 */
+	static listUsersMissingUsername(
+		afterUserId: number,
+		limit: number,
+	): number[] {
+		const db = ChatInteractionIndexerService.db;
+		if (!ChatInteractionIndexerService.enabled || !db) return [];
+		return (
+			db
+				.prepare(`
+					SELECT user_id FROM telegram_users
+					WHERE user_id > ?
+						AND (current_username IS NULL OR current_username = '')
+					ORDER BY user_id
+					LIMIT ?
+				`)
+				.all(afterUserId, limit) as { user_id: number }[]
+		).map((row) => row.user_id);
+	}
+
 	static indexReaction(reaction: any, updateId: number): void {
 		const db = ChatInteractionIndexerService.db;
 		if (!ChatInteractionIndexerService.enabled || !db || !reaction?.user)
@@ -362,6 +420,7 @@ export class ChatInteractionIndexerService {
 		user: TelegramUserIdentity,
 		observedAtUnix: number,
 		sourceMessageId: number,
+		source = "telegram-live",
 	): void {
 		const db = ChatInteractionIndexerService.db;
 		if (!db) return;
@@ -419,7 +478,7 @@ export class ChatInteractionIndexerService {
 			INSERT OR IGNORE INTO telegram_user_identity_history (
 				user_id, username, first_name, last_name, display_name,
 				observed_at_unix, source_message_id, source
-			) VALUES (?, ?, ?, ?, ?, ?, ?, 'telegram-live')
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`).run(
 			user.id,
 			username,
@@ -428,6 +487,7 @@ export class ChatInteractionIndexerService {
 			displayName,
 			observedAtUnix,
 			sourceMessageId,
+			source,
 		);
 		ChatInteractionIndexerService.upsertAlias(
 			user.id,
