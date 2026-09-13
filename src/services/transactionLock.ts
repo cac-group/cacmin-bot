@@ -299,7 +299,7 @@ export class TransactionLockService {
 	): Promise<{ released: boolean; error?: string }> {
 		const lock = await TransactionLockService.getActiveLock(userId);
 
-		if (!lock || lock.lockType !== "withdrawal") {
+		if (lock?.lockType !== "withdrawal") {
 			return { released: false, error: "No withdrawal lock found" };
 		}
 

@@ -310,7 +310,7 @@ async function handleSeverityCallback(
 	userId: number,
 ): Promise<void> {
 	const session = getSession(userId);
-	if (!session || session.action !== "add_restriction" || session.step !== 2) {
+	if (session?.action !== "add_restriction" || session?.step !== 2) {
 		await ctx.editMessageText("Session expired. Please start over.", {
 			reply_markup: noKeyboard,
 		});
@@ -447,7 +447,7 @@ async function handleAutoJailCallback(
 	userId: number,
 ): Promise<void> {
 	const session = getSession(userId);
-	if (!session || session.action !== "add_restriction" || session.step !== 3) {
+	if (session?.action !== "add_restriction" || session?.step !== 3) {
 		await ctx.editMessageText("Session expired. Please start over.", {
 			reply_markup: noKeyboard,
 		});

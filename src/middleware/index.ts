@@ -12,7 +12,7 @@ import { logger, StructuredLogger } from "../utils/logger";
 function commandName(ctx: Context): string | undefined {
 	const text =
 		ctx.message && "text" in ctx.message ? ctx.message.text : undefined;
-	if (!text || !text.startsWith("/")) return undefined;
+	if (!text?.startsWith("/")) return undefined;
 	return text.split(/\s+/)[0].split("@")[0];
 }
 
@@ -80,7 +80,7 @@ export const userManagementMiddleware: MiddlewareFn<Context> = async (
 	ctx,
 	next,
 ) => {
-	if (!ctx.from || !ctx.from.id) {
+	if (!ctx.from?.id) {
 		logger.warn("Request received without user information");
 		return next(); // Skip if no user information is available
 	}

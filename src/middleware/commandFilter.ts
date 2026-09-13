@@ -39,7 +39,7 @@ export const commandFilterMiddleware: MiddlewareFn<Context> = async (
 	const messageText =
 		ctx.message && "text" in ctx.message ? ctx.message.text : null;
 
-	if (!messageText || !messageText.startsWith("/")) {
+	if (!messageText?.startsWith("/")) {
 		return next();
 	}
 
