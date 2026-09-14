@@ -23,23 +23,26 @@ stay classified as new forever.
 
 ## Enforcement methods
 
-1. **Profile match — kick.** `getChat` bio / personal-channel title is tested
-   against built-in patterns plus DB patterns managed by `/addspamreact` etc. On
-   match the user is kicked (`banChatMember` + immediate `unbanChatMember`) and
-   a fun message is posted. No permanent ban.
-2. **Velocity — kick (ban + immediate unban).** 3 reactions within 60 seconds
-   (`VELOCITY_REACTION_LIMIT` / `VELOCITY_WINDOW_MS`) triggers a kick so a false
-   positive can rejoin. The tracker is keyed `userId:chatId` and cleared on
-   action.
+Both methods **jail** (temporary mute), never ban or kick:
 
-Both use in-memory state, so a restart clears the short window.
+1. **Profile match.** `getChat` bio / personal-channel title is tested against
+   built-in patterns plus DB patterns managed by `/addspamreact` etc. On match
+   the user is jailed and a fun message is posted.
+2. **Velocity.** 3 reactions within 60 seconds (`VELOCITY_REACTION_LIMIT` /
+   `VELOCITY_WINDOW_MS`) triggers a jail. The tracker is keyed `userId:chatId`
+   and cleared on action.
 
-## No permanent bans
+Jailing calls `JailService.jailUser` (sets `users.muted_until`, writes a
+`jailed` audit row) and `restrictChatMember` with all sending permissions off
+for `REACTION_SPAM_JAIL_MINUTES` (default 1440 = 24h). `cleanExpiredJails`
+restores access on expiry. Both detection methods use in-memory state, so a
+restart clears the short window.
 
-As of 2026-09-13 the bot never permanently bans. The two former permanent-ban
-paths are now: reaction profile match → **kick**, identity block → **temporary
-jail** (see `identity-blocks.md`). "Kick" is implemented as `banChatMember`
-immediately followed by `unbanChatMember`.
+## No bans, no kicks
+
+As of 2026-09-14 the bot has **zero** `banChatMember`/`unbanChatMember` calls.
+Reaction spam is jailed, not kicked; identity blocks are jailed too (see
+`identity-blocks.md`). Kicking is intentionally not used.
 
 ## History note
 

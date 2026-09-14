@@ -685,7 +685,7 @@ export const helpTree: readonly HelpNode[] = [
 				content: fmt([
 					bold("Spam & Identity Block Patterns"),
 					"\n\n",
-					"Patterns matched against profiles of users who react to messages. Matching users are kicked.\n\n",
+					"Patterns matched against profiles of users who react to messages. Matching users are jailed.\n\n",
 					"/addspamreact [pattern] [bio|channel|both]\n",
 					"  Add a spam reaction pattern. No args for interactive mode.\n\n",
 					"/removespamreact <id>\n",

@@ -1,8 +1,10 @@
 /**
  * Reaction-based spam detection handler for the CAC Admin Bot.
- * Monitors chat reactions and kicks users detected as spam bots via two methods:
- * 1. Bio pattern matching - immediate kick if bio matches known spam patterns
- * 2. Velocity detection - kick if a new user reacts to many messages rapidly
+ * Monitors chat reactions and jails users detected as spam bots via two methods:
+ * 1. Bio pattern matching - immediate jail if bio matches known spam patterns
+ * 2. Velocity detection - jail if a new user reacts to many messages rapidly
+ *
+ * Enforcement is always a temporary jail (mute); the bot never bans or kicks.
  *
  * Only new users (fewer than NEW_USER_MESSAGE_LIMIT lifetime group messages)
  * are checked; established and elevated users are exempt.
@@ -12,7 +14,10 @@
 
 import type { Context, Telegraf } from "telegraf";
 import type { Chat, User } from "telegraf/types";
+import { config } from "../config";
 import { get } from "../database";
+import { JailService } from "../services/jailService";
+import { ensureUserExists } from "../services/userService";
 import { dedupeResponse } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { checkIsElevated } from "../utils/roles";
@@ -28,7 +33,7 @@ const NEW_USER_MESSAGE_LIMIT = 5;
  */
 const NEW_USER_MAX_AGE_SECONDS = 14 * 24 * 60 * 60;
 
-/** Max reactions allowed within the time window before triggering a velocity kick */
+/** Max reactions allowed within the time window before triggering a velocity jail */
 const VELOCITY_REACTION_LIMIT = 3;
 
 /** Time window in milliseconds for velocity tracking (60 seconds) */
@@ -65,14 +70,32 @@ const SPAM_BIO_PATTERNS = [
 ];
 
 /**
- * Fun kick messages for spam bots.
- * One is randomly selected when kicking.
+ * Fun jail messages for reaction spammers.
+ * One is randomly selected when jailing.
  */
-const KICK_MESSAGES = [
-	"Be gone thot!",
-	"{name} is banished, our members' virginity remains untarnished.",
+const JAIL_MESSAGES = [
+	"{name} has been jailed for spamming reactions.",
 	"{name} tried to corrupt the chat. The horny police have intervened.",
+	"{name} is cooling off in horny jail for reaction spam.",
 ];
+
+/** Permissions removed from a jailed reaction spammer (all sending disabled). */
+const JAIL_PERMISSIONS = {
+	can_send_messages: false,
+	can_send_audios: false,
+	can_send_documents: false,
+	can_send_photos: false,
+	can_send_videos: false,
+	can_send_video_notes: false,
+	can_send_voice_notes: false,
+	can_send_polls: false,
+	can_send_other_messages: false,
+	can_add_web_page_previews: false,
+	can_change_info: false,
+	can_invite_users: false,
+	can_pin_messages: false,
+	can_manage_topics: false,
+};
 
 /**
  * In-memory tracker for reaction velocity per user per chat.
@@ -81,10 +104,10 @@ const KICK_MESSAGES = [
 const reactionTracker = new Map<string, number[]>();
 
 /**
- * Set of users already kicked this session to avoid duplicate kick attempts.
+ * Set of users already actioned this session to avoid duplicate jails.
  * Key format: `${userId}:${chatId}`
  */
-const kickedUsers = new Set<string>();
+const handledUsers = new Set<string>();
 
 /**
  * In-memory cache of users exempt from spam checks (message count reached the
@@ -154,20 +177,20 @@ function detectSpamProfile(
 }
 
 /**
- * Gets a random kick message, replacing {name} with the user's name.
+ * Gets a random jail message, replacing {name} with the user's name.
  * If the user has a username, the name is rendered as an HTML link to their profile.
  *
- * @param user - The user being kicked
- * @returns Formatted kick message with HTML link
+ * @param user - The user being jailed
+ * @returns Formatted jail message with HTML link
  */
-function getKickMessage(user: User): string {
+function getJailMessage(user: User): string {
 	const displayName =
 		user.first_name + (user.last_name ? ` ${user.last_name}` : "");
 	const nameHtml = user.username
 		? `<a href="https://t.me/${user.username}">${escapeHtml(displayName)}</a>`
 		: escapeHtml(displayName);
 	const template =
-		KICK_MESSAGES[Math.floor(Math.random() * KICK_MESSAGES.length)];
+		JAIL_MESSAGES[Math.floor(Math.random() * JAIL_MESSAGES.length)];
 	return template.replace("{name}", nameHtml);
 }
 
@@ -185,14 +208,14 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Sends a kick/ban announcement message, replacing a recent response for the user.
+ * Sends a jail announcement message, replacing a recent response for the user.
  *
  * @param telegram - Telegram API instance
  * @param chatId - Chat to send the message in
  * @param message - HTML-formatted message text
  * @param replyToMessageId - Message ID to reply to
  */
-async function sendKickAnnouncement(
+async function sendJailAnnouncement(
 	telegram: Telegraf<Context>["telegram"],
 	chatId: number,
 	userId: number,
@@ -210,7 +233,7 @@ async function sendKickAnnouncement(
 		telegram,
 		chatId,
 		userId,
-		"spam-kick-announcement",
+		"spam-jail-announcement",
 		sent.message_id,
 	);
 }
@@ -267,19 +290,28 @@ function checkReactionVelocity(userId: number, chatId: number): boolean {
 }
 
 /**
- * Kicks a user from a chat (ban + immediate unban so they can rejoin).
+ * Jails a reaction spammer for a bounded period (mute, never ban or kick).
  *
  * @param telegram - Telegram API instance
- * @param chatId - Chat to kick from
- * @param userId - User to kick
+ * @param chatId - Chat to jail in
+ * @param user - User to jail
  */
-async function kickUser(
+async function jailSpammer(
 	telegram: Telegraf<Context>["telegram"],
 	chatId: number,
-	userId: number,
+	user: User,
 ): Promise<void> {
-	await telegram.banChatMember(chatId, userId);
-	await telegram.unbanChatMember(chatId, userId);
+	const minutes = config.reactionSpamJailMinutes;
+	ensureUserExists(user.id, user.username || `user_${user.id}`);
+	const { mutedUntil } = JailService.jailUser({
+		userId: user.id,
+		durationMinutes: minutes,
+		metadata: { reason: "reaction_spam" },
+	});
+	await telegram.restrictChatMember(chatId, user.id, {
+		permissions: JAIL_PERMISSIONS,
+		until_date: mutedUntil,
+	});
 }
 
 /**
@@ -350,9 +382,9 @@ function pruneReactionTracker(): void {
 		}
 	}
 
-	// Also clear kicked users set periodically so it doesn't grow forever
+	// Also clear handled users set periodically so it doesn't grow forever
 	// (safe because Telegram won't deliver reactions from users no longer in chat)
-	kickedUsers.clear();
+	handledUsers.clear();
 }
 
 /**
@@ -361,14 +393,14 @@ function pruneReactionTracker(): void {
  * and reaction velocity tracking.
  *
  * Detection methods:
- * 1. Bio check: If a new user's bio matches spam patterns, kick immediately
+ * 1. Bio check: If a new user's bio matches spam patterns, jail immediately
  * 2. Velocity check: If a new user reacts to 3+ messages within 60 seconds,
- *    kick for reaction spam
+ *    jail for reaction spam
  *
  * Features:
  * - Logs all reactions for audit trail
- * - Kicks (not bans) so false positives can rejoin
- * - Sends a fun kick message to the chat
+ * - Jails (never bans or kicks); the mute expires and cleanup restores access
+ * - Sends a fun jail message to the chat
  * - Elevated users and established members (5+ messages) are exempt
  * - Detailed logging for debugging detection failures
  *
@@ -435,9 +467,9 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			return;
 		}
 
-		// Skip if already kicked this session
+		// Skip if already actioned this session
 		const userChatKey = `${user.id}:${chat.id}`;
-		if (kickedUsers.has(userChatKey)) {
+		if (handledUsers.has(userChatKey)) {
 			return;
 		}
 
@@ -481,20 +513,20 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				});
 
 				try {
-					await kickUser(ctx.telegram, chat.id, user.id);
-					kickedUsers.add(userChatKey);
+					await jailSpammer(ctx.telegram, chat.id, user);
+					handledUsers.add(userChatKey);
 					reactionTracker.delete(userChatKey);
 
-					const kickMessage = getKickMessage(user);
-					await sendKickAnnouncement(
+					const jailMessage = getJailMessage(user);
+					await sendJailAnnouncement(
 						ctx.telegram,
 						chat.id,
 						user.id,
-						kickMessage,
+						jailMessage,
 						reaction.message_id,
 					);
 
-					logger.info("[AUTO_KICK]", {
+					logger.info("[AUTO_JAIL]", {
 						userId: user.id,
 						username: user.username,
 						firstName: user.first_name,
@@ -503,11 +535,11 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 						patternSource: spamMatch.patternSource,
 						matchedValue: matchedValue?.substring(0, 100),
 					});
-				} catch (kickError) {
-					logger.error("Failed to kick spam bot (profile)", {
+				} catch (jailError) {
+					logger.error("Failed to jail spammer (profile)", {
 						userId: user.id,
 						chatId: chat.id,
-						error: kickError,
+						error: jailError,
 					});
 				}
 				return; // Already handled
@@ -535,31 +567,31 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			);
 
 			try {
-				await kickUser(ctx.telegram, chat.id, user.id);
-				kickedUsers.add(userChatKey);
+				await jailSpammer(ctx.telegram, chat.id, user);
+				handledUsers.add(userChatKey);
 				reactionTracker.delete(userChatKey);
 
-				const kickMessage = getKickMessage(user);
-				await sendKickAnnouncement(
+				const jailMessage = getJailMessage(user);
+				await sendJailAnnouncement(
 					ctx.telegram,
 					chat.id,
 					user.id,
-					kickMessage,
+					jailMessage,
 					reaction.message_id,
 				);
 
-				logger.info("[AUTO_KICK]", {
+				logger.info("[AUTO_JAIL]", {
 					userId: user.id,
 					username: user.username,
 					firstName: user.first_name,
 					chatId: chat.id,
 					reason: "reaction_velocity",
 				});
-			} catch (kickError) {
-				logger.error("Failed to kick spam bot (velocity)", {
+			} catch (jailError) {
+				logger.error("Failed to jail spammer (velocity)", {
 					userId: user.id,
 					chatId: chat.id,
-					error: kickError,
+					error: jailError,
 				});
 			}
 		}

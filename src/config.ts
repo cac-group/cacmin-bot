@@ -127,6 +127,9 @@ interface Config {
 	/** Minutes an identity-blocked user is jailed instead of permanently banned */
 	identityBlockJailMinutes: number;
 
+	/** Minutes a reaction-spam offender is jailed (never banned/kicked) */
+	reactionSpamJailMinutes: number;
+
 	/** Group flood limiter settings (delete recent burst and jail the sender) */
 	spamLimit: {
 		/** Messages allowed within the window before enforcement (0 disables) */
@@ -272,6 +275,10 @@ export const config: Config = {
 	},
 	identityBlockJailMinutes: parseNonNegativeInteger(
 		process.env.IDENTITY_BLOCK_JAIL_MINUTES,
+		1440,
+	),
+	reactionSpamJailMinutes: parseNonNegativeInteger(
+		process.env.REACTION_SPAM_JAIL_MINUTES,
 		1440,
 	),
 	spamLimit: {

@@ -314,7 +314,7 @@ Result: ${matches ? "MATCH" : "no match"}`,
 		await ctx.reply(
 			fmt`${bold("Spam Reaction Pattern Guide")}
 
-Spam reaction patterns are matched against the profiles of users who react to messages. If a low-message user's profile matches, they are kicked.
+Spam reaction patterns are matched against the profiles of users who react to messages. If a low-message user's profile matches, they are jailed.
 
 ${bold("Profile Fields:")}
 
@@ -444,7 +444,7 @@ export async function addPattern(
 Pattern: ${code(sanitized)}
 Field: ${field}${description ? `\nDescription: ${description}` : ""}
 
-Bots matching this in their profile will be auto-kicked on first reaction.`,
+Bots matching this in their profile will be auto-jailed on first reaction.`,
 	);
 }
 
