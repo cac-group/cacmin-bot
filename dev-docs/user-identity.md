@@ -71,6 +71,11 @@ Telegram directly. The crawl:
 - Runs automatically every 5 minutes (200 users) and on demand via
   `/crawlidentities [count]` (owner only, max 1000). Skips users who left
   (counted as unavailable).
+- **429 handling:** a rate-limit response is retried for the *same* user after
+  `retry_after` (up to 3 times). If it persists, the batch pauses and the cursor
+  is left at the last fully resolved id, so no user is silently skipped. Only
+  definitive failures (not a member, deleted account) count as unavailable and
+  advance the cursor.
 
 ## Remaining name-based surfaces
 

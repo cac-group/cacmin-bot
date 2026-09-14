@@ -27,6 +27,26 @@ const DONE_KEY = "identity_crawl_done";
 /** Delay between Telegram calls to stay well under the API rate limit. */
 const THROTTLE_MS = 60;
 
+/** How many times to honor a 429 retry_after for the same user before pausing. */
+const MAX_RATE_LIMIT_RETRIES = 3;
+
+/**
+ * Returns the delay (ms) Telegram asked us to wait for a 429, or null when the
+ * error is not a rate limit. Telegraf's TelegramError exposes `code` and
+ * `parameters` from the API response.
+ */
+function rateLimitRetryAfterMs(error: unknown): number | null {
+	const candidate = error as {
+		code?: number;
+		parameters?: { retry_after?: number };
+	};
+	if (candidate?.code !== 429) return null;
+	const retryAfter = candidate.parameters?.retry_after;
+	return (
+		(typeof retryAfter === "number" && retryAfter >= 0 ? retryAfter : 1) * 1000
+	);
+}
+
 export interface CrawlBatchResult {
 	attempted: number;
 	filled: number;
@@ -98,26 +118,62 @@ export class IdentityCrawlService {
 
 			let filled = 0;
 			let unavailable = 0;
+			let attempted = 0;
 			let lastId = cursor;
 			for (const userId of candidates) {
-				lastId = userId;
-				try {
-					const member = await bot.telegram.getChatMember(chatId, userId);
-					const user = member.user;
-					ChatInteractionIndexerService.recordProfile(
-						userId,
-						user.username,
-						user.first_name,
-						user.last_name,
-					);
-					if (user.username) {
-						updateExistingUserUsername(userId, user.username);
-						filled++;
+				attempted++;
+				let attempts = 0;
+				let resolved = false;
+				while (!resolved) {
+					try {
+						const member = await bot.telegram.getChatMember(chatId, userId);
+						const user = member.user;
+						ChatInteractionIndexerService.recordProfile(
+							userId,
+							user.username,
+							user.first_name,
+							user.last_name,
+						);
+						if (user.username) {
+							updateExistingUserUsername(userId, user.username);
+							filled++;
+						}
+						resolved = true;
+					} catch (error) {
+						const retryAfterMs = rateLimitRetryAfterMs(error);
+						if (retryAfterMs === null) {
+							// Left the group, deleted account, or otherwise unavailable.
+							unavailable++;
+							resolved = true;
+							break;
+						}
+						attempts++;
+						if (attempts > MAX_RATE_LIMIT_RETRIES) {
+							// Don't skip the user: pause here and resume from the last
+							// fully resolved id on the next run.
+							writeState(CURSOR_KEY, String(lastId));
+							logger.warn("Identity crawl paused on rate limit", {
+								userId,
+								attempts,
+								retryAfterMs,
+							});
+							return {
+								attempted,
+								filled,
+								unavailable,
+								done: false,
+								error: "Rate limited by Telegram; will resume on the next run.",
+							};
+						}
+						logger.warn("Identity crawl rate limited, backing off", {
+							userId,
+							retryAfterMs,
+							attempt: attempts,
+						});
+						await sleep(retryAfterMs + 250);
 					}
-				} catch {
-					// Left the group, deleted account, or otherwise unavailable.
-					unavailable++;
 				}
+				lastId = userId;
 				await sleep(THROTTLE_MS);
 			}
 
@@ -128,13 +184,13 @@ export class IdentityCrawlService {
 				writeState(CURSOR_KEY, "0");
 			}
 			logger.info("Identity crawl batch complete", {
-				attempted: candidates.length,
+				attempted,
 				filled,
 				unavailable,
 				done,
 			});
 			return {
-				attempted: candidates.length,
+				attempted,
 				filled,
 				unavailable,
 				done,
