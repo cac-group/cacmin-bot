@@ -42,12 +42,19 @@ on `(restriction, restricted_action)`, so every global-restriction write uses
 `ON CONFLICT(restriction, restricted_action) DO NOTHING`. Re-banning the same
 GIF globally never stacks rows.
 
+User restrictions are idempotent too: migration 007 adds a unique index on
+`(user_id, restriction, restricted_action)` (deduping existing rows, keeping the
+most recent). `addUserRestriction` upserts, so re-adding the same restriction
+updates its severity/expiry/config instead of appending. Distinct actions of the
+same type (e.g. two different `regex_block` patterns) remain separate rows.
+
 ## Upsert policy
 
 Idempotent config/state writes upsert on their natural key (`fine_config`,
 `user_rate_limits`, `user_aliases`, `system_state`, `global_restrictions`,
-`spam_patterns`, `identity_block_patterns`, `shared_account_permissions`,
-`giveaway_claims`, `user_balances`). Append-only audit tables are deliberately
+`user_restrictions`, `spam_patterns`, `identity_block_patterns`,
+`shared_account_permissions`, `giveaway_claims`, `user_balances`). Append-only
+audit tables are deliberately
 plain `INSERT` and must stay that way: `transactions`, `violations`,
 `jail_events`, `price_history`, `duels`, `giveaway_claims` claim rows (the
 ledger/audit trail is not deduplicated).

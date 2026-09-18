@@ -151,6 +151,8 @@ export function initTestDatabase(): Database {
 
     CREATE INDEX IF NOT EXISTS idx_violations_user_id ON violations(user_id);
     CREATE INDEX IF NOT EXISTS idx_restrictions_user_id ON user_restrictions(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_restrictions_unique
+      ON user_restrictions(user_id, restriction, restricted_action);
     CREATE INDEX IF NOT EXISTS idx_user_balances_balance ON user_balances(balance);
     CREATE INDEX IF NOT EXISTS idx_transactions_from_user ON transactions(from_user_id);
     CREATE INDEX IF NOT EXISTS idx_transactions_to_user ON transactions(to_user_id);

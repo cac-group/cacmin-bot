@@ -220,11 +220,19 @@ export const addUserRestriction = (
 	autoJailFine: number = 10.0,
 ): void => {
 	execute(
-		"INSERT INTO user_restrictions (user_id, restriction, restricted_action, metadata, restricted_until, severity, violation_threshold, auto_jail_duration, auto_jail_fine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		`INSERT INTO user_restrictions (user_id, restriction, restricted_action, metadata, restricted_until, severity, violation_threshold, auto_jail_duration, auto_jail_fine)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id, restriction, restricted_action) DO UPDATE SET
+		   metadata = excluded.metadata,
+		   restricted_until = excluded.restricted_until,
+		   severity = excluded.severity,
+		   violation_threshold = excluded.violation_threshold,
+		   auto_jail_duration = excluded.auto_jail_duration,
+		   auto_jail_fine = excluded.auto_jail_fine`,
 		[
 			userId,
 			restriction,
-			restrictedAction || null,
+			restrictedAction || "",
 			metadata ? JSON.stringify(metadata) : null,
 			restrictedUntil || null,
 			severity,
