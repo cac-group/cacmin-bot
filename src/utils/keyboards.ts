@@ -34,7 +34,7 @@ export const restrictionTypeKeyboard: InlineKeyboardMarkup = {
 		],
 		[
 			{ text: "Random Delete", callback_data: "restrict_random_delete" },
-			{ text: "No Specific GIF", callback_data: "restrict_no_specific_gif" },
+			{ text: "Ban GIF", callback_data: "restrict_no_specific_gif" },
 		],
 		[{ text: "Cancel", callback_data: "cancel" }],
 	],

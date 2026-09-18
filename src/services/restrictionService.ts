@@ -10,9 +10,23 @@ import {
 	getRandomDeleteProbability,
 	RANDOM_DELETE_MIN_UNIQUE_WORDS,
 } from "../utils/randomDelete";
+import { restrictionLabel } from "../utils/restrictionLabels";
 import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { createViolation } from "./violationService";
+
+/**
+ * Dedupe key for a restriction/penalty response class.
+ *
+ * Deliberately excludes the message text: violation notices vary by count
+ * ("1/5" vs "2/5") and must still collapse to a single, most-recent message.
+ *
+ * @param restriction - Restriction type or penalty class (e.g. no_specific_gif, immediate_jail)
+ * @returns Stable event key for recent-response deduplication
+ */
+export function violationResponseKey(restriction: string): string {
+	return `restriction:${restriction}`;
+}
 
 /**
  * Restriction check handler type
@@ -196,8 +210,7 @@ export class RestrictionService {
 		replyToMessageId?: number,
 	): Promise<void> {
 		if (!ctx.from || !ctx.chat) return;
-		const responseText = typeof message === "string" ? message : message.text;
-		const eventKey = `restriction:${restriction}:${responseText}`;
+		const eventKey = violationResponseKey(restriction);
 		const shouldSend = await prepareResponse(
 			ctx.telegram,
 			ctx.chat.id,
@@ -293,21 +306,23 @@ export class RestrictionService {
 						await ctx.deleteMessage();
 					} else {
 						// Default warning message
+						const label = restrictionLabel(restriction.restriction);
 						const warningText =
 							recentViolations.length >= threshold - 1
-								? "WARNING: One more violation will result in automatic 2-day jail with a 10 JUNO fine!\n\n"
+								? `\n${bold("Heads up:")} one more violation means an automatic 2-day jail and a 10 JUNO fine.`
 								: "";
 						const fineText =
 							fineAmt > 0
-								? `\n\nTo remove this restriction, pay ${fineAmt} JUNO: ${code("/payfine")}`
+								? `\n\nRemove this restriction by paying ${fineAmt} JUNO: ${code("/payfine")}`
 								: "";
 						await RestrictionService.sendTrackedViolationResponse(
 							ctx,
 							restriction.restriction,
-							fmt`Your message was deleted for violating restriction: ${restriction.restriction}
+							fmt`Your message was removed: ${bold(label)}.
 
-Violations in last hour: ${recentViolations.length}/${threshold}
-${warningText}Use /violations to check your status.${fineText}`,
+Violations in the last hour: ${recentViolations.length}/${threshold}${warningText}${fineText}
+
+Check your status with ${code("/violations")}.`,
 							violatingMessageId,
 						);
 						await ctx.deleteMessage();
@@ -393,7 +408,7 @@ ${warningText}Use /violations to check your status.${fineText}`,
 				"auto_jail",
 				fmt`${bold("AUTOMATIC JAIL - Spam Detection")}
 
-You have been automatically jailed for ${duration} minutes (${days} days) due to repeated violations of: ${restriction.restriction}
+You have been automatically jailed for ${duration} minutes (${days} days) after repeated violations of: ${restrictionLabel(restriction.restriction)}
 
 				${bold("Bail Amount:")} ${bailAmount.toFixed(3)} JUNO
 
@@ -469,7 +484,7 @@ View your violations: ${code("/violations")}`,
 				"immediate_jail",
 				fmt`${bold("JAILED - Restriction Violation")}
 
-You have been jailed for ${duration} minutes for violating: ${restriction.restriction}
+You have been jailed for ${duration} minutes for violating: ${restrictionLabel(restriction.restriction)}
 
 			${bold(`Bail Amount: ${bailAmount.toFixed(3)} JUNO`)}
 

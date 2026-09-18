@@ -91,7 +91,7 @@ describe("RestrictionService random_delete", () => {
 			"one two three four five six seven",
 		);
 		expect((ctx.deleteMessage as any).mock.calls.length).toBe(1);
-		expect(wasTextReplied(ctx as any, "random_delete")).toBe(true);
+		expect(wasTextReplied(ctx as any, "random deletion")).toBe(true);
 
 		randomSpy.mockRestore();
 	});

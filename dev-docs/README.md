@@ -10,6 +10,8 @@ that has no home beside the code.
   concurrent updates.
 - `reaction-spam.md` — who reaction spam detection targets and how it enforces.
 - `identity-blocks.md` — name/username block matching and its temporary jail.
+- `restrictions.md` — violation-response dedupe, restriction labels, and
+  `/bangif`.
 - `user-identity.md` — userId-as-sole-key policy, persistence guarantees, and
   the remaining display-name-keyed surfaces.
 - `interactive-menus.md` — the one-message rule, callback answering, entry

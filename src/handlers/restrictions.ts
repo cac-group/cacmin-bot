@@ -8,18 +8,27 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
+import { execute } from "../database";
 import { adminOrHigher, elevatedOrHigher } from "../middleware";
 import {
 	addUserRestriction,
+	ensureUserExists,
 	getUserRestrictions,
 	removeAllUserRestrictions,
 	removeUserRestriction,
+	userExists,
 } from "../services/userService";
 import { restrictionTypeKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import { normalizeRandomDeleteChance } from "../utils/randomDelete";
+import { restrictionLabel } from "../utils/restrictionLabels";
 import { isImmuneToModeration } from "../utils/roles";
-import { getRemainingArgs, resolveTargetUser } from "../utils/userResolver";
+import {
+	formatUserIdDisplay,
+	getRemainingArgs,
+	resolveTargetUser,
+	resolveUserId,
+} from "../utils/userResolver";
 
 /**
  * Registers all restriction management command handlers with the bot.
@@ -237,7 +246,7 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 			});
 
 			await ctx.reply(
-				fmt`Restriction '${restriction}' added for @${target.username} (${target.userId}).
+				fmt`Restriction '${restrictionLabel(restriction)}' added for @${target.username} (${target.userId}).
 Severity: ${severityLevel}
 Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, ${jailFine.toFixed(1)} JUNO fine)`,
 			);
@@ -377,7 +386,7 @@ Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail,
 						? new Date(r.restrictedUntil * 1000).toLocaleString()
 						: "Never (Permanent)";
 					const daysCount = Math.round((r.autoJailDuration || 2880) / 1440);
-					return fmt`${bold("Type:")} ${r.restriction}
+					return fmt`${bold("Type:")} ${restrictionLabel(r.restriction)}
 ${bold("Action:")} ${r.restrictedAction || "N/A"}
 ${bold("Severity:")} ${r.severity || "delete"}
 ${bold("Threshold:")} ${r.violationThreshold || 5} violations in 60 min
@@ -406,6 +415,113 @@ ${message}`,
 			});
 			await ctx.reply("An error occurred while fetching restrictions.");
 		}
+	});
+
+	/**
+	 * Command handler for /bangif.
+	 * Bans a specific GIF (by file_unique_id) for a user, or globally with -g.
+	 *
+	 * Permission: Admin or higher
+	 *
+	 * @example
+	 * // Reply to a GIF: ban it for its author
+	 * /bangif
+	 * // Reply to a GIF: ban a specific id for its author
+	 * /bangif <gif_id>
+	 * // Ban a GIF for a specific user
+	 * /bangif <@username|userId> <gif_id>
+	 * // Ban a GIF for everyone
+	 * /bangif -g [gif_id]
+	 */
+	bot.command("bangif", adminOrHigher, async (ctx) => {
+		const adminId = ctx.from?.id;
+		const message = ctx.message;
+		const rawArgs =
+			message && "text" in message ? message.text.split(/\s+/).slice(1) : [];
+		const isGlobal = rawArgs.includes("-g");
+		const args = rawArgs.filter((arg) => arg !== "-g");
+
+		const reply =
+			message && "reply_to_message" in message
+				? message.reply_to_message
+				: undefined;
+		const gifFromReply =
+			(reply as { animation?: { file_unique_id?: string } } | undefined)
+				?.animation?.file_unique_id ?? null;
+
+		let gifId: string | undefined;
+		let targetUserId: number | undefined;
+
+		if (isGlobal) {
+			gifId = args[0] || gifFromReply || undefined;
+		} else if (args.length >= 2) {
+			const target = resolveUserId(args[0]);
+			if (target) {
+				targetUserId = target;
+				gifId = args[1];
+			}
+		} else {
+			gifId = args[0] || gifFromReply || undefined;
+			if (reply?.from && !reply.from.is_bot) {
+				targetUserId = reply.from.id;
+			}
+		}
+
+		if (!gifId) {
+			return ctx.reply(
+				fmt`${bold("Ban a GIF")}
+
+Reply to a GIF with ${code("/bangif")} to ban it, or pass an id:
+${code("/bangif <@username|userId> <gif_id>")} - ban for one user
+${code("/bangif -g [gif_id]")} - ban for everyone
+
+Get a GIF id by replying to it with ${code("/getgifid")}.`,
+			);
+		}
+
+		if (isGlobal) {
+			execute(
+				"INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)",
+				["no_specific_gif", gifId],
+			);
+			StructuredLogger.logSecurityEvent("GIF banned globally", {
+				adminId,
+				operation: "ban_gif_global",
+				gifId,
+			});
+			return ctx.reply(
+				fmt`${bold("Banned gif")} ${code(gifId)} is now blocked for everyone.`,
+			);
+		}
+
+		if (!targetUserId) {
+			return ctx.reply(
+				fmt`Couldn't tell who to ban that GIF for. Reply to the user's GIF, or use ${code("/bangif <@username|userId> <gif_id>")}.`,
+			);
+		}
+
+		if (isImmuneToModeration(targetUserId)) {
+			return ctx.reply(
+				"Cannot restrict this user - admins and owners are immune.",
+			);
+		}
+
+		if (!userExists(targetUserId)) {
+			ensureUserExists(
+				targetUserId,
+				reply?.from?.username || `user_${targetUserId}`,
+			);
+		}
+		addUserRestriction(targetUserId, "no_specific_gif", gifId);
+		StructuredLogger.logSecurityEvent("GIF banned for user", {
+			adminId,
+			userId: targetUserId,
+			operation: "ban_gif",
+			gifId,
+		});
+		return ctx.reply(
+			fmt`${bold("Banned gif")} ${code(gifId)} for ${formatUserIdDisplay(targetUserId)}.`,
+		);
 	});
 
 	/**
