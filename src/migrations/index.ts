@@ -27,6 +27,10 @@ import {
 	isMigrationApplied as check005,
 	runMigration as run005,
 } from "./005_backfill_message_count";
+import {
+	isMigrationApplied as check006,
+	runMigration as run006,
+} from "./006_global_restrictions_unique";
 
 interface Migration {
 	id: string;
@@ -65,6 +69,12 @@ const migrations: Migration[] = [
 		name: "backfill_message_count",
 		check: check005,
 		run: run005,
+	},
+	{
+		id: "006",
+		name: "global_restrictions_unique",
+		check: check006,
+		run: run006,
 	},
 ];
 

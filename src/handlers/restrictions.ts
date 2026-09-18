@@ -481,7 +481,8 @@ Get a GIF id by replying to it with ${code("/getgifid")}.`,
 
 		if (isGlobal) {
 			execute(
-				"INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)",
+				`INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)
+				 ON CONFLICT(restriction, restricted_action) DO NOTHING`,
 				["no_specific_gif", gifId],
 			);
 			StructuredLogger.logSecurityEvent("GIF banned globally", {

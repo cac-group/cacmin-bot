@@ -152,7 +152,7 @@ export class LedgerService {
 		if (!balance) {
 			const now = Math.floor(Date.now() / 1000);
 			execute(
-				"INSERT INTO user_balances (user_id, balance, last_updated, created_at) VALUES (?, 0, ?, ?)",
+				"INSERT OR IGNORE INTO user_balances (user_id, balance, last_updated, created_at) VALUES (?, 0, ?, ?)",
 				[userId, now, now],
 			);
 
@@ -199,7 +199,7 @@ export class LedgerService {
 		if (!existing) {
 			const now = Math.floor(Date.now() / 1000);
 			execute(
-				"INSERT INTO user_balances (user_id, balance, last_updated, created_at) VALUES (?, 0, ?, ?)",
+				"INSERT OR IGNORE INTO user_balances (user_id, balance, last_updated, created_at) VALUES (?, 0, ?, ?)",
 				[userId, now, now],
 			);
 		}

@@ -1162,7 +1162,8 @@ async function handleGiveawayClaimCallback(
 			giveaway.amount_per_slot,
 		);
 		execute(
-			"INSERT INTO giveaway_claims (giveaway_id, user_id, amount) VALUES (?, ?, ?)",
+			`INSERT INTO giveaway_claims (giveaway_id, user_id, amount) VALUES (?, ?, ?)
+			 ON CONFLICT(giveaway_id, user_id) DO NOTHING`,
 			[giveawayId, userId, claimAmountMicro],
 		);
 
@@ -1553,8 +1554,9 @@ async function processGlobalActionSession(
 	const action = cleanText === "apply" ? undefined : text.trim();
 
 	execute(
-		"INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)",
-		[actionType, action || null],
+		`INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)
+		 ON CONFLICT(restriction, restricted_action) DO NOTHING`,
+		[actionType, action || ""],
 	);
 
 	const actionDesc = action ? ` with action '${action}'` : "";

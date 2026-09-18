@@ -420,7 +420,8 @@ export async function addPattern(
 
 	// Insert
 	execute(
-		"INSERT INTO spam_patterns (pattern, match_field, description, added_by) VALUES (?, ?, ?, ?)",
+		`INSERT INTO spam_patterns (pattern, match_field, description, added_by) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(pattern) DO NOTHING`,
 		[sanitized, field, description || null, userId],
 	);
 	invalidateSpamReactCache();

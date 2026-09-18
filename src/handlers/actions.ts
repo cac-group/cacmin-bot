@@ -99,8 +99,9 @@ Select a restriction to apply to all non-elevated users:`,
 
 		try {
 			execute(
-				"INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)",
-				[restriction, restrictedAction || null],
+				`INSERT INTO global_restrictions (restriction, restricted_action) VALUES (?, ?)
+				 ON CONFLICT(restriction, restricted_action) DO NOTHING`,
+				[restriction, restrictedAction || ""],
 			);
 			StructuredLogger.logSecurityEvent("Global action restriction added", {
 				userId: ownerId,

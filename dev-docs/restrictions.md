@@ -36,6 +36,22 @@ Per-user bans add a `no_specific_gif` user restriction; `-g` inserts a
 `no_specific_gif` global restriction. Owners/admins are immune to per-user bans.
 `/getgifid` still retrieves an id by reply if needed.
 
+Global restrictions are idempotent: migration 006 normalizes
+`restricted_action` (NULL → ''), collapses duplicates, and adds a unique index
+on `(restriction, restricted_action)`, so every global-restriction write uses
+`ON CONFLICT(restriction, restricted_action) DO NOTHING`. Re-banning the same
+GIF globally never stacks rows.
+
+## Upsert policy
+
+Idempotent config/state writes upsert on their natural key (`fine_config`,
+`user_rate_limits`, `user_aliases`, `system_state`, `global_restrictions`,
+`spam_patterns`, `identity_block_patterns`, `shared_account_permissions`,
+`giveaway_claims`, `user_balances`). Append-only audit tables are deliberately
+plain `INSERT` and must stay that way: `transactions`, `violations`,
+`jail_events`, `price_history`, `duels`, `giveaway_claims` claim rows (the
+ledger/audit trail is not deduplicated).
+
 ## Severity and auto-jail
 
 `user_restrictions.severity` is `delete` (default), `mute`, or `jail`. Repeated

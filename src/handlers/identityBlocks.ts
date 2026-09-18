@@ -466,7 +466,8 @@ async function addIdentityBlockPattern(
 	}
 
 	execute(
-		"INSERT INTO identity_block_patterns (pattern, match_field, description, added_by) VALUES (?, ?, ?, ?)",
+		`INSERT INTO identity_block_patterns (pattern, match_field, description, added_by) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(pattern) DO NOTHING`,
 		[sanitized, field, description || null, userId],
 	);
 
