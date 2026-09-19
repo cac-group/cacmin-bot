@@ -16,6 +16,10 @@ import { jailDurationKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
 import {
+	CHAT_MUTE_PERMISSIONS,
+	CHAT_RESTORE_PERMISSIONS,
+} from "../utils/telegramPermissions";
+import {
 	formatUserIdDisplay,
 	getRemainingArgs,
 	resolveTargetUser,
@@ -164,22 +168,7 @@ Please make the bot an admin with delete permissions.`,
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
 				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: {
-						can_send_messages: false,
-						can_send_audios: false,
-						can_send_documents: false,
-						can_send_photos: false,
-						can_send_videos: false,
-						can_send_video_notes: false,
-						can_send_voice_notes: false,
-						can_send_polls: false,
-						can_send_other_messages: false,
-						can_add_web_page_previews: false,
-						can_change_info: false,
-						can_invite_users: false,
-						can_pin_messages: false,
-						can_manage_topics: false,
-					},
+					permissions: CHAT_MUTE_PERMISSIONS,
 					until_date: mutedUntil,
 				});
 				StructuredLogger.logSecurityEvent("User restricted in Telegram", {
@@ -274,22 +263,7 @@ They can check their status with /mystatus`,
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
 				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: {
-						can_send_messages: true,
-						can_send_audios: true,
-						can_send_documents: true,
-						can_send_photos: true,
-						can_send_videos: true,
-						can_send_video_notes: true,
-						can_send_voice_notes: true,
-						can_send_polls: true,
-						can_send_other_messages: true,
-						can_add_web_page_previews: true,
-						can_change_info: false,
-						can_invite_users: true,
-						can_pin_messages: false,
-						can_manage_topics: false,
-					},
+					permissions: CHAT_RESTORE_PERMISSIONS,
 				});
 				StructuredLogger.logSecurityEvent(
 					"User permissions restored in Telegram",
@@ -467,7 +441,7 @@ Please follow the group rules.`,
 	 * Syntax: /stats
 	 *
 	 * Displays:
-	 * - Total users, blacklisted, whitelisted
+	 * - Total users, whitelisted
 	 * - Total violations, unpaid/paid fines
 	 * - Active jails, total jail events, bails paid
 	 * - Active restrictions
@@ -478,7 +452,6 @@ Please follow the group rules.`,
 	 *
 	 *      Users
 	 *      Total: 150
-	 *      Blacklisted: 5
 	 *      Whitelisted: 20
 	 *
 	 *      Violations
@@ -496,10 +469,6 @@ Please follow the group rules.`,
 			totalUsers:
 				get<{ count: number }>("SELECT COUNT(*) as count FROM users")?.count ||
 				0,
-			blacklisted:
-				get<{ count: number }>(
-					"SELECT COUNT(*) as count FROM users WHERE blacklist = 1",
-				)?.count || 0,
 			whitelisted:
 				get<{ count: number }>(
 					"SELECT COUNT(*) as count FROM users WHERE whitelist = 1",
@@ -545,7 +514,6 @@ Please follow the group rules.`,
 
 ${bold("Users")}
 Total: ${stats.totalUsers}
-Blacklisted: ${stats.blacklisted}
 Whitelisted: ${stats.whitelisted}
 
 ${bold("Violations")}

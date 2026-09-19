@@ -25,8 +25,8 @@ export const createUser = (
 
 	const now = Math.floor(Date.now() / 1000);
 	execute(
-		"INSERT INTO users (id, username, role, whitelist, blacklist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		[userId, username, role, 0, 0, now, now],
+		"INSERT INTO users (id, username, role, whitelist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		[userId, username, role, 0, now, now],
 	);
 
 	StructuredLogger.logUserAction("User created", {

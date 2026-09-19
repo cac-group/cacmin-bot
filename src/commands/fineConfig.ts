@@ -13,6 +13,7 @@ import { JailService } from "../services/jailService";
 import { PriceService } from "../services/priceService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
+import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 /**
@@ -38,7 +39,6 @@ export function registerFineConfigCommands(bot: Telegraf<Context>): void {
 	 * - sticker: Restricted sticker violations
 	 * - url: URL posting violations
 	 * - regex: Regex pattern match violations
-	 * - blacklist: Blacklist violations
 	 * - jail_per_minute: Per-minute jail rate
 	 * - jail_minimum: Minimum jail fine
 	 * - auto_jail: Auto-jail fine amount
@@ -60,7 +60,6 @@ ${bold("Fine types:")}
 • ${code("sticker")} - Restricted sticker violations
 • ${code("url")} - URL posting violations
 • ${code("regex")} - Regex pattern violations
-• ${code("blacklist")} - Blacklist violations
 • ${code("jail_per_minute")} - Per-minute jail rate
 • ${code("jail_minimum")} - Minimum jail fine
 • ${code("auto_jail")} - Auto-jail fine amount
@@ -77,7 +76,6 @@ ${bold("Example:")} ${code("/setfine sticker 0.05 Reduced fine")}`,
 			"sticker",
 			"url",
 			"regex",
-			"blacklist",
 			"jail_per_minute",
 			"jail_minimum",
 			"auto_jail",
@@ -124,7 +122,6 @@ Current equivalent: ${junoAmount.toFixed(2)} JUNO`,
 			"sticker",
 			"url",
 			"regex",
-			"blacklist",
 			"jail_per_minute",
 			"jail_minimum",
 			"auto_jail",
@@ -247,22 +244,7 @@ This jails the user for the specified time with a custom fine amount.`,
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
 				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: {
-						can_send_messages: false,
-						can_send_audios: false,
-						can_send_documents: false,
-						can_send_photos: false,
-						can_send_videos: false,
-						can_send_video_notes: false,
-						can_send_voice_notes: false,
-						can_send_polls: false,
-						can_send_other_messages: false,
-						can_add_web_page_previews: false,
-						can_change_info: false,
-						can_invite_users: false,
-						can_pin_messages: false,
-						can_manage_topics: false,
-					},
+					permissions: CHAT_MUTE_PERMISSIONS,
 					until_date: mutedUntil,
 				});
 			} catch (error) {
@@ -322,7 +304,6 @@ They can check their status with /mystatus`,
 			{ type: "sticker", amount: 0.1, desc: "Restricted sticker violation" },
 			{ type: "url", amount: 0.2, desc: "URL posting violation" },
 			{ type: "regex", amount: 0.15, desc: "Regex pattern violation" },
-			{ type: "blacklist", amount: 0.5, desc: "Blacklist violation" },
 			{ type: "jail_per_minute", amount: 0.01, desc: "Per-minute jail rate" },
 			{ type: "jail_minimum", amount: 0.1, desc: "Minimum jail fine" },
 			{ type: "auto_jail", amount: 1.0, desc: "Auto-jail fine" },

@@ -1,6 +1,5 @@
 /** Violation tracking and fine management service */
 
-import { config } from "../config";
 import { execute, get, query } from "../database";
 import type { Violation } from "../types";
 import { StructuredLogger } from "../utils/logger";
@@ -31,25 +30,6 @@ export async function createViolation(
 	);
 
 	return result.lastInsertRowid as number;
-}
-
-/**
- * Calculate fine amount based on restriction type using config (synchronous fallback).
- * @deprecated Use PriceService.calculateViolationFine for USD-based pricing
- */
-function _calculateFine(restriction: string): number {
-	switch (restriction) {
-		case "no_stickers":
-			return config.fineAmounts.sticker;
-		case "no_urls":
-			return config.fineAmounts.url;
-		case "regex_block":
-			return config.fineAmounts.regex;
-		case "blacklist":
-			return config.fineAmounts.blacklist;
-		default:
-			return 1.0;
-	}
 }
 
 /** SQL fragment for mapping violation columns to camelCase */

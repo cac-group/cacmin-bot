@@ -30,10 +30,6 @@ export const isAdmin = (userId: number): boolean => {
 	return user?.role === "admin";
 };
 
-/** Check if user ID matches group owner ID */
-export const isGroupOwner = (userId: number, ownerId: number): boolean =>
-	userId === ownerId;
-
 /**
  * Check if user has specific role (exact match, not hierarchy-aware)
  * For hierarchy checks, use checkIsElevated

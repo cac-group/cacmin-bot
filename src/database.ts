@@ -158,8 +158,6 @@ export const withTransaction = <T>(fn: () => T): T => {
  * - users: User profiles with roles and restriction flags
  * - user_balances: Internal ledger for user token balances
  * - transactions: Complete audit trail of all financial transactions
- * - system_wallets: Configuration for system wallet addresses
- * - rules: Violation rule definitions
  * - violations: Tracked user violations with bail amounts
  * - jail_events: Log of jail/unjail events
  * - user_restrictions: Per-user message restrictions (stickers, URLs, etc.)
@@ -186,7 +184,6 @@ export const initDb = (): void => {
       username TEXT,
       role TEXT DEFAULT 'pleb',
       whitelist INTEGER DEFAULT 0,
-      blacklist INTEGER DEFAULT 0,
       warning_count INTEGER DEFAULT 0,
       message_count INTEGER DEFAULT 0,
       muted_until INTEGER,
@@ -234,28 +231,6 @@ export const initDb = (): void => {
       metadata TEXT,
       FOREIGN KEY (from_user_id) REFERENCES users(id),
       FOREIGN KEY (to_user_id) REFERENCES users(id)
-    );
-  `);
-
-	// System wallets configuration
-	db.exec(`
-    CREATE TABLE IF NOT EXISTS system_wallets (
-      id TEXT PRIMARY KEY,
-      address TEXT NOT NULL UNIQUE,
-      description TEXT,
-      created_at INTEGER DEFAULT (strftime('%s', 'now'))
-    );
-  `);
-
-	// Enhanced rules table
-	db.exec(`
-    CREATE TABLE IF NOT EXISTS rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      description TEXT,
-      specific_action TEXT,
-      severity INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
   `);
 
@@ -614,7 +589,6 @@ export const initDb = (): void => {
 	// Create indexes for performance
 	db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-    CREATE INDEX IF NOT EXISTS idx_users_blacklist ON users(blacklist);
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_violations_user ON violations(user_id);
     CREATE INDEX IF NOT EXISTS idx_violations_paid ON violations(paid);

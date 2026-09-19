@@ -153,31 +153,6 @@ export function getActiveMenuSession(
 }
 
 /**
- * Check if a user can interact with a menu
- * Returns true if the user is the owner and menu hasn't expired
- */
-export function canInteractWithMenu(
-	userId: number,
-	chatId: number,
-	messageId: number,
-): boolean {
-	const session = getMenuSessionByMessage(chatId, messageId);
-	if (!session) return false;
-
-	return session.userId === userId;
-}
-
-/**
- * Check if a menu has expired
- */
-export function isMenuExpired(chatId: number, messageId: number): boolean {
-	const session = menusByMessageId.get(`${chatId}_${messageId}`);
-	if (!session) return true;
-
-	return Date.now() > session.expiresAt;
-}
-
-/**
  * Clean up a menu session
  */
 export function cleanupSession(session: MenuSession): void {
@@ -195,24 +170,6 @@ export function cleanupMenuByMessage(chatId: number, messageId: number): void {
 	const session = menusByMessageId.get(`${chatId}_${messageId}`);
 	if (session) {
 		cleanupSession(session);
-	}
-}
-
-/**
- * Update the message ID for a session (when menu message changes)
- */
-export function updateMenuMessageId(
-	chatId: number,
-	oldMessageId: number,
-	newMessageId: number,
-): void {
-	const oldKey = `${chatId}_${oldMessageId}`;
-	const session = menusByMessageId.get(oldKey);
-
-	if (session) {
-		menusByMessageId.delete(oldKey);
-		session.messageId = newMessageId;
-		menusByMessageId.set(`${chatId}_${newMessageId}`, session);
 	}
 }
 

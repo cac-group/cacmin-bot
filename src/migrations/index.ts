@@ -35,6 +35,10 @@ import {
 	isMigrationApplied as check007,
 	runMigration as run007,
 } from "./007_user_restrictions_unique";
+import {
+	isMigrationApplied as check008,
+	runMigration as run008,
+} from "./008_drop_blacklist";
 
 interface Migration {
 	id: string;
@@ -85,6 +89,12 @@ const migrations: Migration[] = [
 		name: "user_restrictions_unique",
 		check: check007,
 		run: run007,
+	},
+	{
+		id: "008",
+		name: "drop_blacklist",
+		check: check008,
+		run: run008,
 	},
 ];
 

@@ -10,6 +10,7 @@ import type { Context, Telegraf } from "telegraf";
 import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
@@ -953,22 +954,7 @@ export class DuelService {
 			// Actually restrict in Telegram
 			try {
 				await DuelService.bot.telegram.restrictChatMember(chatId, userId, {
-					permissions: {
-						can_send_messages: false,
-						can_send_audios: false,
-						can_send_documents: false,
-						can_send_photos: false,
-						can_send_videos: false,
-						can_send_video_notes: false,
-						can_send_voice_notes: false,
-						can_send_polls: false,
-						can_send_other_messages: false,
-						can_add_web_page_previews: false,
-						can_change_info: false,
-						can_invite_users: false,
-						can_pin_messages: false,
-						can_manage_topics: false,
-					},
+					permissions: CHAT_MUTE_PERMISSIONS,
 					until_date: untilTimestamp,
 				});
 			} catch (error) {
@@ -984,22 +970,7 @@ export class DuelService {
 			// Telegram restriction
 			try {
 				await DuelService.bot.telegram.restrictChatMember(chatId, userId, {
-					permissions: {
-						can_send_messages: false,
-						can_send_audios: false,
-						can_send_documents: false,
-						can_send_photos: false,
-						can_send_videos: false,
-						can_send_video_notes: false,
-						can_send_voice_notes: false,
-						can_send_polls: false,
-						can_send_other_messages: false,
-						can_add_web_page_previews: false,
-						can_change_info: false,
-						can_invite_users: false,
-						can_pin_messages: false,
-						can_manage_topics: false,
-					},
+					permissions: CHAT_MUTE_PERMISSIONS,
 					until_date: untilTimestamp,
 				});
 			} catch (error) {

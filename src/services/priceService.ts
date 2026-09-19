@@ -153,7 +153,6 @@ export class PriceService {
 			sticker: 0.1,
 			url: 0.2,
 			regex: 0.15,
-			blacklist: 0.5,
 			jail_per_minute: 0.01,
 			jail_minimum: 0.1,
 			auto_jail: 1.0,
@@ -246,9 +245,6 @@ export class PriceService {
 				break;
 			case "regex_block":
 				fineType = "regex";
-				break;
-			case "blacklist":
-				fineType = "blacklist";
 				break;
 			default:
 				fineType = "sticker"; // Default fine type

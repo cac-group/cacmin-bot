@@ -40,35 +40,6 @@ export function escapeMarkdownV2(text: string | number): string {
 }
 
 /**
- * Tagged template literal for building MarkdownV2 messages.
- * Escapes BOTH static template parts AND interpolated values, EXCEPT for
- * MarkdownV2 formatting markers: * _ ` [ ] and newlines.
- *
- * @deprecated Prefer using Telegraf's Format module (fmt, bold, etc.) instead.
- * The Telegraf fmt function uses entity-based formatting which doesn't require escaping.
- *
- * @example
- * ```typescript
- * const amount = 1.5;
- * const user = "test_user";
- * md`Sent *${amount}* JUNO to ${user}!`
- * // Returns: 'Sent *1\\.5* JUNO to test\\_user\\!'
- * ```
- */
-export function md(
-	strings: TemplateStringsArray,
-	...values: (string | number)[]
-): string {
-	// Chars to escape in static parts (excludes formatting: * _ ` [ ])
-	const staticEscape = /([()~>#+\-=|{}.!\\])/g;
-	return strings.reduce((result, str, i) => {
-		const escapedStr = str.replace(staticEscape, "\\$1");
-		const value = i < values.length ? escapeMarkdownV2(values[i]) : "";
-		return result + escapedStr + value;
-	}, "");
-}
-
-/**
  * Escapes a number formatted with decimals for MarkdownV2.
  * Convenience wrapper for numeric values.
  *
@@ -84,21 +55,4 @@ export function md(
  */
 export function escapeNumber(value: number, decimals = 2): string {
 	return escapeMarkdownV2(value.toFixed(decimals));
-}
-
-/**
- * Formats a JUNO amount with proper escaping for MarkdownV2.
- *
- * @param amount - The JUNO amount
- * @param decimals - Number of decimal places (default: 6)
- * @returns Escaped string like "1\\.234567 JUNO"
- *
- * @example
- * ```typescript
- * formatJunoAmount(1.5);
- * // Returns: '1\\.500000 JUNO'
- * ```
- */
-export function formatJunoAmount(amount: number, decimals = 6): string {
-	return `${escapeNumber(amount, decimals)} JUNO`;
 }

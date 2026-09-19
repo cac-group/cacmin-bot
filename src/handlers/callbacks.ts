@@ -708,11 +708,11 @@ async function handleListCallback(
 
 	const action = data.replace("list_", "");
 
-	if (action === "view_white" || action === "view_black") {
+	if (action === "view_white") {
 		// Import and call view functions directly
 		const { query } = await import("../database");
-		const listType = action === "view_white" ? "whitelist" : "blacklist";
-		const column = action === "view_white" ? "whitelist" : "blacklist";
+		const listType = "whitelist";
+		const column = "whitelist";
 
 		type User = { id: number; username?: string };
 		const users = query<User>(
@@ -780,9 +780,8 @@ const menuContent: Record<string, ReturnType<typeof fmt>> = {
 	lists: fmt`${bold("List Management")}
 
 /viewwhitelist - View whitelist
-/viewblacklist - View blacklist
 /addwhitelist - Add to whitelist
-/addblacklist - Add to blacklist`,
+/removewhitelist - Remove from whitelist`,
 	roles: fmt`${bold("Role Management")}
 
 /makeadmin - Promote to admin
@@ -1654,7 +1653,7 @@ async function processRoleSession(
 }
 
 /**
- * Process list session - user provided target for whitelist/blacklist
+ * Process list session - user provided target for the whitelist
  */
 async function processListSession(
 	ctx: Context,
@@ -1689,26 +1688,9 @@ async function processListSession(
 			execute("UPDATE users SET whitelist = 1 WHERE id = ?", [targetId]);
 			message = `User ${targetId} has been whitelisted.`;
 			break;
-		case "list_add_black":
-			if (isImmuneToModeration(targetId)) {
-				await finishMenu(
-					ctx,
-					session,
-					"Cannot blacklist this user - admins and owners are immune.",
-				);
-				clearSession(adminId);
-				return true;
-			}
-			execute("UPDATE users SET blacklist = 1 WHERE id = ?", [targetId]);
-			message = `User ${targetId} has been blacklisted.`;
-			break;
 		case "list_remove_white":
 			execute("UPDATE users SET whitelist = 0 WHERE id = ?", [targetId]);
 			message = `User ${targetId} has been removed from the whitelist.`;
-			break;
-		case "list_remove_black":
-			execute("UPDATE users SET blacklist = 0 WHERE id = ?", [targetId]);
-			message = `User ${targetId} has been removed from the blacklist.`;
 			break;
 		default:
 			clearSession(adminId);

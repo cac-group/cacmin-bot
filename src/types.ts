@@ -4,7 +4,6 @@ export interface User {
 	id: number; // Telegram user ID
 	username: string;
 	whitelist: boolean; // Exempt from restrictions
-	blacklist: boolean; // Blocked from group
 	role: "owner" | "admin" | "elevated" | "pleb";
 	warning_count: number;
 	message_count: number; // Lifetime group messages, used to identify new users

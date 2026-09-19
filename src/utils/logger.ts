@@ -114,31 +114,6 @@ export const logger = winston.createLogger({
 });
 
 /**
- * Updates the logger's level at runtime.
- * Useful for changing verbosity after initial configuration.
- *
- * @param level - The new log level (error, warn, info, debug)
- *
- * @example
- * ```typescript
- * updateLogLevel('debug'); // Enable debug logging
- * ```
- */
-export const updateLogLevel = (level: string): void => {
-	logger.level = level;
-};
-
-/**
- * Stream interface for Morgan or other middleware.
- * Redirects HTTP middleware logs to Winston.
- */
-export const logStream = {
-	write: (message: string) => {
-		logger.info(message.trim());
-	},
-};
-
-/**
  * Context metadata for structured logging.
  */
 export interface LogContext {

@@ -222,8 +222,6 @@ export const helpTree: readonly HelpNode[] = [
 					"\n\n",
 					"/viewwhitelist\n",
 					"  Display all users on the whitelist who are exempt from certain automated restrictions.\n\n",
-					"/viewblacklist\n",
-					"  Display all blacklisted users and their blacklist reasons.\n\n",
 					"/viewactions\n",
 					"  View all currently active global restrictions (no stickers, no URLs, etc) applied to the chat.",
 				]),
@@ -508,15 +506,13 @@ export const helpTree: readonly HelpNode[] = [
 			},
 			{
 				key: "admin:whitelist",
-				title: "Whitelist / Blacklist",
+				title: "Whitelist",
 				roles: ADMIN_ROLES,
 				content: fmt([
-					bold("Whitelist / Blacklist"),
+					bold("Whitelist"),
 					"\n\n",
 					"/addwhitelist <@username|userId> and /removewhitelist <@username|userId>\n",
-					"  Manage whitelist entries (exempt from automated restrictions).\n\n",
-					"/addblacklist <@username|userId> and /removeblacklist <@username|userId>\n",
-					"  Manage blacklist entries (stricter moderation).",
+					"  Manage whitelist entries (exempt from automated restrictions).",
 				]),
 			},
 			{

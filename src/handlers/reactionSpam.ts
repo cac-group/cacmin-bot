@@ -21,6 +21,7 @@ import { ensureUserExists } from "../services/userService";
 import { dedupeResponse } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { checkIsElevated } from "../utils/roles";
+import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { getDbSpamReacts } from "./spamReacts";
 
 /** Lifetime group messages after which a user is exempt from spam checks */
@@ -78,24 +79,6 @@ const JAIL_MESSAGES = [
 	"{name} tried to corrupt the chat. The horny police have intervened.",
 	"{name} is cooling off in horny jail for reaction spam.",
 ];
-
-/** Permissions removed from a jailed reaction spammer (all sending disabled). */
-const JAIL_PERMISSIONS = {
-	can_send_messages: false,
-	can_send_audios: false,
-	can_send_documents: false,
-	can_send_photos: false,
-	can_send_videos: false,
-	can_send_video_notes: false,
-	can_send_voice_notes: false,
-	can_send_polls: false,
-	can_send_other_messages: false,
-	can_add_web_page_previews: false,
-	can_change_info: false,
-	can_invite_users: false,
-	can_pin_messages: false,
-	can_manage_topics: false,
-};
 
 /**
  * In-memory tracker for reaction velocity per user per chat.
@@ -309,7 +292,7 @@ async function jailSpammer(
 		metadata: { reason: "reaction_spam" },
 	});
 	await telegram.restrictChatMember(chatId, user.id, {
-		permissions: JAIL_PERMISSIONS,
+		permissions: CHAT_MUTE_PERMISSIONS,
 		until_date: mutedUntil,
 	});
 }

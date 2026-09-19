@@ -136,22 +136,15 @@ export const roleKeyboard: InlineKeyboardMarkup = {
 };
 
 /**
- * Whitelist/Blacklist action keyboard
+ * Whitelist action keyboard
  */
 export const listActionKeyboard: InlineKeyboardMarkup = {
 	inline_keyboard: [
 		[
 			{ text: "Add to Whitelist", callback_data: "list_add_white" },
-			{ text: "Add to Blacklist", callback_data: "list_add_black" },
-		],
-		[
 			{ text: "Remove from Whitelist", callback_data: "list_remove_white" },
-			{ text: "Remove from Blacklist", callback_data: "list_remove_black" },
 		],
-		[
-			{ text: "View Whitelist", callback_data: "list_view_white" },
-			{ text: "View Blacklist", callback_data: "list_view_black" },
-		],
+		[{ text: "View Whitelist", callback_data: "list_view_white" }],
 		[{ text: "Cancel", callback_data: "cancel" }],
 	],
 };

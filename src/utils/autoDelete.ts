@@ -5,7 +5,6 @@
  */
 
 import type { Context, Telegram } from "telegraf";
-import type { Message } from "telegraf/types";
 
 /** Responses with the same event key are considered duplicates for this period. */
 const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
@@ -101,11 +100,14 @@ export async function dedupeResponse(
 }
 
 /**
- * Track a bot response for recent duplicate suppression.
+ * Track a bot response for recent duplicate suppression. The event key
+ * defaults to the leading command token of the triggering message.
+ *
  * @param ctx - Telegraf context
  * @param botMessageId - Bot response message ID
+ * @param eventKey - Optional explicit event key
  */
-export async function trackResponse(
+export async function autoDeleteInGroup(
 	ctx: Context,
 	botMessageId: number,
 	eventKey?: string,
@@ -124,52 +126,4 @@ export async function trackResponse(
 		eventKey || command,
 		botMessageId,
 	);
-}
-
-/**
- * Helper to send a reply and track it for recent duplicate suppression.
- * Returns the sent message for further use if needed.
- * @param ctx - Telegraf context
- * @param content - Message content (string or FmtString)
- * @param options - Reply options (optional)
- */
-export async function replyAndDelete<T extends Message>(
-	ctx: Context,
-	content: Parameters<Context["reply"]>[0],
-	options?: Parameters<Context["reply"]>[1],
-	eventKey?: string,
-): Promise<T> {
-	const sentMessage = (await ctx.reply(content as string, options)) as T;
-	await trackResponse(ctx, sentMessage.message_id, eventKey);
-	return sentMessage;
-}
-
-/**
- * Track a response for recent duplicate suppression.
- * @param ctx - Telegraf context
- * @param botMessageId - Bot response message ID
- */
-export async function autoDeleteInGroup(
-	ctx: Context,
-	botMessageId: number,
-	eventKey?: string,
-): Promise<void> {
-	await trackResponse(ctx, botMessageId, eventKey);
-}
-
-/**
- * Helper to send a reply and track it for recent duplicate suppression.
- * @param ctx - Telegraf context
- * @param content - Message content (string or FmtString)
- * @param options - Reply options (optional)
- */
-export async function replyWithAutoDelete<T extends Message>(
-	ctx: Context,
-	content: Parameters<Context["reply"]>[0],
-	options?: Parameters<Context["reply"]>[1],
-	eventKey?: string,
-): Promise<T> {
-	const sentMessage = (await ctx.reply(content as string, options)) as T;
-	await autoDeleteInGroup(ctx, sentMessage.message_id, eventKey);
-	return sentMessage;
 }

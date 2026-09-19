@@ -1,7 +1,6 @@
 /**
- * Whitelist and blacklist management handlers for the CAC Admin Bot.
- * Provides commands for managing user whitelist and blacklist status,
- * controlling user access and permissions within the chat.
+ * Whitelist management handlers for the CAC Admin Bot.
+ * Provides commands for managing user whitelist status.
  *
  * @module handlers/blacklist
  */
@@ -11,20 +10,16 @@ import { execute, query } from "../database";
 import { adminOrHigher } from "../middleware";
 import type { User } from "../types";
 import { StructuredLogger } from "../utils/logger";
-import { isImmuneToModeration } from "../utils/roles";
 import { resolveTargetUser } from "../utils/userResolver";
 
 /**
- * Registers all whitelist and blacklist command handlers with the bot.
+ * Registers all whitelist command handlers with the bot.
  * Provides commands for admins to manage user access control lists.
  *
  * Commands registered:
  * - /viewwhitelist - View all whitelisted users
  * - /addwhitelist - Add a user to the whitelist
  * - /removewhitelist - Remove a user from the whitelist
- * - /viewblacklist - View all blacklisted users
- * - /addblacklist - Add a user to the blacklist
- * - /removeblacklist - Remove a user from the blacklist
  *
  * @param bot - The Telegraf bot instance
  *
@@ -147,130 +142,6 @@ export const registerBlacklistHandlers = (bot: Telegraf<Context>) => {
 				adminId,
 				userId: target.userId,
 				operation: "remove_whitelist",
-			});
-			await ctx.reply("An error occurred while processing the request.");
-		}
-	});
-
-	/**
-	 * Command handler for /viewblacklist.
-	 * Displays all users currently on the blacklist.
-	 *
-	 * Permission: All users can view
-	 *
-	 * @param ctx - Telegraf context
-	 *
-	 * @example
-	 * Usage: /viewblacklist
-	 */
-	bot.command("viewblacklist", async (ctx) => {
-		try {
-			const blacklist = query<User>(
-				"SELECT id, username FROM users WHERE blacklist = 1",
-			);
-			if (blacklist.length === 0) {
-				return ctx.reply("The blacklist is empty.");
-			}
-
-			const message = blacklist
-				.map((user) => `ID: ${user.id}, Username: ${user.username}`)
-				.join("\n");
-			await ctx.reply(`Blacklisted Users:\n${message}`);
-		} catch (error) {
-			StructuredLogger.logError(error as Error, {
-				userId: ctx.from?.id,
-				operation: "view_blacklist",
-			});
-			await ctx.reply("An error occurred while fetching the blacklist.");
-		}
-	});
-
-	/**
-	 * Command handler for /addblacklist.
-	 * Adds a user to the blacklist, restricting their access and privileges.
-	 *
-	 * Permission: Admin or higher
-	 *
-	 * @param ctx - Telegraf context
-	 *
-	 * @example
-	 * Usage: /addblacklist <@username|userId>
-	 * Example: /addblacklist @alice
-	 */
-	bot.command("addblacklist", adminOrHigher, async (ctx) => {
-		const adminId = ctx.from?.id;
-		const args = ctx.message?.text.split(" ").slice(1) || [];
-		const target = resolveTargetUser(ctx, args);
-
-		if (!target) {
-			return ctx.reply(
-				"Usage: /addblacklist <@username|userId> or reply to a user's message",
-			);
-		}
-
-		// Check if target user is immune to moderation
-		if (isImmuneToModeration(target.userId)) {
-			return ctx.reply(
-				`Cannot blacklist @${target.username} - admins and owners are immune to moderation actions.`,
-			);
-		}
-
-		try {
-			execute("UPDATE users SET blacklist = 1 WHERE id = ?", [target.userId]);
-			StructuredLogger.logSecurityEvent("User added to blacklist", {
-				adminId,
-				userId: target.userId,
-				operation: "add_blacklist",
-			});
-			await ctx.reply(`@${target.username} has been blacklisted.`);
-		} catch (error) {
-			StructuredLogger.logError(error as Error, {
-				adminId,
-				userId: target.userId,
-				operation: "add_blacklist",
-			});
-			await ctx.reply("An error occurred while processing the request.");
-		}
-	});
-
-	/**
-	 * Command handler for /removeblacklist.
-	 * Removes a user from the blacklist.
-	 *
-	 * Permission: Admin or higher
-	 *
-	 * @param ctx - Telegraf context
-	 *
-	 * @example
-	 * Usage: /removeblacklist <@username|userId>
-	 * Example: /removeblacklist @alice
-	 */
-	bot.command("removeblacklist", adminOrHigher, async (ctx) => {
-		const adminId = ctx.from?.id;
-		const args = ctx.message?.text.split(" ").slice(1) || [];
-		const target = resolveTargetUser(ctx, args);
-
-		if (!target) {
-			return ctx.reply(
-				"Usage: /removeblacklist <@username|userId> or reply to a user's message",
-			);
-		}
-
-		try {
-			execute("UPDATE users SET blacklist = 0 WHERE id = ?", [target.userId]);
-			StructuredLogger.logSecurityEvent("User removed from blacklist", {
-				adminId,
-				userId: target.userId,
-				operation: "remove_blacklist",
-			});
-			await ctx.reply(
-				`@${target.username} has been removed from the blacklist.`,
-			);
-		} catch (error) {
-			StructuredLogger.logError(error as Error, {
-				adminId,
-				userId: target.userId,
-				operation: "remove_blacklist",
 			});
 			await ctx.reply("An error occurred while processing the request.");
 		}

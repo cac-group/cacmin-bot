@@ -6,12 +6,12 @@
  * @module config
  */
 
-import { resolve } from "node:path";
-import * as dotenv from "dotenv";
 import { logger } from "./utils/logger";
 
-// Load environment variables from .env file
-dotenv.config({ path: resolve(__dirname, "../.env") });
+/**
+ * Environment variables are loaded natively: Bun reads `.env` from the working
+ * directory in production, and tests seed `process.env` in `tests/setup.ts`.
+ */
 
 /**
  * Configuration interface defining all bot settings.
@@ -60,23 +60,6 @@ interface Config {
 
 	/** Logging level (error, warn, info, debug) */
 	logLevel: string;
-
-	/**
-	 * Legacy fine amounts in JUNO tokens (fallback values).
-	 * Actual fines are now calculated using USD amounts from the database
-	 * converted to JUNO via the PriceService using CoinGecko rolling averages.
-	 * Use /setfine to configure USD-based fine amounts.
-	 */
-	fineAmounts: {
-		/** Fine for sending restricted stickers */
-		sticker: number;
-		/** Fine for posting restricted URLs */
-		url: number;
-		/** Fine for matching restricted regex patterns */
-		regex: number;
-		/** Fine for blacklisted actions */
-		blacklist: number;
-	};
 
 	/** Duration settings for various restriction types */
 	restrictionDurations: {
@@ -236,12 +219,6 @@ export const config: Config = {
 		process.env.BOT_TREASURY_ADDRESS || process.env.USER_FUNDS_ADDRESS,
 	databasePath: process.env.DATABASE_PATH || "./data/bot.db",
 	logLevel: process.env.LOG_LEVEL || "info",
-	fineAmounts: {
-		sticker: 1.0,
-		url: 2.0,
-		regex: 1.5,
-		blacklist: 5.0,
-	},
 	restrictionDurations: {
 		warning: 24 * 60 * 60 * 1000, // 24 hours
 		mute: 60 * 60 * 1000, // 1 hour

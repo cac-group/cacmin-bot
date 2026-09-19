@@ -78,40 +78,10 @@ export class LedgerService {
 			logger.warn("System wallet addresses not fully configured");
 		}
 
-		// Store system wallets in database
-		LedgerService.initializeSystemWallets();
-
 		logger.info("Ledger service initialized", {
 			treasury: LedgerService.botTreasuryAddress,
 			userFunds: LedgerService.userFundsAddress,
 		});
-	}
-
-	/**
-	 * Initialize system wallets in database
-	 */
-	private static initializeSystemWallets(): void {
-		if (LedgerService.botTreasuryAddress) {
-			execute(
-				"INSERT OR REPLACE INTO system_wallets (id, address, description) VALUES (?, ?, ?)",
-				[
-					"treasury",
-					LedgerService.botTreasuryAddress,
-					"Bot treasury wallet for fines and giveaways",
-				],
-			);
-		}
-
-		if (LedgerService.userFundsAddress) {
-			execute(
-				"INSERT OR REPLACE INTO system_wallets (id, address, description) VALUES (?, ?, ?)",
-				[
-					"user_funds",
-					LedgerService.userFundsAddress,
-					"Collective user funds wallet",
-				],
-			);
-		}
 	}
 
 	/**

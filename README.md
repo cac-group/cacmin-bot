@@ -7,7 +7,7 @@ Cosmos Airdrops Chat administration bot built with [Telegraf](https://telegraf.j
 ### Role Management
 - **Four-tier role hierarchy**: `owner` > `admin` > `elevated` > `pleb`
 - **Owner**: Full control including wallet/treasury access, role promotions, bot configuration
-- **Admin**: Moderation powers (jail, restrictions, blacklist) but NO access to funds, treasury, or config
+- **Admin**: Moderation powers (jail, restrictions) but NO access to funds, treasury, or config
 - **Elevated**: Basic user with wallet access, can view lists and statistics
 - **Pleb**: Default role for all users
 
@@ -229,7 +229,6 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/jails` - View currently jailed users
 - `/violations` - View your violation history
 - `/viewwhitelist` - View whitelisted users
-- `/viewblacklist` - View blacklisted users
 - `/viewactions` - View active global restrictions
 - `/ratelimit [user]` - View your 15-minute, 1-hour, and 24-hour character usage, including rollover capacity (admins may pass a user to view another user's usage)
 - `/ratelimits` - Explain rate-limit windows, rollover, enforcement, and paid resets
@@ -301,7 +300,6 @@ the selected window.
 - `/clearratelimit <user>` - Remove a user's character rate limit (`admin+`)
 - `/resetratelimit <user>` - Clear a user's accumulated rate-limit usage and any active rate-limit mute without changing their configured limits (`admin+`)
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
-- `/addblacklist <@username|userId>` and `/removeblacklist <@username|userId>` - Manage blacklist entries (`admin+`)
 
 ### Deposit Recovery and Treasury Ops
 - `/claimdeposit <txhash> <userId|@username>` - Assign an unclaimed deposit to a user (`admin+`)
