@@ -198,6 +198,8 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 - `/withdraw <amount> <junoAddress>` - Withdraw JUNO to an external wallet
 - `/send <amount> <recipient>` or `/transfer <amount> <recipient>` - Send to `@username`, user ID, or `juno1...` address
 - `/transactions [@user|userId]` or `/history [@user|userId]` - View your recent transactions; owners can target another user
+- `/verifydeposit <txhash>` - Verify and credit your own deposit by transaction hash
+- `/claimdeposit <txhash>` - If a deposit was missed, verify it on-chain and credit the user id in the memo
 - `/checkdeposit <txhash>` or `/checktx <txhash>` - Check whether a deposit was already processed
 - `/unclaimeddeposits` - View the current UNCLAIMED deposit pool and recent invalid-memo deposits
 - `/fundtreasury <amount>` - Move funds from your balance into the game treasury
@@ -302,7 +304,6 @@ the selected window.
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 
 ### Deposit Recovery and Treasury Ops
-- `/claimdeposit <txhash> <userId|@username>` - Assign an unclaimed deposit to a user (`admin+`)
 - `/processdeposit <txhash>` - Manually process a deposit that already has a valid memo (`admin+`)
 - `/botbalance` - View the bot's on-chain wallet balance (`owner`)
 - `/treasury` - View treasury and ledger status (`owner`)

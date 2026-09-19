@@ -152,12 +152,7 @@ describe("help documentation coverage", () => {
 		expect(shared).toContain(
 			"/updateaccess <account_name> <@username|user_id> <level> [spend_limit]",
 		);
-		expect(textForSection("admin")).toContain(
-			"/claimdeposit <txhash> <userId|@username>",
-		);
-		expect(owner).toContain(
-			"/claimdeposit <txhash> <userId|@username>",
-		);
+		expect(textForSection("wallet")).toContain("/claimdeposit <txhash>");
 		expect(payments).toContain("/paybail <@username|userId>");
 		expect(payments).toContain(
 			"/verifybail <@username|userId> <txhash>",
@@ -188,9 +183,7 @@ describe("help documentation coverage", () => {
 			"`/updateaccess <account_name> <@username|user_id> <level> [spend_limit]`",
 		);
 		expect(readmeCommands).toContain("`/verifydeposit <txhash>`");
-		expect(readmeCommands).toContain(
-			"`/claimdeposit <txhash> <userId|@username>`",
-		);
+		expect(readmeCommands).toContain("`/claimdeposit <txhash>`");
 		expect(readmeCommands).toContain("`/processdeposit <txhash>`");
 		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
 		expect(readmeCommands).toContain(

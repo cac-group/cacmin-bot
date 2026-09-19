@@ -7,7 +7,6 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt, italic } from "telegraf/format";
-import { config } from "../config";
 import { execute, get, query } from "../database";
 import { adminOrHigher } from "../middleware";
 import { DepositInstructionService } from "../services/depositInstructions";
@@ -19,7 +18,6 @@ import {
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { resolveUserId } from "../utils/userResolver";
 
 interface ProcessedDeposit {
 	tx_hash: string;
@@ -34,6 +32,126 @@ interface ProcessedDeposit {
 	created_at: number;
 }
 
+interface DepositCreditResult {
+	success: boolean;
+	amount?: number;
+	creditedUserId?: number;
+	sender?: string;
+	memo?: string;
+	error?: string;
+}
+
+/**
+ * Look up a deposit on-chain and credit the user id in its memo, idempotently.
+ * Used by /claimdeposit (any user) and /processdeposit (admin) so they cannot
+ * diverge.
+ */
+async function creditDepositFromChain(
+	txHash: string,
+	actorId: number,
+	operation: string,
+): Promise<DepositCreditResult> {
+	const txResult = await RPCTransactionVerification.fetchTransaction(txHash);
+	if (!txResult.success || !txResult.data) {
+		return {
+			success: false,
+			error: txResult.error || "Transaction not found",
+		};
+	}
+
+	const tx = txResult.data;
+	if (tx.status !== 0) {
+		return {
+			success: false,
+			error: `Transaction failed on-chain (code ${tx.status})`,
+		};
+	}
+
+	const creditedUserId = tx.memo ? Number.parseInt(tx.memo, 10) : Number.NaN;
+	if (!creditedUserId || Number.isNaN(creditedUserId)) {
+		return {
+			success: false,
+			error: tx.memo
+				? `The memo "${tx.memo}" is not a valid user id.`
+				: "The transaction has no memo, so there is no user to credit.",
+		};
+	}
+
+	const depositAddress =
+		UnifiedWalletService.getDepositInstructions(creditedUserId).address;
+	const transfer = tx.transfers?.find((t) => t.recipient === depositAddress);
+	if (!transfer) {
+		return {
+			success: false,
+			error: `No transfer to the deposit address (${depositAddress || "unset"}) was found.`,
+		};
+	}
+
+	const existing = get<{ processed: number }>(
+		"SELECT processed FROM processed_deposits WHERE tx_hash = ?",
+		[txHash],
+	);
+	if (existing?.processed) {
+		return {
+			success: false,
+			error: "This deposit has already been credited.",
+			amount: transfer.amount,
+			creditedUserId,
+		};
+	}
+
+	const result = await LedgerService.processDeposit(
+		creditedUserId,
+		transfer.amount,
+		txHash,
+		transfer.sender,
+		`Manual deposit processing (${operation})`,
+	);
+	if (!result.success) {
+		return {
+			success: false,
+			error: result.error || "Failed to credit deposit",
+		};
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	execute(
+		`INSERT INTO processed_deposits (
+       tx_hash, user_id, amount, from_address, memo, height, processed, processed_at, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT(tx_hash) DO UPDATE SET
+       user_id = excluded.user_id, amount = excluded.amount,
+       from_address = excluded.from_address, memo = excluded.memo,
+       processed = 1, processed_at = excluded.processed_at, error = NULL`,
+		[
+			txHash,
+			creditedUserId,
+			transfer.amount,
+			transfer.sender,
+			tx.memo || null,
+			tx.height || 0,
+			now,
+			now,
+		],
+	);
+
+	StructuredLogger.logUserAction("Deposit credited from chain", {
+		userId: actorId,
+		operation,
+		targetUserId: creditedUserId,
+		txHash,
+		amount: transfer.amount.toString(),
+	});
+
+	return {
+		success: true,
+		amount: transfer.amount,
+		creditedUserId,
+		sender: transfer.sender,
+		memo: tx.memo,
+	};
+}
+
 /**
  * Registers all deposit-related commands with the bot.
  *
@@ -41,7 +159,7 @@ interface ProcessedDeposit {
  * - /deposit - Get deposit instructions with memo
  * - /verifydeposit - Verify a deposit by transaction hash
  * - /unclaimeddeposits - View unclaimed deposits (missing or invalid memo)
- * - /claimdeposit - Assign an unclaimed deposit to a user (admin only)
+ * - /claimdeposit - Verify a missed deposit by hash and credit the memo user id (any user)
  * - /processdeposit - Manually process a pending deposit (admin only)
  *
  * @param bot - Telegraf bot instance
@@ -320,85 +438,66 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 	/**
 	 * Command: /claimdeposit
-	 * Manually assign an unclaimed deposit to a user (admin only).
+	 * Look up a deposit transaction and credit the user id in its memo.
 	 *
-	 * Permission: Admin or owner
-	 * Syntax: /claimdeposit <txhash> <userId|@username>
+	 * Permission: Any user
+	 * Syntax: /claimdeposit <txhash>
 	 *
 	 * @example
-	 * User: /claimdeposit ABC123... 123456
+	 * User: /claimdeposit ABC123...
 	 * Bot: Deposit Claimed
 	 *
 	 *      Amount: `25.000000 JUNO`
-	 *      Assigned to user: `123456`
+	 *      Credited to: `123456`
 	 *      Transaction: `ABC123...`
 	 */
-	bot.command("claimdeposit", adminOrHigher, async (ctx) => {
-		const adminId = ctx.from?.id;
-		if (!adminId) return;
+	bot.command("claimdeposit", async (ctx) => {
+		const userId = ctx.from?.id;
+		if (!userId) return;
 
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
-		if (args.length < 2) {
+		if (args.length < 1) {
 			return ctx.reply(
-				fmt`${bold("Usage")}: /claimdeposit <txhash> <userId|@username>\n\nAssign an unclaimed deposit to a user.`,
+				fmt`${bold("Usage")}: /claimdeposit <txhash>\n\nIf a deposit was missed, send its transaction hash and the bot will verify it on-chain and credit the user id in the memo.`,
 			);
 		}
 
 		const txHash = args[0].trim();
-		const targetUserId = resolveUserId(args[1]);
-
-		if (!targetUserId) {
-			return ctx.reply(
-				"User not found. Use a numeric ID or @username of a known user.",
-			);
-		}
+		await ctx.reply(" Looking up transaction...");
 
 		try {
-			const result = await UnifiedWalletService.claimUnclaimedDeposit(
+			const result = await creditDepositFromChain(
 				txHash,
-				targetUserId,
+				userId,
+				"claim_deposit",
 			);
 
-			if (result.success) {
-				StructuredLogger.logUserAction("Unclaimed deposit assigned by admin", {
-					userId: adminId,
-					operation: "claim_deposit",
-					targetUserId: targetUserId,
-					txHash,
-					amount: result.amount?.toString(),
-				});
-
-				await ctx.reply(
-					fmt`${bold("Deposit Claimed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} JUNO`)}\nAssigned to user: ${code(targetUserId.toString())}\nTransaction: ${code(`${txHash.substring(0, 10)}...`)}`,
-				);
-			} else {
-				await ctx.reply(
-					fmt`${bold("Failed to claim deposit")}\n\n${result.error || "Unknown error"}`,
+			if (!result.success) {
+				return ctx.reply(
+					fmt`${bold("Deposit Claim Failed")}\n\n${result.error ?? "Unknown error"}`,
 				);
 			}
+
+			await ctx.reply(
+				fmt`${bold("Deposit Claimed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} JUNO`)}\nCredited to: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 10)}...`)}`,
+			);
 		} catch (error) {
-			logger.error("Failed to claim deposit", {
-				adminId,
-				txHash,
-				targetUserId,
-				error,
-			});
+			logger.error("Failed to claim deposit", { userId, txHash, error });
 			await ctx.reply("Failed to claim deposit");
 		}
 	});
 
 	/**
 	 * Command: /processdeposit
-	 * Manually process a pending deposit transaction (admin only).
+	 * Manually process a deposit transaction and credit the user id in its memo.
 	 *
 	 * Permission: Admin or owner
 	 * Syntax: /processdeposit <txhash>
 	 *
 	 * @example
 	 * User: /processdeposit ABC123...
-	 * Bot: Processing deposit...
-	 *      Deposit Processed
+	 * Bot: Deposit Processed
 	 *      Amount: 1.000000 JUNO
 	 *      Credited to user: 1705203106
 	 */
@@ -410,147 +509,29 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				fmt`Usage: /processdeposit <txhash>\n\nManually process a pending deposit. The deposit must have a valid user ID in the memo.`,
+				fmt`Usage: /processdeposit <txhash>\n\nManually process a deposit. The transaction must have a valid user id in its memo.`,
 			);
 		}
 
-		const txHash = args[0].trim().toUpperCase();
-
+		const txHash = args[0].trim();
 		await ctx.reply("Processing deposit...");
 
 		try {
-			// Fetch transaction from RPC
-			const txResult =
-				await RPCTransactionVerification.fetchTransaction(txHash);
-
-			if (!txResult.success || !txResult.data) {
-				return ctx.reply(
-					fmt`Failed to fetch transaction\n\n${txResult.error || "Transaction not found"}`,
-				);
-			}
-
-			const tx = txResult.data;
-
-			// Check transaction status
-			if (tx.status !== 0) {
-				return ctx.reply(
-					fmt`Transaction failed on-chain\n\nStatus code: ${tx.status.toString()}`,
-				);
-			}
-
-			// Extract deposit information from transfers
-			if (!tx.transfers || tx.transfers.length === 0) {
-				return ctx.reply("No transfers found in transaction");
-			}
-
-			// Find transfer to bot treasury
-			const deposit = tx.transfers.find(
-				(t) => t.recipient === config.botTreasuryAddress,
-			);
-
-			if (!deposit) {
-				return ctx.reply(
-					fmt`No transfer to bot treasury found\n\nExpected recipient: ${config.botTreasuryAddress || ""}`,
-				);
-			}
-
-			// Extract user ID from memo
-			const userId = tx.memo ? parseInt(tx.memo, 10) : null;
-
-			if (!userId || Number.isNaN(userId)) {
-				return ctx.reply(
-					fmt`No valid user ID found in memo\n\nMemo: ${tx.memo || "none"}\n\nUse /claimdeposit to manually assign this deposit to a user.`,
-				);
-			}
-
-			// Check if already processed
-			const existing = get<any>(
-				"SELECT * FROM processed_deposits WHERE tx_hash = ?",
-				[txHash],
-			);
-
-			if (existing?.processed) {
-				return ctx.reply(
-					fmt`Deposit Already Processed\n\nAmount: ${AmountPrecision.format(deposit.amount)} JUNO\nUser: ${userId.toString()}\nThis deposit has already been credited.`,
-				);
-			}
-
-			// Process the deposit
-			const result = await LedgerService.processDeposit(
-				userId,
-				deposit.amount,
+			const result = await creditDepositFromChain(
 				txHash,
-				deposit.sender,
-				`Manual deposit processing by admin ${adminId}`,
+				adminId,
+				"process_deposit",
 			);
 
-			if (result.success) {
-				// Mark deposit as processed in database
-				if (!existing) {
-					// Insert new record if it doesn't exist
-					execute(
-						`INSERT INTO processed_deposits (
-              tx_hash, user_id, amount, from_address, memo, height, processed, processed_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-						[
-							txHash,
-							userId,
-							deposit.amount,
-							deposit.sender,
-							tx.memo || null,
-							tx.height || 0,
-							Math.floor(Date.now() / 1000),
-							Math.floor(Date.now() / 1000),
-						],
-					);
-				} else {
-					// Update existing record
-					execute(
-						"UPDATE processed_deposits SET processed = 1, processed_at = ?, user_id = ?, error = NULL WHERE tx_hash = ?",
-						[Math.floor(Date.now() / 1000), userId, txHash],
-					);
-				}
-
-				StructuredLogger.logUserAction("Deposit manually processed by admin", {
-					userId: adminId,
-					operation: "process_deposit",
-					targetUserId: userId,
-					txHash,
-					amount: deposit.amount.toString(),
-				});
-
-				await ctx.reply(
-					fmt`Deposit Processed\n\nAmount: ${AmountPrecision.format(deposit.amount)} JUNO\nFrom: ${deposit.sender}\nCredited to user: ${userId.toString()}\nNew balance: ${AmountPrecision.format(result.newBalance)} JUNO\nTransaction: ${txHash.substring(0, 16)}...`,
-				);
-			} else {
-				// Mark deposit as failed in database
-				if (!existing) {
-					execute(
-						`INSERT INTO processed_deposits (
-              tx_hash, user_id, amount, from_address, memo, height, processed, error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-						[
-							txHash,
-							userId,
-							deposit.amount,
-							deposit.sender,
-							tx.memo || null,
-							tx.height || 0,
-							result.error || "Unknown error",
-							Math.floor(Date.now() / 1000),
-						],
-					);
-				} else {
-					execute("UPDATE processed_deposits SET error = ? WHERE tx_hash = ?", [
-						result.error || "Unknown error",
-						txHash,
-					]);
-				}
-
-				await ctx.reply(
-					fmt`Failed to process deposit\n\n${result.error || "Unknown error"}`,
+			if (!result.success) {
+				return ctx.reply(
+					fmt`${bold("Deposit Processing Failed")}\n\n${result.error ?? "Unknown error"}`,
 				);
 			}
+
+			await ctx.reply(
+				fmt`${bold("Deposit Processed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} JUNO`)}\nFrom: ${code(result.sender || "unknown")}\nCredited to user: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 16)}...`)}`,
+			);
 		} catch (error) {
 			logger.error("Failed to process deposit", { adminId, txHash, error });
 			await ctx.reply(
