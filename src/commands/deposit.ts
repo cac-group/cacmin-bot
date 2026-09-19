@@ -18,6 +18,7 @@ import {
 } from "../services/unifiedWalletService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { resolveUserId } from "../utils/userResolver";
 
 interface ProcessedDeposit {
 	tx_hash: string;
@@ -42,14 +43,18 @@ interface DepositCreditResult {
 }
 
 /**
- * Look up a deposit on-chain and credit the user id in its memo, idempotently.
- * Used by /claimdeposit (any user) and /processdeposit (admin) so they cannot
- * diverge.
+ * Look up a deposit on-chain and credit it, idempotently. Used by /claimdeposit
+ * (any user) and /processdeposit (admin) so the two cannot diverge.
+ *
+ * Designated deposits (valid user id in the memo) go to the memo user. A
+ * non-designated deposit already held in the UNCLAIMED ledger account can be
+ * allocated by passing `targetUserId` (admin path only).
  */
 async function creditDepositFromChain(
 	txHash: string,
 	actorId: number,
 	operation: string,
+	targetUserId?: number,
 ): Promise<DepositCreditResult> {
 	const txResult = await RPCTransactionVerification.fetchTransaction(txHash);
 	if (!txResult.success || !txResult.data) {
@@ -67,18 +72,12 @@ async function creditDepositFromChain(
 		};
 	}
 
-	const creditedUserId = tx.memo ? Number.parseInt(tx.memo, 10) : Number.NaN;
-	if (!creditedUserId || Number.isNaN(creditedUserId)) {
-		return {
-			success: false,
-			error: tx.memo
-				? `The memo "${tx.memo}" is not a valid user id.`
-				: "The transaction has no memo, so there is no user to credit.",
-		};
-	}
+	const memoUserId = tx.memo ? Number.parseInt(tx.memo, 10) : Number.NaN;
+	const memoUser = Number.isNaN(memoUserId) ? undefined : memoUserId;
 
-	const depositAddress =
-		UnifiedWalletService.getDepositInstructions(creditedUserId).address;
+	const depositAddress = UnifiedWalletService.getDepositInstructions(
+		memoUser ?? SYSTEM_USER_IDS.UNCLAIMED,
+	).address;
 	const transfer = tx.transfers?.find((t) => t.recipient === depositAddress);
 	if (!transfer) {
 		return {
@@ -87,16 +86,71 @@ async function creditDepositFromChain(
 		};
 	}
 
-	const existing = get<{ processed: number }>(
-		"SELECT processed FROM processed_deposits WHERE tx_hash = ?",
+	const existing = get<ProcessedDeposit>(
+		"SELECT * FROM processed_deposits WHERE tx_hash = ?",
 		[txHash],
 	);
+
+	// Non-designated deposit held in the unclaimed ledger account: allocate it
+	// to the requested user (the public path never passes a target).
+	if (existing && existing.user_id === SYSTEM_USER_IDS.UNCLAIMED) {
+		const recipient = targetUserId ?? memoUser;
+		if (!recipient) {
+			return {
+				success: false,
+				error:
+					"This deposit has no designated user. Provide a target user id to allocate it.",
+				amount: existing.amount,
+			};
+		}
+		const moved = await LedgerService.transferBetweenUsers(
+			SYSTEM_USER_IDS.UNCLAIMED,
+			recipient,
+			existing.amount,
+			`Allocated unclaimed deposit ${txHash}`,
+		);
+		if (!moved.success) {
+			return {
+				success: false,
+				error: moved.error || "Failed to allocate deposit",
+			};
+		}
+		execute("UPDATE processed_deposits SET user_id = ? WHERE tx_hash = ?", [
+			recipient,
+			txHash,
+		]);
+		StructuredLogger.logUserAction("Unclaimed deposit allocated", {
+			userId: actorId,
+			operation,
+			targetUserId: recipient,
+			txHash,
+			amount: existing.amount.toString(),
+		});
+		return {
+			success: true,
+			amount: existing.amount,
+			creditedUserId: recipient,
+			sender: transfer.sender,
+			memo: tx.memo,
+		};
+	}
+
 	if (existing?.processed) {
 		return {
 			success: false,
-			error: "This deposit has already been credited.",
-			amount: transfer.amount,
-			creditedUserId,
+			error: `This deposit has already been credited to user ${existing.user_id}.`,
+			amount: existing.amount,
+			creditedUserId: existing.user_id,
+		};
+	}
+
+	const creditedUserId = targetUserId ?? memoUser;
+	if (!creditedUserId) {
+		return {
+			success: false,
+			error: tx.memo
+				? `The memo "${tx.memo}" is not a valid user id. Provide a target user id to allocate it.`
+				: "This deposit has no memo. Provide a target user id to allocate it.",
 		};
 	}
 
@@ -160,7 +214,7 @@ async function creditDepositFromChain(
  * - /verifydeposit - Verify a deposit by transaction hash
  * - /unclaimeddeposits - View unclaimed deposits (missing or invalid memo)
  * - /claimdeposit - Verify a missed deposit by hash and credit the memo user id (any user)
- * - /processdeposit - Manually process a pending deposit (admin only)
+ * - /processdeposit - Admin recovery/allocating of any deposit: memo user by default, or a target user for unclaimed deposits
  *
  * @param bot - Telegraf bot instance
  *
@@ -490,13 +544,18 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 	/**
 	 * Command: /processdeposit
-	 * Manually process a deposit transaction and credit the user id in its memo.
+	 * Admin manual path for any deposit: recovers a missed on-chain deposit or
+	 * allocates a non-designated (unclaimed) one to a specified user.
 	 *
 	 * Permission: Admin or owner
-	 * Syntax: /processdeposit <txhash>
+	 * Syntax: /processdeposit <txhash> [userId|@username]
+	 *
+	 * If the memo designates a user, that user is credited and no target is
+	 * needed. For an unclaimed deposit, pass the target user to allocate it.
 	 *
 	 * @example
 	 * User: /processdeposit ABC123...
+	 * User: /processdeposit ABC123... 123456
 	 * Bot: Deposit Processed
 	 *      Amount: 1.000000 JUNO
 	 *      Credited to user: 1705203106
@@ -509,11 +568,21 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 		if (args.length < 1) {
 			return ctx.reply(
-				fmt`Usage: /processdeposit <txhash>\n\nManually process a deposit. The transaction must have a valid user id in its memo.`,
+				fmt`Usage: /processdeposit <txhash> [userId|@username]\n\nRecover or allocate a deposit. The memo user is credited by default; pass a target for an unclaimed deposit.`,
 			);
 		}
 
 		const txHash = args[0].trim();
+		let targetUserId: number | undefined;
+		if (args[1]) {
+			targetUserId = resolveUserId(args[1]) ?? undefined;
+			if (!targetUserId) {
+				return ctx.reply(
+					"Target user not found. Use a numeric id or @username of a known user.",
+				);
+			}
+		}
+
 		await ctx.reply("Processing deposit...");
 
 		try {
@@ -521,6 +590,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				txHash,
 				adminId,
 				"process_deposit",
+				targetUserId,
 			);
 
 			if (!result.success) {

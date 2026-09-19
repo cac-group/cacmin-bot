@@ -537,8 +537,8 @@ export const helpTree: readonly HelpNode[] = [
 				content: fmt([
 					bold("Deposit Recovery"),
 					"\n\n",
-					"/processdeposit <txhash>\n",
-					"  Manually process a pending deposit that already contains a valid user ID memo.",
+					"/processdeposit <txhash> [userId|@username]\n",
+					"  Recover or allocate any deposit. The memo user is credited by default; pass a target to allocate an unclaimed (non-designated) deposit.",
 				]),
 			},
 			{
@@ -636,8 +636,8 @@ export const helpTree: readonly HelpNode[] = [
 				content: fmt([
 					bold("Deposit Recovery"),
 					"\n\n",
-					"/processdeposit <txhash>\n",
-					"  Process a pending deposit. Extracts the user id from the transaction memo.",
+					"/processdeposit <txhash> [userId|@username]\n",
+					"  Recover or allocate any deposit: the memo user by default, or a target user for a non-designated (unclaimed) deposit.",
 				]),
 			},
 			{

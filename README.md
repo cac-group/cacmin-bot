@@ -304,7 +304,7 @@ the selected window.
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 
 ### Deposit Recovery and Treasury Ops
-- `/processdeposit <txhash>` - Manually process a deposit that already has a valid memo (`admin+`)
+- `/processdeposit <txhash> [userId|@username]` - Recover or allocate any deposit: the memo user by default, or a target user for an unclaimed deposit (`admin+`)
 - `/botbalance` - View the bot's on-chain wallet balance (`owner`)
 - `/treasury` - View treasury and ledger status (`owner`)
 - `/walletstats` - View wallet and reconciliation stats (`owner`)

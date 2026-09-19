@@ -184,7 +184,9 @@ describe("help documentation coverage", () => {
 		);
 		expect(readmeCommands).toContain("`/verifydeposit <txhash>`");
 		expect(readmeCommands).toContain("`/claimdeposit <txhash>`");
-		expect(readmeCommands).toContain("`/processdeposit <txhash>`");
+		expect(readmeCommands).toContain(
+			"`/processdeposit <txhash> [userId|@username]`",
+		);
 		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
 		expect(readmeCommands).toContain(
 			"`/verifybail <@username|userId> <txhash>`",
