@@ -9,7 +9,7 @@
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
-import { execute, get } from "../database";
+import { get } from "../database";
 import { elevatedOrHigher } from "../middleware/index";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { JailService } from "../services/jailService";

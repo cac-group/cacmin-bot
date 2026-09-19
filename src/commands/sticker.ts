@@ -211,18 +211,3 @@ Emoji: ${emoji || "N/A"}`,
 		}
 	});
 }
-
-/**
- * Update sticker file_id (for use in bot initialization or admin command)
- * This function can be called to update the stored file_id
- */
-export function setStickerFileId(
-	pack: "cacgifs",
-	sticker: "first",
-	fileId: string,
-): void {
-	if (pack === "cacgifs") {
-		STICKER_PACK.cacgifs[sticker] = fileId;
-		logger.info("Sticker file_id updated", { pack, sticker, fileId });
-	}
-}

@@ -456,7 +456,9 @@ export class TransactionLockService {
 		if (metadata) {
 			try {
 				metadata = JSON.parse(metadata);
-			} catch {}
+			} catch {
+				// Leave malformed metadata as the raw string.
+			}
 		}
 
 		return {
@@ -490,13 +492,6 @@ export class TransactionLockService {
 	 */
 	static async isUserLocked(userId: number): Promise<boolean> {
 		return TransactionLockService.hasLock(userId);
-	}
-
-	/**
-	 * Initialize the transaction lock service (no-op, provided for API consistency)
-	 */
-	static initialize(): void {
-		// No initialization needed - service uses static methods
 	}
 
 	/**

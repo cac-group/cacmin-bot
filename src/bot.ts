@@ -56,7 +56,6 @@ import { RateLimitService } from "./services/rateLimitService";
 import { RestrictionService } from "./services/restrictionService";
 import { TransactionLockService } from "./services/transactionLock";
 import { UnifiedWalletService } from "./services/unifiedWalletService";
-import { setBotInstance } from "./utils/adminNotify";
 import { waitForBotLaunch } from "./utils/botLifecycle";
 import { logger } from "./utils/logger";
 import { createTelegramBot } from "./utils/telegram";
@@ -143,9 +142,6 @@ async function main() {
 
 		// Cache bot info at startup for efficient reply detection
 		const botInfo = await bot.telegram.getMe();
-
-		// Set bot instance for admin notifications
-		setBotInstance(bot);
 
 		// Initialize jail service with bot instance
 		JailService.initialize(bot);
@@ -380,7 +376,6 @@ async function main() {
 			return;
 		}
 		logger.info("Bot started successfully");
-		console.log(" CAC Admin Bot is running...");
 	} catch (error) {
 		logger.error("Failed to start bot", error);
 		console.error("Failed to start bot:", error);

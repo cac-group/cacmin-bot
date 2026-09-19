@@ -636,8 +636,6 @@ export const helpTree: readonly HelpNode[] = [
 				content: fmt([
 					bold("Deposit Recovery"),
 					"\n\n",
-					"/unclaimeddeposits\n",
-					"  List deposits without a valid memo (held in UNCLAIMED).\n\n",
 					"/processdeposit <txhash>\n",
 					"  Process a pending deposit. Extracts user ID from the transaction memo.\n\n",
 					"/claimdeposit <txhash> <userId|@username>\n",

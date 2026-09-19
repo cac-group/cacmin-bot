@@ -37,14 +37,6 @@ const VIOLATION_SELECT = `SELECT id, user_id AS userId, rule_id AS ruleId, restr
 	message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
 	paid_by_user_id AS paidByUserId, paid_at AS paidAt FROM violations`;
 
-/** Get all violations for user (most recent first) */
-export function getUserViolations(userId: number): Violation[] {
-	return query<Violation>(
-		`${VIOLATION_SELECT} WHERE user_id = ? ORDER BY timestamp DESC`,
-		[userId],
-	);
-}
-
 /** Get only unpaid violations for user (for calculating outstanding fines) */
 export function getUnpaidViolations(userId: number): Violation[] {
 	return query<Violation>(

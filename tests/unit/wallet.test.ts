@@ -61,7 +61,7 @@ describe("Wallet Commands", () => {
 		vi.clearAllMocks();
 	});
 
-	it("should handle balance and deposit commands", async () => {
+	it("should handle the balance command", async () => {
 		// Balance with funds
 		let ctx = createPlebContext({ messageText: "/balance" });
 		(UnifiedWalletService.getBalance as any).mockResolvedValue(100.5);
@@ -73,17 +73,6 @@ describe("Wallet Commands", () => {
 		(UnifiedWalletService.getBalance as any).mockResolvedValue(0);
 		await walletHandlers.handleBalance(ctx as any);
 		expect(getReplyText(ctx)).toContain("0");
-
-		// Deposit instructions
-		ctx = createPlebContext({ messageText: "/deposit" });
-		(UnifiedWalletService.getDepositInstructions as any).mockReturnValue({
-			address: "juno1testuserfundsaddress",
-			memo: "444444444",
-		});
-		await walletHandlers.handleDeposit(ctx as any);
-		const allText = getAllReplies(ctx).join(" ");
-		expect(allText).toContain("juno1testuserfundsaddress");
-		expect(allText).toContain("444444444");
 	});
 
 	it("should handle withdraw command validation and processing", async () => {

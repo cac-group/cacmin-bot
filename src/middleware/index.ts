@@ -177,8 +177,8 @@ export const adminOrHigher: MiddlewareFn<Context> = (ctx, next) => {
 		return ctx.reply("User ID not found.");
 	}
 
-	// Check if user is in configured owner IDs
-	if (config.ownerIds.includes(userId)) {
+	// Check if user is a configured owner or admin
+	if (config.ownerIds.includes(userId) || config.adminIds.includes(userId)) {
 		return next();
 	}
 

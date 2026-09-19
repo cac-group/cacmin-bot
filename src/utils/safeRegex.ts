@@ -195,28 +195,6 @@ export function testPatternSafely(
 }
 
 /**
- * Synchronous pattern matching with basic protection.
- * Use testPatternSafely() for better timeout protection.
- *
- * @param regex - Compiled RegExp to test
- * @param text - Text to test against
- * @returns True if match found, false otherwise
- */
-export function matchesPattern(regex: RegExp, text: string): boolean {
-	try {
-		// Reset lastIndex to avoid issues with global flag
-		regex.lastIndex = 0;
-		return regex.test(text);
-	} catch (error) {
-		logger.error("Pattern matching error", {
-			pattern: regex.source,
-			error,
-		});
-		return false;
-	}
-}
-
-/**
  * Creates a complete pattern object from raw input.
  * Validates, sanitizes, and compiles the pattern.
  *

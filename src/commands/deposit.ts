@@ -9,6 +9,7 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt, italic } from "telegraf/format";
 import { config } from "../config";
 import { execute, get, query } from "../database";
+import { adminOrHigher } from "../middleware";
 import { DepositInstructionService } from "../services/depositInstructions";
 import { LedgerService } from "../services/ledgerService";
 import { RPCTransactionVerification } from "../services/rpcTransactionVerification";
@@ -332,20 +333,9 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 	 *      Assigned to user: `123456`
 	 *      Transaction: `ABC123...`
 	 */
-	bot.command("claimdeposit", async (ctx) => {
+	bot.command("claimdeposit", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
 		if (!adminId) return;
-
-		// Check if owner (from config) or admin (from database)
-		const isOwner = config.ownerIds.includes(adminId);
-		const admin = get<any>("SELECT role FROM users WHERE id = ?", [adminId]);
-
-		if (
-			!isOwner &&
-			(!admin || (admin.role !== "owner" && admin.role !== "admin"))
-		) {
-			return ctx.reply("This command requires admin permissions");
-		}
 
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
@@ -412,20 +402,9 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 	 *      Amount: 1.000000 JUNO
 	 *      Credited to user: 1705203106
 	 */
-	bot.command("processdeposit", async (ctx) => {
+	bot.command("processdeposit", adminOrHigher, async (ctx) => {
 		const adminId = ctx.from?.id;
 		if (!adminId) return;
-
-		// Check if owner (from config) or admin (from database)
-		const isOwner = config.ownerIds.includes(adminId);
-		const admin = get<any>("SELECT role FROM users WHERE id = ?", [adminId]);
-
-		if (
-			!isOwner &&
-			(!admin || (admin.role !== "owner" && admin.role !== "admin"))
-		) {
-			return ctx.reply("This command requires admin permissions");
-		}
 
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 

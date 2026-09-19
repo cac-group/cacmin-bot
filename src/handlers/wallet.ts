@@ -26,7 +26,7 @@ import {
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
-import { logger, StructuredLogger } from "../utils/logger";
+import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated } from "../utils/roles";
 import { resolveUserId } from "../utils/userResolver";
@@ -72,88 +72,6 @@ Current balance: ${code(`${balance.toFixed(6)} JUNO`)}`,
 		});
 		const msg = await ctx.reply("Failed to fetch balance");
 		autoDeleteInGroup(ctx, msg.message_id);
-	}
-}
-
-/**
- * Handles the /deposit command.
- * Displays deposit instructions with a unique address and memo for the user.
- * Deposits are automatically credited when the transaction is confirmed on-chain.
- *
- * Permission: All users
- *
- * @param ctx - Telegraf context
- *
- * @example
- * Usage: /deposit
- */
-export async function handleDeposit(ctx: Context): Promise<void> {
-	try {
-		const userId = ctx.from?.id;
-		if (!userId) return;
-
-		const depositInfo = UnifiedWalletService.getDepositInstructions(userId);
-
-		// Send warning sticker first
-		const CACGIFS_SATELLITE_STICKER =
-			"CAACAgIAAxkBAAICIGkIxVYID2ee6Z3t3fzMKGyrzCLlAAJmNgACfvIoSL_cdmEGklS0NgQ";
-		try {
-			await ctx.replyWithSticker(CACGIFS_SATELLITE_STICKER);
-		} catch (stickerError) {
-			logger.warn("Failed to send warning sticker", {
-				userId,
-				error: stickerError,
-			});
-			// Continue even if sticker fails
-		}
-
-		// Send experimental warning
-		await ctx.reply(
-			fmt`${bold("EXPERIMENTAL SOFTWARE WARNING")}
-
-This bot is ${bold("highly experimental")} and under active development.
-
-${bold("DO NOT deposit funds you are not prepared to immediately lose.")}
-
-By depositing, you acknowledge:
-- This software may contain bugs
-- Funds may be irretrievably lost
-- No guarantees or warranties are provided
-- You use this service entirely at your own risk
-
-If you understand and accept these risks, proceed with deposit instructions below.`,
-		);
-
-		await ctx.reply(
-			fmt`${bold("Deposit Instructions")}
-
-To deposit JUNO to your account:
-
-1. Send JUNO to this address:
-${code(depositInfo.address)}
-
-2. ${bold("IMPORTANT")}: Include this memo:
-${code(depositInfo.memo)}
-
-${bold("Your memo is unique to you and will never change")}
-${bold("Deposits without the correct memo cannot be credited")}
-
-Your deposit will be credited automatically once confirmed on-chain.`,
-		);
-
-		StructuredLogger.logUserAction("Deposit instructions requested", {
-			userId,
-			username: ctx.from.username,
-			operation: "request_deposit",
-			depositAddress: depositInfo.address,
-			depositMemo: depositInfo.memo,
-		});
-	} catch (error) {
-		StructuredLogger.logError(error as Error, {
-			userId: ctx.from?.id,
-			operation: "request_deposit",
-		});
-		await ctx.reply("Failed to generate deposit info");
 	}
 }
 
@@ -674,7 +592,9 @@ export async function handleWalletStats(ctx: Context): Promise<void> {
 			if (ctx.chat) {
 				await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
 			}
-		} catch {}
+		} catch {
+			// Loading message already gone; ignore.
+		}
 
 		const msg = await ctx.reply(
 			fmt`${bold("Wallet System Statistics")}
@@ -715,108 +635,6 @@ Status: ${reconciliation.onChainAvailable ? (reconciliation.matched ? "Balanced"
 		});
 		const msg = await ctx.reply("Failed to fetch stats");
 		autoDeleteInGroup(ctx, msg.message_id);
-	}
-}
-
-/**
- * Handles the /giveaway command.
- * Distributes a specified amount of JUNO to multiple users from the treasury.
- * Only elevated users can perform giveaways.
- *
- * Permission: Elevated users only (admin/owner)
- *
- * @param ctx - Telegraf context
- *
- * @example
- * Usage: /giveaway <amount> <@user1> <@user2> ...
- * Example: /giveaway 5 @alice @bob @charlie
- */
-export async function handleGiveaway(ctx: Context): Promise<void> {
-	try {
-		const userId = ctx.from?.id;
-
-		// Check if user is elevated
-		if (!userId || !checkIsElevated(userId)) {
-			await ctx.reply(" This command requires elevated permissions.");
-			return;
-		}
-
-		const text = (ctx.message as any)?.text || "";
-		const args = text.split(" ").slice(1);
-
-		if (args.length < 2) {
-			await ctx.reply(
-				fmt`${bold("Invalid format")}
-
-Usage: ${code("/giveaway <amount> <@user1> <@user2> ...")}
-Example: ${code("/giveaway 5 @alice @bob @charlie")}`,
-			);
-			return;
-		}
-
-		const amount = parseFloat(args[0]);
-		if (Number.isNaN(amount) || amount <= 0) {
-			await ctx.reply(" Invalid amount. Please enter a positive number.");
-			return;
-		}
-
-		const recipients = args.slice(1);
-		const userIds: number[] = [];
-
-		// Resolve usernames to userIds
-		for (const recipient of recipients) {
-			if (recipient.startsWith("@")) {
-				const user = await UnifiedWalletService.findUserByUsername(recipient);
-				if (user) {
-					userIds.push(user.id);
-				} else {
-					await ctx.reply(` User ${recipient} not found, skipping...`);
-				}
-			} else if (/^\d+$/.test(recipient)) {
-				userIds.push(parseInt(recipient, 10));
-			}
-		}
-
-		if (userIds.length === 0) {
-			await ctx.reply(" No valid recipients found.");
-			return;
-		}
-
-		await ctx.reply(
-			` Distributing ${amount} JUNO to ${userIds.length} users...`,
-		);
-
-		const result = await UnifiedWalletService.distributeGiveaway(
-			userIds,
-			amount,
-			`Giveaway from admin`,
-		);
-
-		await ctx.reply(
-			fmt`${bold("Giveaway Complete")}
-
-Amount per user: ${code(`${amount} JUNO`)}
-Successful: ${result.succeeded.length}
-Failed: ${result.failed.length}
-Total distributed: ${code(`${result.totalDistributed.toFixed(6)} JUNO`)}`,
-		);
-
-		StructuredLogger.logTransaction("Giveaway distributed", {
-			userId,
-			username: ctx.from.username,
-			operation: "giveaway",
-			amount: amount.toString(),
-			recipients: userIds.length.toString(),
-			totalDistributed: result.totalDistributed.toFixed(6),
-			succeeded: result.succeeded.length.toString(),
-			failed: result.failed.length.toString(),
-		});
-	} catch (error) {
-		StructuredLogger.logError(error as Error, {
-			userId: ctx.from?.id,
-			operation: "giveaway",
-		});
-		await ctx.reply("Giveaway failed");
 	}
 }
 
