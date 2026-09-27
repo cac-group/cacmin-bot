@@ -13,6 +13,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { config } from "../config";
 import { execute } from "../database";
 import { ensureUserExists } from "../services/userService";
 import { logger } from "../utils/logger";
@@ -46,6 +47,43 @@ function recordJoin(
 }
 
 /**
+ * Applies the configured member tag for a user on join, if any. Telegram's
+ * `setChatMemberTag` is newer than telegraf's bundled method map, so the call
+ * goes through the untyped `callApi` escape hatch. Failures are logged and
+ * swallowed: the bot needs the `can_manage_tags` admin right, and a missing
+ * right must not break join tracking.
+ */
+export async function applyMemberTag(
+	telegram: Context["telegram"],
+	chatId: number | undefined,
+	userId: number,
+): Promise<void> {
+	const tag = config.memberTags.get(userId);
+	if (!tag || chatId === undefined) return;
+	try {
+		const api = telegram as unknown as {
+			callApi(
+				method: string,
+				payload: Record<string, unknown>,
+			): Promise<unknown>;
+		};
+		await api.callApi("setChatMemberTag", {
+			chat_id: chatId,
+			user_id: userId,
+			tag,
+		});
+		logger.info("Applied member tag on join", { userId, chatId, tag });
+	} catch (error) {
+		logger.warn("Failed to apply member tag on join", {
+			userId,
+			chatId,
+			tag,
+			error,
+		});
+	}
+}
+
+/**
  * Registers join-tracking listeners for group joins. Existing members who
  * predate this are handled by the reaction handler's first-seen fallback.
  */
@@ -59,6 +97,7 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 			if (member.is_bot) continue;
 			ensureUserExists(member.id, member.username || `user_${member.id}`);
 			recordJoin(member.id, ctx.chat?.id, msg.date, "new_chat_members");
+			await applyMemberTag(ctx.telegram, ctx.chat?.id, member.id);
 		}
 		return next();
 	});
@@ -82,6 +121,7 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 					update.date,
 					`chat_member:${update.old_chat_member.status}->${update.new_chat_member.status}`,
 				);
+				await applyMemberTag(ctx.telegram, update.chat.id, user.id);
 			}
 		}
 		return next();

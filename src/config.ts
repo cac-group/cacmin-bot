@@ -92,6 +92,9 @@ interface Config {
 	/** Number of eligible live inserts before touching the external embedding trigger */
 	indexerEmbedTriggerBatchSize: number;
 
+	/** Member tags applied automatically on group join, keyed by Telegram user id */
+	memberTags: Map<number, string>;
+
 	/** Ollama API endpoint URL */
 	ollamaUrl: string;
 
@@ -142,6 +145,26 @@ function parsePositiveNumber(
 	if (!value) return fallback;
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Parses `MEMBER_TAGS` (`<user_id>:<tag>` pairs, comma-separated) into a map
+ * keyed by Telegram user id. Tags are applied on join; see handlers/membership.
+ * Entries missing an id or tag are ignored.
+ */
+export function parseMemberTags(
+	value: string | undefined,
+): Map<number, string> {
+	const tags = new Map<number, string>();
+	if (!value) return tags;
+	for (const entry of value.split(",")) {
+		const separator = entry.indexOf(":");
+		if (separator < 0) continue;
+		const userId = Number.parseInt(entry.slice(0, separator).trim(), 10);
+		const tag = entry.slice(separator + 1).trim();
+		if (!Number.isNaN(userId) && tag) tags.set(userId, tag);
+	}
+	return tags;
 }
 
 interface TelegramEndpointConfig {
@@ -238,6 +261,7 @@ export const config: Config = {
 			process.env.LIVE_EMBED_TRIGGER_BATCH_SIZE,
 		25,
 	),
+	memberTags: parseMemberTags(process.env.MEMBER_TAGS),
 	ollamaUrl: process.env.OLLAMA_URL || "http://192.168.0.170:26886",
 	embedModel: process.env.EMBED_MODEL || "nomic-embed-text",
 	visionModel: process.env.VISION_MODEL || "qwen3-vl:2b",

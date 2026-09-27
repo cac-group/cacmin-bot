@@ -70,6 +70,16 @@ TELEGRAM_FILE_ROOT=http://tgbotapi.lxd:8082
 Both values must be bare HTTP(S) origins. `TELEGRAM_FILE_ROOT` is optional with
 the public API, but is required if `getFile` returns an absolute local path.
 
+Optional `MEMBER_TAGS` assigns a custom member tag whenever a listed user joins
+a group. Value is comma-separated `<user_id>:<tag>` pairs, keyed by the numeric
+Telegram user id (usernames are not used, they are mutable). The bot must be a
+group admin with the "Manage Tags" permission (`can_manage_tags`); tag values
+are 0-16 characters with no emoji. Example:
+
+```dotenv
+MEMBER_TAGS=123456789:Neil,987654321:VIP
+```
+
 **Rebuild Options:** `./rebuild.sh [--dev|--quick|--full]`
 
 ## Production Deployment

@@ -77,6 +77,22 @@ Telegram directly. The crawl:
   definitive failures (not a member, deleted account) count as unavailable and
   advance the cursor.
 
+## Member tags on join
+
+`config.memberTags` (env `MEMBER_TAGS`, `<user_id>:<tag>` comma-separated) maps
+numeric Telegram user ids to a custom member tag. `handlers/membership.ts`
+applies it on both join paths (`new_chat_members` and the `chat_member`
+left/kicked → member/administrator/creator transition) via
+`setChatMemberTag` (Telegram Bot API, newer than telegraf 4.16's type map, so
+called through `callApi`). Requirements: bot is a group admin with the
+`can_manage_tags` right (production bot `Judge_CACC` has it), group/supergroup
+only, tag 0-16 chars and no emoji. Failures are logged and swallowed so join
+tracking is never blocked.
+
+Tag application is separate from identity/stats: it does not read or write any
+user row, and it is unaffected by leaves because `users`, `user_memberships`,
+and all other per-user tables are id-keyed and never deleted (see above).
+
 ## Remaining name-based surfaces
 
 - `resolveUser` / `getUserIdByUsername`: resolve human `@username` input to an

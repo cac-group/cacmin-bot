@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTelegramEndpointConfig } from "../../src/config";
+import { parseMemberTags, parseTelegramEndpointConfig } from "../../src/config";
 
 describe("Telegram endpoint configuration", () => {
 	it("uses Telegram's public API without requiring a file gateway", () => {
@@ -40,5 +40,23 @@ describe("Telegram endpoint configuration", () => {
 				TELEGRAM_FILE_ROOT: "file:///srv/telegram",
 			}),
 		).toThrow("TELEGRAM_FILE_ROOT must be an HTTP(S) origin");
+	});
+});
+
+describe("member tag configuration", () => {
+	it("parses id:tag pairs keyed by numeric user id", () => {
+		expect([...parseMemberTags("1194167473:Neil")]).toEqual([
+			[1194167473, "Neil"],
+		]);
+		expect([...parseMemberTags("1:Alpha, 2: Beta Gamma ")]).toEqual([
+			[1, "Alpha"],
+			[2, "Beta Gamma"],
+		]);
+	});
+
+	it("ignores malformed or empty entries", () => {
+		expect(parseMemberTags(undefined).size).toBe(0);
+		expect(parseMemberTags("").size).toBe(0);
+		expect(parseMemberTags("nope,123:,456:Tag").size).toBe(1);
 	});
 });
