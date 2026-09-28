@@ -89,9 +89,7 @@ Use ${code("/sendsticker first")} or ${code("/cac")} to send the first sticker.`
 File ID: ${code(fileId)}
 Unique ID: ${code(fileUniqueId)}
 Set Name: ${stickerSetName || "N/A"}
-Emoji: ${emoji || "N/A"}
-
-Use this file_id to send this sticker programmatically.`,
+Emoji: ${emoji || "N/A"}`,
 			);
 
 			logger.info("Sticker file_id retrieved", {

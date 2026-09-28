@@ -124,17 +124,7 @@ Balance: ${bold(`${balance.toFixed(6)} JUNO`)}`,
 Usage: ${code("/giveaway <total_amount>")}
 
 Example: ${code("/giveaway 100")}
-Creates a 100 JUNO giveaway. You'll then choose how many slots (10, 25, 50, or 100) to split it into.
-
-${bold("How it works:")}
-1. Enter total amount to give away
-2. Select number of slots (e.g., 10 slots = 10 JUNO each)
-3. Funds are held in escrow
-4. Users click Claim button (one per user)
-5. Cancel anytime with ${code("/cancelgiveaway")} to reclaim unclaimed funds
-
-Funds come from your wallet balance.
-Admins/owners can also fund from treasury.`,
+Creates a 100 JUNO giveaway. You'll then choose how many slots (10, 25, 50, or 100) to split it into.`,
 			);
 		}
 
@@ -485,16 +475,7 @@ ${code(treasuryAddress || "")}
 ${bold("Internal Ledger:")}
 User Balances: ${totalUserBalances.toFixed(6)} JUNO
 Fines Paid: ${totalFines.toFixed(6)} JUNO
-Bail Paid: ${totalBail.toFixed(6)} JUNO
-
-${bold("How it works:")}
-Users deposit to the bot wallet address above. The bot
-tracks each user's balance internally via the ledger.
-Fines and bail are deducted from user balances and
-credited to the bot's internal treasury account.
-
-${code("/walletstats")} - Full reconciliation details
-${code("/giveaway")} - Distribute funds to users`,
+Bail Paid: ${totalBail.toFixed(6)} JUNO`,
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 		} catch (error) {

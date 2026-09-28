@@ -286,9 +286,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(
-				fmt`${bold("Usage")}: /verifydeposit <txhash>\n\nProvide the transaction hash of your deposit to verify and credit it.`,
-			);
+			return ctx.reply(fmt`${bold("Usage")}: /verifydeposit <txhash>`);
 		}
 
 		const txHash = args[0].trim();
@@ -512,9 +510,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(
-				fmt`${bold("Usage")}: /claimdeposit <txhash>\n\nIf a deposit was missed, send its transaction hash and the bot will verify it on-chain and credit the user id in the memo.`,
-			);
+			return ctx.reply(fmt`${bold("Usage")}: /claimdeposit <txhash>`);
 		}
 
 		const txHash = args[0].trim();
@@ -567,9 +563,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(
-				fmt`Usage: /processdeposit <txhash> [userId|@username]\n\nRecover or allocate a deposit. The memo user is credited by default; pass a target for an unclaimed deposit.`,
-			);
+			return ctx.reply(fmt`Usage: /processdeposit <txhash> [userId|@username]`);
 		}
 
 		const txHash = args[0].trim();

@@ -23,9 +23,7 @@ export function registerCrawlCommands(bot: Telegraf<Context>): void {
 
 		if (args[0]?.toLowerCase() === "reset") {
 			IdentityCrawlService.reset();
-			return ctx.reply(
-				"Identity crawl reset. The next run starts a fresh pass over users without usernames.",
-			);
+			return ctx.reply("Identity crawl reset.");
 		}
 
 		if (IdentityCrawlService.isRunning()) {

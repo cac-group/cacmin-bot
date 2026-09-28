@@ -132,8 +132,6 @@ export function registerPaymentCommands(bot: Telegraf<Context>): void {
 	 *      Violations cleared: 2
 	 *      Amount paid: 4.00 JUNO
 	 *      New balance: 6.000000 JUNO
-	 *
-	 *      You have been released from jail (if applicable).
 	 */
 	bot.command("payallfines", async (ctx) => {
 		const userId = ctx.from?.id;
@@ -181,7 +179,10 @@ Please deposit more JUNO using /deposit`,
 
 				// Release from jail if jailed
 				const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
-				if (user?.muted_until && user.muted_until > Date.now() / 1000) {
+				const wasJailed = Boolean(
+					user?.muted_until && user.muted_until > Date.now() / 1000,
+				);
+				if (wasJailed) {
 					execute("UPDATE users SET muted_until = NULL WHERE id = ?", [userId]);
 				}
 
@@ -190,9 +191,7 @@ Please deposit more JUNO using /deposit`,
 
 Violations cleared: ${violations.length}
 Amount paid: ${totalFines.toFixed(2)} JUNO
-New balance: ${result.newBalance?.toFixed(6) || "N/A"} JUNO
-
-You have been released from jail (if applicable).`,
+New balance: ${result.newBalance?.toFixed(6) || "N/A"} JUNO${wasJailed ? "\n\nReleased from jail." : ""}`,
 				);
 
 				StructuredLogger.logTransaction(

@@ -120,10 +120,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 			`Rate limit applied to ${formatUserIdDisplay(target)}.\n\n` +
 				`15-minute limit: ${limits[0]} characters\n` +
 				`1-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["1h"]} characters\n` +
-				`24-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["24h"]} characters\n\n` +
-				"Rollover: one unused previous window; rollover does not compound.\n" +
-				"Emoji count as 2 characters; stickers count as 5; a shared image or file counts as 25.\n" +
-				"Changing an existing limit resets that user's accumulated counts.",
+				`24-hour limit: ${limits[0] * RATE_LIMIT_MULTIPLIERS["24h"]} characters`,
 		);
 	});
 
@@ -217,7 +214,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 		ensureUserExists(payer, ctx.from.username || `user_${payer}`);
 		ensureUserExists(target, getUserById(target)?.username || `user_${target}`);
 		const message = await ctx.reply(
-			fmt`${bold(`Reset ${windowText(window)} rate-limit usage`)}\n\nSend exactly ${fee.toFixed(6)} JUNO to:\n${code(JunoService.getPaymentAddress())}\n\nThen reply to this message with the transaction hash, or send the hash in a DM. The bot will verify the successful transfer before clearing the ${windowText(window)} window.`,
+			fmt`${bold(`Reset ${windowText(window)} rate-limit usage`)}\n\nSend exactly ${fee.toFixed(6)} JUNO to:\n${code(JunoService.getPaymentAddress())}\n\nThen reply to this message with the transaction hash, or send the hash in a DM.`,
 		);
 		execute(
 			`INSERT INTO rate_limit_reset_payments (payer_user_id, target_user_id, window, amount_micro, instruction_chat_id, instruction_message_id) VALUES (?, ?, ?, ?, ?, ?)`,

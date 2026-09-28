@@ -138,18 +138,6 @@ export function registerDuelCommands(bot: Telegraf<Context>): void {
 
 Challenge another user to a 1v1 roll-off. Highest roll wins!
 
-${bold("Rules:")}
-- Both players wager the same amount
-- Your wager is reserved immediately
-- Each player rolls a 9-digit number
-- Highest roll wins the pot
-- Ties go to the challenger
-
-${bold("Consequences (optional):")}
-The loser can face additional penalties:
-- Jail, mute, or restrictions
-- Duration varies by penalty type
-
 ${bold("Usage:")} ${code("/duel <@username|userId> <amount>")}
 ${bold("Example:")} ${code("/duel @alice 5")}
 

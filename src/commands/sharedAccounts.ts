@@ -274,7 +274,7 @@ async function handleRevokeAccess(ctx: Context): Promise<void> {
 		);
 
 		await ctx.reply(
-			fmt`${bold("Permission Revoked")}\n\nAccount: ${account.displayName || accountName}\nUser: ${targetUser}\n\nAccess has been revoked.`,
+			fmt`${bold("Permission Revoked")}\n\nAccount: ${account.displayName || accountName}\nUser: ${targetUser}`,
 		);
 
 		StructuredLogger.logTransaction("Permission revoked", {

@@ -195,9 +195,7 @@ Prices from CoinGecko API`,
 				fmt`${bold("Usage:")} ${code("/customjail <@username|userId> <minutes> <juno_amount> <reason>")}
 
 ${bold("Example:")}
-${code("/customjail @alice 120 5.0 Repeated spamming")}
-
-This jails the user for the specified time with a custom fine amount.`,
+${code("/customjail @alice 120 5.0 Repeated spamming")}`,
 			);
 		}
 
@@ -264,10 +262,7 @@ Error: ${error instanceof Error ? error.message : "Unknown error"}`,
 		await ctx.reply(
 			fmt`User ${userDisplay} has been jailed for ${minutes} minutes.
 Custom fine: ${junoAmount.toFixed(3)} JUNO
-Reason: ${reason}
-
-Bail can be paid at any time by sending the required bail amount. DM the bot and send /bailhelp for complete details.
-They can check their status with /mystatus`,
+Reason: ${reason}`,
 		);
 
 		StructuredLogger.logSecurityEvent("Custom jail applied", {

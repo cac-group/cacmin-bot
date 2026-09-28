@@ -366,12 +366,6 @@ export function registerGamblingCommands(bot: Telegraf<Context>): void {
 
 Roll a 9-digit number. If it ends in 2+ matching digits (dubs), you win!
 
-${bold("Rules:")}
-- Win condition: Last 2+ digits match (dubs/trips/quads...)
-- Win chance: 10% (1 in 10)
-- Win payout: 9x profit (get back 10x your bet)
-- Fair game: Expected value = 0
-
 ${bold("Usage:")} ${code("/roll <amount>")}
 ${bold("Example:")} ${code("/roll 5")}
 

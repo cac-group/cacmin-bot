@@ -319,10 +319,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			`Total Bail Revenue: ${escapeNumber(totalBailAmount, 2)} JUNO\n`,
 		);
 		parts.push(`Auto-Releases: ${totalAutoReleases}\n`);
-		parts.push(`Manual Releases: ${totalManualReleases}\n\n`);
-		parts.push(
-			"Use /jailstats <@username|userId> to view a specific user's jail history",
-		);
+		parts.push(`Manual Releases: ${totalManualReleases}\n`);
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
@@ -441,8 +438,6 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 	 *         Time: 30m 15s
 	 *         Bail: 3.50 JUNO
 	 *         Pay: /paybail 123456
-	 *
-	 *      Anyone can pay bail for any user using /paybail <@username|userId>
 	 */
 	bot.command("jails", async (ctx) => {
 		const activeJails = JailService.getActiveJails();
@@ -466,10 +461,6 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			parts.push(`   Bail: ${escapeNumber(bailAmount, 3)} JUNO\n`);
 			parts.push(`   Pay: /paybail ${jail.id}\n\n`);
 		}
-
-		parts.push(
-			"Anyone can pay bail for any user using /paybail <@username|userId>",
-		);
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
@@ -546,8 +537,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 		parts.push(`Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:\n`);
 		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
 		parts.push("After payment, send:\n");
-		parts.push("/verifybail <txhash>\n\n");
-		parts.push("Payment will release this user from jail immediately!");
+		parts.push("/verifybail <txhash>\n");
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);

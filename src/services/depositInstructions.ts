@@ -196,8 +196,6 @@ Always use your user ID as memo to avoid this!
 • From User: \`${userId}\`
 • New Balance: \`${newBalance.toFixed(6)} JUNO\`
 • Transaction: \`${txHash.substring(0, 10)}...\`
-
-Your funds are now available for use!
 `;
 	}
 

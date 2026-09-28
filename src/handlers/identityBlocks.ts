@@ -473,9 +473,7 @@ async function addIdentityBlockPattern(
 	await ctx.reply(
 		fmt`Identity block pattern added (#${inserted?.id || "?"}).
 Pattern: ${code(sanitized)}
-Field: ${field}${description ? `\nDescription: ${description}` : ""}
-
-Matching users will be jailed on join, message, or chat-member updates.`,
+Field: ${field}${description ? `\nDescription: ${description}` : ""}`,
 	);
 }
 

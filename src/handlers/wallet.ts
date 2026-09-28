@@ -857,17 +857,7 @@ Usage: ${code("/adjustbalance <amount> <debit|credit> [reason]")}
 
 ${bold("Examples:")}
 ${code("/adjustbalance 1.009 debit Gas fees")} - Reduce internal total
-${code("/adjustbalance 0.5 credit Missed deposit")} - Increase internal total
-
-${bold("How it works:")}
-- ${code("debit")}: Removes amount from Treasury (reduces internal total)
-- ${code("credit")}: Adds amount to Treasury (increases internal total)
-
-${bold("When to use:")}
-- After ${code("/reconcile")} shows a mismatch
-- To account for gas fees, missed deposits, or manual transfers
-
-Run ${code("/reconcile")} first to see the current discrepancy.`,
+${code("/adjustbalance 0.5 credit Missed deposit")} - Increase internal total`,
 			);
 			return;
 		}
@@ -1091,9 +1081,7 @@ To fund the treasury from an external wallet:
 ${code(depositAddress)}
 
 2. Use this memo:
-${code(treasuryMemo)}
-
-The deposit will be credited to the game treasury once confirmed on-chain.`,
+${code(treasuryMemo)}`,
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 
