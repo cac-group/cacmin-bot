@@ -1,57 +1,57 @@
 {
-  "name": "cac-admin-bot",
-  "version": "2.20.12",
-  "description": "Cosmos Airdrops Chat Admin Bot",
-  "main": "dist/bot.js",
-  "scripts": {
-    "start": "bun dist/bot.js",
-    "dev": "bun --watch src/bot.ts",
-    "build": "tsc",
-    "clean": "rm -rf dist",
-    "rebuild": "./rebuild.sh",
-    "rebuild:dev": "./rebuild.sh --dev",
-    "rebuild:quick": "./rebuild.sh --quick",
-    "rebuild:full": "./rebuild.sh --full",
-    "setup-db": "bun scripts/setup-db.ts",
-    "validate": "bun scripts/validate.ts",
-    "validate:postbuild": "BUILD_VALIDATION=true bun scripts/validate.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
-    "lint": "biome check src",
-    "lint:fix": "biome check --fix src",
-    "format": "biome format --write src"
-  },
-  "keywords": [
-    "telegram",
-    "bot",
-    "admin",
-    "cosmos",
-    "juno",
-    "moderation"
-  ],
-  "author": "Cordtus",
-  "license": "MIT",
-  "dependencies": {
-    "@cosmjs/proto-signing": "^0.36.1",
-    "@cosmjs/stargate": "^0.36.1",
-    "telegraf": "^4.16.3",
-    "winston": "^3.11.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.3.8",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/bun": "^1.3.14",
-    "@types/node": "^22.9.3",
-    "@vitest/coverage-v8": "^4.0.7",
-    "@vitest/ui": "^4.0.7",
-    "better-sqlite3": "^12.10.0",
-    "typescript": "^5.7.2",
-    "vitest": "^4.0.7"
-  },
-  "engines": {
-    "node": ">=22.0.0",
-    "bun": ">=1.3.0"
-  }
+	"name": "cac-admin-bot",
+	"version": "2.21.0",
+	"description": "Cosmos Airdrops Chat Admin Bot",
+	"main": "dist/bot.js",
+	"scripts": {
+		"start": "bun dist/bot.js",
+		"dev": "bun --watch src/bot.ts",
+		"build": "tsc",
+		"clean": "rm -rf dist",
+		"rebuild": "./rebuild.sh",
+		"rebuild:dev": "./rebuild.sh --dev",
+		"rebuild:quick": "./rebuild.sh --quick",
+		"rebuild:full": "./rebuild.sh --full",
+		"setup-db": "bun scripts/setup-db.ts",
+		"validate": "bun scripts/validate.ts",
+		"validate:postbuild": "BUILD_VALIDATION=true bun scripts/validate.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:ui": "vitest --ui",
+		"test:coverage": "vitest run --coverage",
+		"lint": "biome check src",
+		"lint:fix": "biome check --fix src",
+		"format": "biome format --write src"
+	},
+	"keywords": [
+		"telegram",
+		"bot",
+		"admin",
+		"cosmos",
+		"juno",
+		"moderation"
+	],
+	"author": "Cordtus",
+	"license": "MIT",
+	"dependencies": {
+		"@cosmjs/proto-signing": "^0.36.1",
+		"@cosmjs/stargate": "^0.36.1",
+		"telegraf": "^4.16.3",
+		"winston": "^3.11.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.8",
+		"@types/better-sqlite3": "^7.6.13",
+		"@types/bun": "^1.3.14",
+		"@types/node": "^22.9.3",
+		"@vitest/coverage-v8": "^4.0.7",
+		"@vitest/ui": "^4.0.7",
+		"better-sqlite3": "^12.10.0",
+		"typescript": "^5.7.2",
+		"vitest": "^4.0.7"
+	},
+	"engines": {
+		"node": ">=22.0.0",
+		"bun": ">=1.3.0"
+	}
 }
