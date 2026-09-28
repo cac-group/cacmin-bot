@@ -14,6 +14,7 @@ import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { jailDurationKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 import { isImmuneToModeration } from "../utils/roles";
 import {
 	CHAT_MUTE_PERMISSIONS,
@@ -473,14 +474,16 @@ Please follow the group rules.`,
 			totalViolations:
 				get<{ count: number }>("SELECT COUNT(*) as count FROM violations")
 					?.count || 0,
-			unpaidFines:
+			unpaidFines: AmountPrecision.fromDbMicro(
 				get<{ total: number }>(
 					"SELECT SUM(bail_amount) as total FROM violations WHERE paid = 0",
 				)?.total || 0,
-			paidFines:
+			),
+			paidFines: AmountPrecision.fromDbMicro(
 				get<{ total: number }>(
 					"SELECT SUM(bail_amount) as total FROM violations WHERE paid = 1",
 				)?.total || 0,
+			),
 			activeRestrictions:
 				get<{ count: number }>(
 					"SELECT COUNT(*) as count FROM user_restrictions WHERE restricted_until IS NULL OR restricted_until > ?",
@@ -499,11 +502,12 @@ Please follow the group rules.`,
 					"SELECT COUNT(*) as count FROM jail_events WHERE event_type = ?",
 					["bail_paid"],
 				)?.count || 0,
-			totalBailAmount:
+			totalBailAmount: AmountPrecision.fromDbMicro(
 				get<{ total: number }>(
 					"SELECT SUM(bail_amount) as total FROM jail_events WHERE event_type = ?",
 					["bail_paid"],
 				)?.total || 0,
+			),
 		};
 
 		const msg = await ctx.reply(

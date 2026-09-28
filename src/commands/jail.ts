@@ -23,6 +23,7 @@ import { formatActiveTime } from "../utils/activeTime";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { escapeNumber } from "../utils/markdown";
+import { AmountPrecision } from "../utils/precision";
 import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
 import {
 	formatUserIdDisplay,
@@ -224,11 +225,12 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 						[targetUserId, "bail_paid"],
 					)?.count || 0;
 
-				const totalBailSpent =
+				const totalBailSpent = AmountPrecision.fromDbMicro(
 					getRecord<{ total: number }>(
 						"SELECT SUM(bail_amount) as total FROM jail_events WHERE user_id = ? AND event_type = ?",
 						[targetUserId, "bail_paid"],
-					)?.total || 0;
+					)?.total || 0,
+				);
 
 				parts.push(bold("User Statistics:"));
 				parts.push("\n");
@@ -273,11 +275,12 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 				["bail_paid"],
 			)?.count || 0;
 
-		const totalBailAmount =
+		const totalBailAmount = AmountPrecision.fromDbMicro(
 			getRecord<{ total: number }>(
 				"SELECT SUM(bail_amount) as total FROM jail_events WHERE event_type = ?",
 				["bail_paid"],
-			)?.total || 0;
+			)?.total || 0,
+		);
 
 		const totalAutoReleases =
 			getRecord<{ count: number }>(

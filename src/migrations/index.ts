@@ -39,6 +39,18 @@ import {
 	isMigrationApplied as check008,
 	runMigration as run008,
 } from "./008_drop_blacklist";
+import {
+	isMigrationApplied as check009,
+	runMigration as run009,
+} from "./009_null_placeholder_usernames";
+import {
+	isMigrationApplied as check010,
+	runMigration as run010,
+} from "./010_normalize_bail_units";
+import {
+	isMigrationApplied as check011,
+	runMigration as run011,
+} from "./011_reconcile_user_balances";
 
 interface Migration {
 	id: string;
@@ -95,6 +107,24 @@ const migrations: Migration[] = [
 		name: "drop_blacklist",
 		check: check008,
 		run: run008,
+	},
+	{
+		id: "009",
+		name: "null_placeholder_usernames",
+		check: check009,
+		run: run009,
+	},
+	{
+		id: "010",
+		name: "normalize_bail_units",
+		check: check010,
+		run: run010,
+	},
+	{
+		id: "011",
+		name: "reconcile_user_balances",
+		check: check011,
+		run: run011,
 	},
 ];
 

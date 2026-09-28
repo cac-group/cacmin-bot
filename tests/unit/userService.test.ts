@@ -22,9 +22,11 @@ vi.mock("../../src/utils/logger", () => ({
 }));
 
 import {
+	ensureUserExists,
 	findUserIdByUsername,
 	getUserIdByUsername,
 	isPlaceholderUsername,
+	normalizeUsernameForStorage,
 	updateExistingUserUsername,
 } from "../../src/services/userService";
 
@@ -69,6 +71,46 @@ describe("findUserIdByUsername", () => {
 		expect(findUserIdByUsername("unknown")).toBeNull();
 		expect(findUserIdByUsername("user_123")).toBeNull();
 		expect(queryMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("normalizeUsernameForStorage", () => {
+	it("keeps real handles and strips a leading @", () => {
+		expect(normalizeUsernameForStorage("@alice")).toBe("alice");
+		expect(normalizeUsernameForStorage("bob")).toBe("bob");
+	});
+	it("returns null for missing or placeholder values", () => {
+		expect(normalizeUsernameForStorage(undefined)).toBeNull();
+		expect(normalizeUsernameForStorage(null)).toBeNull();
+		expect(normalizeUsernameForStorage("")).toBeNull();
+		expect(normalizeUsernameForStorage("   ")).toBeNull();
+		expect(normalizeUsernameForStorage("unknown")).toBeNull();
+		expect(normalizeUsernameForStorage("user_123")).toBeNull();
+	});
+});
+
+describe("ensureUserExists placeholder usernames", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("stores NULL (not a sentinel) when creating a user without a real handle", () => {
+		queryMock.mockReturnValue([]);
+		ensureUserExists(5, `user_${5}`);
+		const insert = executeMock.mock.calls.find((call) =>
+			String(call[0]).includes("INSERT INTO users"),
+		);
+		expect(insert).toBeDefined();
+		expect(insert?.[1]?.[1]).toBeNull();
+	});
+
+	it("clears a legacy placeholder when the user has no real handle", () => {
+		queryMock.mockReturnValue([{ id: 5, username: "unknown" }]);
+		ensureUserExists(5, "unknown");
+		const update = executeMock.mock.calls.find((call) =>
+			String(call[0]).includes("UPDATE users SET username"),
+		);
+		expect(update?.[1]?.[0]).toBeNull();
 	});
 });
 
