@@ -69,7 +69,9 @@ export const ensureUserExists = (
 	// same username can later be reused by a different account). Keep the old
 	// value as an alias so the id stays resolvable from either name.
 	if (existing.username !== storedUsername) {
-		if (existing.username) recordUsernameAlias(userId, existing.username);
+		if (existing.username && !isPlaceholderUsername(existing.username)) {
+			recordUsernameAlias(userId, existing.username);
+		}
 		execute("UPDATE users SET username = ?, updated_at = ? WHERE id = ?", [
 			storedUsername,
 			Math.floor(Date.now() / 1000),

@@ -284,7 +284,7 @@ export const initDb = (): void => {
       severity TEXT DEFAULT 'delete',
       violation_threshold INTEGER DEFAULT 5,
       auto_jail_duration INTEGER DEFAULT 2880,
-      auto_jail_fine REAL DEFAULT 10.0,
+      auto_jail_fine REAL DEFAULT 10000000, -- 10 JUNO in micro-units
       fine_amount REAL DEFAULT 0,
       custom_message TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -316,7 +316,7 @@ export const initDb = (): void => {
 	}
 	try {
 		db.exec(
-			`ALTER TABLE user_restrictions ADD COLUMN auto_jail_fine REAL DEFAULT 10.0`,
+			`ALTER TABLE user_restrictions ADD COLUMN auto_jail_fine REAL DEFAULT 10000000`, // 10 JUNO in micro-units
 		);
 	} catch (_e) {
 		// Column already exists, ignore

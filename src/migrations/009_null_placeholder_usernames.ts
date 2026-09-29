@@ -56,7 +56,11 @@ export function runMigration(db: SqliteDatabase): MigrationResult {
 				 WHERE username IS NOT NULL
 				   AND (
 				     lower(ltrim(trim(username), '@')) = 'unknown'
-				     OR lower(ltrim(trim(username), '@')) GLOB 'user_[0-9]*'
+				     OR (
+				       lower(ltrim(trim(username), '@')) LIKE 'user/_%' ESCAPE '/'
+				       AND length(ltrim(trim(username), '@')) > 5
+				       AND substr(lower(ltrim(trim(username), '@')), 6) NOT GLOB '*[^0-9]*'
+				     )
 				   )`,
 			)
 			.run(Math.floor(Date.now() / 1000));

@@ -112,6 +112,15 @@ describe("ensureUserExists placeholder usernames", () => {
 		);
 		expect(update?.[1]?.[0]).toBeNull();
 	});
+
+	it("never records a placeholder as a username alias", () => {
+		queryMock.mockReturnValue([{ id: 5, username: "unknown" }]);
+		ensureUserExists(5, "newname");
+		const aliased = executeMock.mock.calls.some((call) =>
+			String(call[0]).includes("user_aliases"),
+		);
+		expect(aliased).toBe(false);
+	});
 });
 
 describe("updateExistingUserUsername", () => {

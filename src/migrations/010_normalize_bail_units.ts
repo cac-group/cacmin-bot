@@ -1,16 +1,18 @@
 /**
  * Migration 010: Normalize bail/fine columns to integer micro-units.
  *
- * Migration 001 was meant to convert every JUNO amount to integer micro-units,
- * but the bail/fine columns were re-written afterwards in decimal JUNO (for
- * example `DEFAULT_JAIL_BAIL_AMOUNT = 69.42` and violation fines of 2.68-10.92),
- * leaving `jail_events.bail_amount` mixing both scales. Sums and comparisons
- * over those columns then combined units.
+ * Migration 001 converted every pre-existing JUNO amount to integer micro-units
+ * (marker `migration_001_integer_balances`, completed 2025-12-18), but the
+ * bail/fine writers kept storing decimal JUNO afterwards, leaving
+ * `jail_events.bail_amount` mixing both scales. Sums and comparisons over those
+ * columns then combined units.
  *
- * Canonical storage is integer micro-units (AmountPrecision), so any value in
- * (0, 1e6) is a decimal-JUNO amount and is scaled by 1e6. Values already
- * >= 1e6 are left untouched: they are assumed micro and are flagged for manual
- * review rather than guessed at.
+ * Canonical storage is integer micro-units (AmountPrecision). A value that was
+ * written *after* migration 001 is decimal JUNO and is scaled by 1e6; a value
+ * written before it is already micro and must not be touched. The cutoff comes
+ * from the migration 001 marker time, so a legitimate sub-1-JUNO micro amount
+ * (e.g. 500000) is never double-scaled. If the marker is absent (fresh DB with
+ * no rows) the cutoff is 0 and every `(0, 1e6)` value is considered JUNO.
  */
 
 import type { SqliteDatabase } from "../sqlite";
@@ -21,10 +23,14 @@ interface MigrationResult {
 	errors: string[];
 }
 
-const COLUMNS: Array<{ table: string; column: string }> = [
-	{ table: "violations", column: "bail_amount" },
-	{ table: "jail_events", column: "bail_amount" },
-	{ table: "user_restrictions", column: "auto_jail_fine" },
+const COLUMNS: Array<{ table: string; column: string; timeColumn: string }> = [
+	{ table: "violations", column: "bail_amount", timeColumn: "timestamp" },
+	{ table: "jail_events", column: "bail_amount", timeColumn: "timestamp" },
+	{
+		table: "user_restrictions",
+		column: "auto_jail_fine",
+		timeColumn: "created_at",
+	},
 ];
 
 /**
@@ -47,7 +53,7 @@ export function isMigrationApplied(db: SqliteDatabase): boolean {
 }
 
 /**
- * Scale decimal-JUNO bail/fine values up to integer micro-units.
+ * Scale decimal-JUNO bail/fine values written after migration 001 up to micro.
  *
  * @param db - The SQLite database
  * @returns The migration result
@@ -60,16 +66,34 @@ export function runMigration(db: SqliteDatabase): MigrationResult {
 	}
 
 	try {
+		const marker = db
+			.prepare(
+				"SELECT updated_at FROM system_state WHERE key = 'migration_001_integer_balances'",
+			)
+			.get() as { updated_at: number } | undefined;
+		const cutoff = marker?.updated_at ?? 0;
+		if (!marker) {
+			logger.warn(
+				"Migration 010: migration 001 marker missing; scaling every (0,1e6) value as JUNO",
+			);
+		}
+
 		db.exec("BEGIN TRANSACTION");
-		for (const { table, column } of COLUMNS) {
+		for (const { table, column, timeColumn } of COLUMNS) {
+			const scheduled = db
+				.prepare(
+					`SELECT COUNT(*) AS count FROM ${table}
+					 WHERE ${column} > 0 AND ${column} < 1000000 AND ${timeColumn} > ?`,
+				)
+				.get(cutoff) as { count: number };
 			const info = db
 				.prepare(
 					`UPDATE ${table} SET ${column} = ROUND(${column} * 1000000)
-					 WHERE ${column} > 0 AND ${column} < 1000000`,
+					 WHERE ${column} > 0 AND ${column} < 1000000 AND ${timeColumn} > ?`,
 				)
-				.run();
+				.run(cutoff);
 			logger.info(
-				`Migration 010: ${info.changes} ${table}.${column} value(s) scaled to micro-units`,
+				`Migration 010: ${info.changes}/${scheduled.count} ${table}.${column} value(s) scaled to micro (cutoff ${cutoff})`,
 			);
 		}
 		db.prepare(

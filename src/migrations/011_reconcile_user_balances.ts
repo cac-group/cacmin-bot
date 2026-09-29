@@ -10,7 +10,16 @@
  *
  * A `bail` transaction records the bailed user in `to_user_id` but does not
  * credit them, so its `to_user_id` side is excluded from credits.
+ *
+ * Only the three system accounts are reset to zero (BOT_TREASURY `-1`,
+ * SYSTEM_RESERVE `-2`, UNCLAIMED `-3`; see `unifiedWalletService`). Giveaway
+ * escrow (`-1000 - id`) and duel escrow (`-1000000 - id`) hold real user funds
+ * and must never be zeroed or recomputed by this migration.
  */
+
+// BOT_TREASURY / SYSTEM_RESERVE / UNCLAIMED, mirrored from
+// unifiedWalletService.SYSTEM_USER_IDS to avoid importing the runtime service.
+const SYSTEM_ACCOUNT_IDS = [-1, -2, -3];
 
 import type { SqliteDatabase } from "../sqlite";
 import { logger } from "../utils/logger";
@@ -69,7 +78,8 @@ export function runMigration(db: SqliteDatabase): MigrationResult {
 			.run(now);
 		const reset = db
 			.prepare(
-				"UPDATE user_balances SET balance = 0, last_updated = ? WHERE user_id < 0",
+				`UPDATE user_balances SET balance = 0, last_updated = ?
+				 WHERE user_id IN (${SYSTEM_ACCOUNT_IDS.join(", ")})`,
 			)
 			.run(now);
 		db.prepare(
