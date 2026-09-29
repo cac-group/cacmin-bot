@@ -222,12 +222,16 @@ Code changes (all tested; migrations apply on the next `cacmin-bot` deploy):
   `user_<id>` usernames. `userService` no longer writes sentinels.
 - **B — fixed.** Migration 010 scales decimal-JUNO `violations.bail_amount`,
   `jail_events.bail_amount`, and `user_restrictions.auto_jail_fine` up to integer
-  micro-units (`> 0 and < 1e6`); writers store `AmountPrecision.toDbMicro` and
-  readers convert back. Values `>= 1e6` are left untouched. JUNO is now stored as
-  integer micro-units everywhere, so it can never exceed 6 decimals.
+  micro-units, gated by the migration-001 completion time so only values written
+  *after* it (which are decimal JUNO) are scaled — a legitimate sub-1-JUNO micro
+  amount is never double-scaled. Writers store `AmountPrecision.toDbMicro` and
+  readers convert back. JUNO is now integer micro-units everywhere (≤6 decimals by
+  construction).
 - **F — fixed.** Migration 011 recomputes real users' `user_balances` from the
-  transaction ledger (excluding `bail`'s non-crediting `to_user_id`) and resets the
-  system accounts (`-1`, `-3`) to zero, per operator decision.
+  transaction ledger (excluding `bail`'s non-crediting `to_user_id`) and zeroes the
+  three system accounts `-1`/`-2`/`-3`. Giveaway (`-1000 - id`) and duel
+  (`-1000000 - id`) escrow accounts are explicitly left untouched, since they hold
+  real user funds.
 - **E — fixed.** The `aieng` sidecar failed cuDNN softmax at the full 2048-token
   window and rejected lone surrogates from UTF-16 truncation; capped text tokens at
   512 and added server-side surrogate stripping (`telegram-chat-explorer`), then
