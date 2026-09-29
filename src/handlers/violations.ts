@@ -11,6 +11,7 @@ import { bold, code, fmt } from "telegraf/format";
 import { query } from "../database";
 import type { Violation } from "../types";
 import { StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 
 /**
  * Registers all violation management command handlers with the bot.
@@ -54,7 +55,10 @@ export const registerViolationHandlers = (bot: Telegraf<Context>) => {
 				 paid_by_user_id AS paidByUserId, paid_at AS paidAt
 				 FROM violations WHERE user_id = ?`,
 				[userId],
-			);
+			).map((row) => ({
+				...row,
+				bailAmount: AmountPrecision.fromDbMicro(row.bailAmount),
+			}));
 
 			if (violations.length === 0) {
 				return ctx.reply("You have no violations!");

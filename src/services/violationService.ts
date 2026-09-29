@@ -3,6 +3,7 @@
 import { execute, get, query } from "../database";
 import type { Violation } from "../types";
 import { StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 import { PriceService } from "./priceService";
 
 /**
@@ -20,7 +21,7 @@ export async function createViolation(
 	const result = execute(
 		`INSERT INTO violations (user_id, restriction, message, bail_amount)
      VALUES (?, ?, ?, ?)`,
-		[userId, restriction, message, fineAmount],
+		[userId, restriction, message, AmountPrecision.toDbMicro(fineAmount)],
 	);
 
 	// Update user warning count
@@ -37,12 +38,18 @@ const VIOLATION_SELECT = `SELECT id, user_id AS userId, rule_id AS ruleId, restr
 	message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
 	paid_by_user_id AS paidByUserId, paid_at AS paidAt FROM violations`;
 
+/** DB rows store bail_amount as integer micro-units; expose JUNO to callers. */
+const toJunoViolation = (row: Violation): Violation => ({
+	...row,
+	bailAmount: AmountPrecision.fromDbMicro(row.bailAmount),
+});
+
 /** Get only unpaid violations for user (for calculating outstanding fines) */
 export function getUnpaidViolations(userId: number): Violation[] {
 	return query<Violation>(
 		`${VIOLATION_SELECT} WHERE user_id = ? AND paid = 0`,
 		[userId],
-	);
+	).map(toJunoViolation);
 }
 
 /**
@@ -73,5 +80,5 @@ export function getTotalFines(userId: number): number {
 		"SELECT SUM(bail_amount) as total FROM violations WHERE user_id = ? AND paid = 0",
 		[userId],
 	);
-	return result?.total || 0;
+	return AmountPrecision.fromDbMicro(result?.total || 0);
 }

@@ -16,6 +16,9 @@ that has no home beside the code.
   the remaining display-name-keyed surfaces.
 - `interactive-menus.md` — the one-message rule, callback answering, entry
   points, permission model, and removed dead menu code.
+- `database-audit-2026-09-28.md` — read-only prod DB audit plus a verification
+  pass: confirmed findings, corrections, mixed-unit `bail_amount` columns,
+  indexer reaction FK orphans, and legacy tables.
 
 ## Logs
 

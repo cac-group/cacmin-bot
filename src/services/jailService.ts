@@ -17,11 +17,18 @@ import { config } from "../config";
 import { execute, query, transaction } from "../database";
 import type { JailEvent, User } from "../types";
 import { StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
 import { PriceService } from "./priceService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
 export const DEFAULT_JAIL_BAIL_AMOUNT = 69.42;
+
+/** `jail_events.bail_amount` is stored as integer micro-units; expose JUNO. */
+const toJunoJailEvent = (event: JailEvent): JailEvent => ({
+	...event,
+	bailAmount: AmountPrecision.fromDbMicro(event.bailAmount),
+});
 
 export interface JailUserRequest {
 	userId: number;
@@ -119,7 +126,7 @@ export class JailService {
 				eventType,
 				adminId || null,
 				durationMinutes || null,
-				bailAmount,
+				AmountPrecision.toDbMicro(bailAmount),
 				paidByUserId || null,
 				paymentTx || null,
 				metadata ? JSON.stringify(metadata) : null,
@@ -184,7 +191,7 @@ export class JailService {
 			ORDER BY timestamp DESC
 			LIMIT ?`,
 			[userId, limit],
-		);
+		).map(toJunoJailEvent);
 	}
 
 	/**
@@ -201,7 +208,9 @@ export class JailService {
 			 ORDER BY timestamp DESC, id DESC LIMIT 1`,
 			[userId],
 		)[0];
-		return event ? event.bailAmount : DEFAULT_JAIL_BAIL_AMOUNT;
+		return event
+			? AmountPrecision.fromDbMicro(event.bailAmount)
+			: DEFAULT_JAIL_BAIL_AMOUNT;
 	}
 
 	/**
@@ -282,7 +291,7 @@ export class JailService {
 			ORDER BY timestamp DESC
 			LIMIT ?`,
 			[limit],
-		);
+		).map(toJunoJailEvent);
 	}
 
 	/**

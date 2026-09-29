@@ -6,6 +6,7 @@ import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
 import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 import {
 	getRandomDeleteProbability,
 	RANDOM_DELETE_MIN_UNIQUE_WORDS,
@@ -113,7 +114,10 @@ export class RestrictionService {
 			 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
 			 FROM user_restrictions WHERE user_id = ? AND (restricted_until IS NULL OR restricted_until > ?)`,
 			[userId, now],
-		);
+		).map((row) => ({
+			...row,
+			autoJailFine: AmountPrecision.fromDbMicro(row.autoJailFine),
+		}));
 
 		// Get global restrictions - only apply if user is NOT elevated
 		let globalRestrictions: GlobalAction[] = [];

@@ -3,6 +3,7 @@
 import { execute, query } from "../database";
 import type { User, UserRestriction } from "../types";
 import { StructuredLogger } from "../utils/logger";
+import { AmountPrecision } from "../utils/precision";
 
 /**
  * Create new user with all required fields
@@ -11,7 +12,7 @@ import { StructuredLogger } from "../utils/logger";
  */
 export const createUser = (
 	userId: number,
-	username: string,
+	username: string | null | undefined,
 	role: string = "pleb",
 	source: string = "unknown",
 ): User | null => {
@@ -23,15 +24,16 @@ export const createUser = (
 		return null; // User already exists
 	}
 
+	const storedUsername = normalizeUsernameForStorage(username);
 	const now = Math.floor(Date.now() / 1000);
 	execute(
 		"INSERT INTO users (id, username, role, whitelist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-		[userId, username, role, 0, now, now],
+		[userId, storedUsername, role, 0, now, now],
 	);
 
 	StructuredLogger.logUserAction("User created", {
 		userId,
-		username,
+		username: storedUsername ?? undefined,
 		role,
 		operation: "user_created",
 		source,
@@ -48,24 +50,30 @@ export const createUser = (
  * - User doesn't exist: Creates with default role 'pleb'
  * - User exists: Updates username (Telegram usernames are mutable)
  */
-export const ensureUserExists = (userId: number, username: string): void => {
+export const ensureUserExists = (
+	userId: number,
+	username: string | null | undefined,
+): void => {
+	const storedUsername = normalizeUsernameForStorage(username);
 	const existing = query<{ id: number; username: string | null }>(
 		"SELECT id, username FROM users WHERE id = ?",
 		[userId],
 	)[0];
 
 	if (!existing) {
-		createUser(userId, username, "pleb", "ensure_exists");
+		createUser(userId, storedUsername, "pleb", "ensure_exists");
 		return;
 	}
 
 	// Update username if it changed (Telegram allows username changes and the
 	// same username can later be reused by a different account). Keep the old
 	// value as an alias so the id stays resolvable from either name.
-	if (existing.username !== username) {
-		if (existing.username) recordUsernameAlias(userId, existing.username);
+	if (existing.username !== storedUsername) {
+		if (existing.username && !isPlaceholderUsername(existing.username)) {
+			recordUsernameAlias(userId, existing.username);
+		}
 		execute("UPDATE users SET username = ?, updated_at = ? WHERE id = ?", [
-			username,
+			storedUsername,
 			Math.floor(Date.now() / 1000),
 			userId,
 		]);
@@ -90,6 +98,21 @@ const PLACEHOLDER_USERNAME = /^(unknown|user_\d+)$/;
 
 export const isPlaceholderUsername = (username: string): boolean =>
 	PLACEHOLDER_USERNAME.test(username.replace(/^@/, "").trim().toLowerCase());
+
+/**
+ * Normalize a username for storage: strip a leading @, and return null for
+ * missing or generated placeholder values (`unknown`, `user_<id>`). Telegram
+ * usernames are optional and mutable; identity is always the user id, so an
+ * absent handle is stored as NULL rather than a sentinel.
+ */
+export const normalizeUsernameForStorage = (
+	username: string | null | undefined,
+): string | null => {
+	if (username === null || username === undefined) return null;
+	const trimmed = username.replace(/^@/, "").trim();
+	if (!trimmed || isPlaceholderUsername(trimmed)) return null;
+	return trimmed;
+};
 
 /** Record a username a user id has been seen with, for id-stable lookups. */
 export const recordUsernameAlias = (userId: number, username: string): void => {
@@ -238,7 +261,7 @@ export const addUserRestriction = (
 			severity,
 			violationThreshold,
 			autoJailDuration,
-			autoJailFine,
+			AmountPrecision.toDbMicro(autoJailFine),
 		],
 	);
 
@@ -298,5 +321,8 @@ export const getUserRestrictions = (userId: number): UserRestriction[] => {
 		 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
 		 FROM user_restrictions WHERE user_id = ?`,
 		[userId],
-	);
+	).map((row) => ({
+		...row,
+		autoJailFine: AmountPrecision.fromDbMicro(row.autoJailFine),
+	}));
 };
