@@ -22,7 +22,7 @@ import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
 import { PriceService } from "./priceService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
-export const DEFAULT_JAIL_BAIL_AMOUNT = 69.42;
+export const DEFAULT_JAIL_BAIL_AMOUNT = config.defaultJailBailAmount;
 
 /** `jail_events.bail_amount` is stored as integer micro-units; expose JUNO. */
 const toJunoJailEvent = (event: JailEvent): JailEvent => ({

@@ -5,7 +5,11 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
  * Tests essential user-facing wallet operations
  */
 
-import { createPlebContext, getReplyText, getAllReplies } from "../helpers/mockContext";
+import {
+	createPlebContext,
+	getReplyText,
+	getAllReplies,
+} from "../helpers/mockContext";
 
 vi.mock("../../src/database", () => ({
 	query: vi.fn(() => []),
@@ -23,6 +27,7 @@ vi.mock("../../src/config", () => ({
 		userFundsAddress: "juno1testuserfundsaddress",
 		adminChatId: "123456789",
 		ownerIds: [111111111],
+		timing: { dedupeWindowMs: 120000 },
 	},
 }));
 
@@ -78,7 +83,8 @@ describe("Wallet Commands", () => {
 	it("should handle withdraw command validation and processing", async () => {
 		// Valid withdrawal
 		let ctx = createPlebContext({
-			messageText: "/withdraw 10 juno1validaddress123456789012345678901234567890",
+			messageText:
+				"/withdraw 10 juno1validaddress123456789012345678901234567890",
 		});
 		(UnifiedWalletService.getBalance as any).mockResolvedValue(100);
 		(UnifiedWalletService.processWithdrawal as any).mockResolvedValue({

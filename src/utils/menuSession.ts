@@ -9,6 +9,7 @@
 import type { Context } from "telegraf";
 import type { FmtString } from "telegraf/format";
 import type { InlineKeyboardMarkup } from "telegraf/types";
+import { config } from "../config";
 
 export interface MenuSession {
 	userId: number;
@@ -61,8 +62,8 @@ export async function editMenu(
 	await ctx.reply(text);
 }
 
-// Menu expiry time in milliseconds (30 seconds)
-const MENU_EXPIRY_MS = 30 * 1000;
+// Menu expiry time in milliseconds
+const MENU_EXPIRY_MS = config.timing.menuExpiryMs;
 
 // Active menu sessions by chat
 // Key: `${chatId}_${menuType}` to prevent duplicate menus of same type per chat
@@ -216,5 +217,5 @@ export function cleanupExpiredSessions(): void {
 	}
 }
 
-// Run cleanup every minute
-setInterval(cleanupExpiredSessions, 60 * 1000);
+// Run cleanup periodically
+setInterval(cleanupExpiredSessions, config.timing.menuCleanupIntervalMs);

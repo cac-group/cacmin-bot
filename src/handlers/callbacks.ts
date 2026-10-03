@@ -8,6 +8,7 @@
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, type FmtString, fmt } from "telegraf/format";
 import type { CallbackQuery, InlineKeyboardMarkup } from "telegraf/types";
+import { config } from "../config";
 import { execute, get } from "../database";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { LedgerService } from "../services/ledgerService";
@@ -76,8 +77,8 @@ export interface SessionData {
 
 const sessions = new Map<number, SessionData>();
 
-// Session timeout: 5 minutes
-const SESSION_TIMEOUT = 5 * 60 * 1000;
+// Session timeout
+const SESSION_TIMEOUT = config.timing.sessionTimeoutMs;
 
 /**
  * Get or create a session for a user

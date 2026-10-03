@@ -43,6 +43,16 @@ character windows (`RateLimitService.admitMessage`). On violation:
 3. One warning is posted; subsequent violations for the same user reuse the
    same warning slot instead of piling up messages.
 
+`muteUser` receives the `Telegram` client (`ctx.telegram`), not a Telegraf bot,
+and applies the explicit `CHAT_MUTE_PERMISSIONS` deny set. It stores the
+member's prior permissions (or `CHAT_RESTORE_PERMISSIONS` when the member has
+none) in `permission_snapshot`, which `cleanExpiredMutes` and
+`releaseMuteIfAllowed` merge back over `CHAT_RESTORE_PERMISSIONS`. Both restore
+paths skip the Telegram restore while a separate jail is still active. Because Telegram treats an `until_date` under 30
+seconds away as a permanent restriction, the mute date is clamped to at least
+now + 31s. A failed mute must not abort the warning: the call is wrapped in
+`try/catch` and logged.
+
 ## Response deduplication contract
 
 `src/utils/autoDelete.ts` tracks bot responses per `chat:user:eventKey` for a

@@ -16,15 +16,11 @@ import {
 	getTotalFines,
 	getUnpaidViolations,
 	markViolationPaid,
+	VIOLATION_SELECT,
 } from "../services/violationService";
 import type { User, Violation } from "../types";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-
-/** SQL fragment for mapping violation columns to camelCase */
-const VIOLATION_SELECT = `SELECT id, user_id AS userId, rule_id AS ruleId, restriction,
-	message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
-	paid_by_user_id AS paidByUserId, paid_at AS paidAt FROM violations`;
 
 /** bail_amount is stored as integer micro-units; expose JUNO to callers. */
 const toJunoViolation = (

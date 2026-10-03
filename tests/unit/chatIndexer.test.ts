@@ -14,6 +14,11 @@ vi.mock("../../src/config", () => ({
 		indexerEmbeddingsEnabled: false,
 		indexerEmbedTriggerFile: "",
 		indexerEmbedTriggerBatchSize: 2,
+		indexerEmbedConcurrency: 5,
+		indexerThreadWindow: 2,
+		indexerLocalWindow: 5,
+		indexerMaxContextChars: 2000,
+		indexerEmbedTriggerMinTextLength: 20,
 		ollamaUrl: "http://localhost:11434",
 		embedModel: "nomic-embed-text",
 		visionModel: "qwen3-vl:2b",
@@ -651,7 +656,7 @@ describe("ChatIndexerService", () => {
 			.prepare(
 				"UPDATE authors SET top_words = ?, top_words_refreshed_at = ? WHERE name = 'Editor'",
 			)
-			.run('["preserved"]', '2026-01-01T00:00:00.000Z');
+			.run('["preserved"]', "2026-01-01T00:00:00.000Z");
 		setupDb
 			.prepare(
 				"INSERT INTO image_descriptions (message_id, description) VALUES (900, 'old')",

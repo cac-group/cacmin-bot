@@ -53,8 +53,7 @@ interface ParsedTransaction {
  * Handles the actual format returned by the blockchain
  */
 export class RPCTransactionVerification {
-	private static readonly RPC_ENDPOINT =
-		config.junoRpcUrl || "https://rpc.juno.basementnodes.ca";
+	private static readonly RPC_ENDPOINT = config.junoRpcUrl;
 
 	/**
 	 * Fetch and verify a transaction using RPC endpoint

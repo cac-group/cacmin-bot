@@ -220,12 +220,9 @@ async function main() {
 
 		// Periodic cleanup of expired restrictions (every hour)
 		intervals.push(
-			setInterval(
-				() => {
-					RestrictionService.cleanExpiredRestrictions();
-				},
-				60 * 60 * 1000,
-			),
+			setInterval(() => {
+				RestrictionService.cleanExpiredRestrictions();
+			}, config.intervals.restrictionCleanupMs),
 		);
 
 		intervals.push(
@@ -233,93 +230,78 @@ async function main() {
 				RateLimitService.cleanExpiredMutes(bot, config.groupChatId).catch(
 					(error) => logger.error("Error cleaning rate-limit mutes", { error }),
 				);
-			}, 60 * 1000),
+			}, config.intervals.rateLimitMuteCleanupMs),
 		);
 
 		// Gradually fill missing usernames/profiles for known group members.
 		// Idles once a full pass completes; reset with /crawlidentities reset.
 		intervals.push(
-			setInterval(
-				() => {
-					IdentityCrawlService.runBatch(bot, 200).catch((error) =>
-						logger.error("Identity crawl batch failed", { error }),
-					);
-				},
-				5 * 60 * 1000,
-			),
+			setInterval(() => {
+				IdentityCrawlService.runBatch(bot, 200).catch((error) =>
+					logger.error("Identity crawl batch failed", { error }),
+				);
+			}, config.intervals.identityCrawlMs),
 		);
 
 		// Periodic cleanup of expired jails (every 5 minutes)
 		intervals.push(
-			setInterval(
-				() => {
-					JailService.cleanExpiredJails();
-				},
-				5 * 60 * 1000,
-			),
+			setInterval(() => {
+				JailService.cleanExpiredJails();
+			}, config.intervals.jailCleanupMs),
 		);
 
 		// Periodic cleanup of expired transaction locks (every minute)
 		intervals.push(
 			setInterval(async () => {
 				await TransactionLockService.cleanExpiredLocks();
-			}, 60 * 1000),
+			}, config.intervals.transactionLockCleanupMs),
 		);
 
 		// Periodic cleanup of expired duels (every minute)
 		intervals.push(
 			setInterval(async () => {
 				await DuelService.cleanExpiredDuels();
-			}, 60 * 1000),
+			}, config.intervals.duelCleanupMs),
 		);
 
 		// Periodic balance reconciliation check (every hour)
 		intervals.push(
-			setInterval(
-				async () => {
-					try {
-						const result = await LedgerService.reconcileAndAlert();
-						if (!result.matched) {
-							logger.warn("Balance reconciliation mismatch detected", result);
-						}
-					} catch (error) {
-						logger.error("Error during periodic reconciliation", { error });
+			setInterval(async () => {
+				try {
+					const result = await LedgerService.reconcileAndAlert();
+					if (!result.matched) {
+						logger.warn("Balance reconciliation mismatch detected", result);
 					}
-				},
-				60 * 60 * 1000,
-			),
+				} catch (error) {
+					logger.error("Error during periodic reconciliation", { error });
+				}
+			}, config.intervals.reconciliationMs),
 		);
 
 		// Periodic JUNO price update (every 15 minutes)
 		intervals.push(
-			setInterval(
-				async () => {
-					try {
-						await PriceService.updatePriceHistory();
-					} catch (error) {
-						logger.error("Error updating price history", { error });
-					}
-				},
-				15 * 60 * 1000,
-			),
+			setInterval(async () => {
+				try {
+					await PriceService.updatePriceHistory();
+				} catch (error) {
+					logger.error("Error updating price history", { error });
+				}
+			}, config.intervals.priceUpdateMs),
 		);
 
 		// Periodic server seed rotation for provable fairness (every hour)
 		intervals.push(
-			setInterval(
-				() => {
-					try {
-						const { oldHash, newHash } = rotateServerSeed();
-						logger.info("Roll server seed rotated", {
-							previousCommitment: oldHash.substring(0, 16),
-							newCommitment: newHash.substring(0, 16),
-						});
-					} catch (error) {
-						logger.error("Error rotating server seed", { error });
-					}
-				},
-				60 * 60 * 1000,
-			),
+			setInterval(() => {
+				try {
+					const { oldHash, newHash } = rotateServerSeed();
+					logger.info("Roll server seed rotated", {
+						previousCommitment: oldHash.substring(0, 16),
+						newCommitment: newHash.substring(0, 16),
+					});
+				} catch (error) {
+					logger.error("Error rotating server seed", { error });
+				}
+			}, config.intervals.seedRotationMs),
 		);
 
 		// Initial price fetch on startup

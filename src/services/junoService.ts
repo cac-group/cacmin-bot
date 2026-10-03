@@ -5,8 +5,7 @@ import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
 export class JunoService {
-	private static apiEndpoint =
-		config.junoApiUrl || "https://api.juno.basementnodes.ca";
+	private static apiEndpoint = config.junoApiUrl;
 
 	/** Verify a successful exact-microJUNO transfer to the configured treasury. */
 	static async verifyPayment(
@@ -21,8 +20,7 @@ export class JunoService {
 			});
 
 			// Query using the REST API endpoint
-			const apiEndpoint =
-				config.junoApiUrl || "https://api.juno.basementnodes.ca";
+			const apiEndpoint = config.junoApiUrl;
 			const response = await fetch(
 				`${apiEndpoint}/cosmos/tx/v1beta1/txs/${txHash}`,
 			);

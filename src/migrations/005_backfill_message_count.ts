@@ -24,7 +24,7 @@ import { config } from "../config";
 import { Database, type SqliteDatabase } from "../sqlite";
 import { logger } from "../utils/logger";
 
-/** Matches NEW_USER_MESSAGE_LIMIT in handlers/reactionSpam.ts */
+/** Historical threshold; see config.reactionSpam.newUserMessageLimit. */
 const NEW_USER_MESSAGE_LIMIT = 5;
 
 interface MigrationResult {

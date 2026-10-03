@@ -47,7 +47,7 @@ interface IdentityMatch {
 	matchedValue: string;
 }
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = config.timing.patternCacheTtlMs;
 
 const BUILTIN_IDENTITY_PATTERNS: CompiledIdentityBlock[] = [
 	{

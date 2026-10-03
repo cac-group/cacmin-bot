@@ -53,15 +53,15 @@ interface LatestMessageSummary {
 }
 
 /** Concurrency limit for Ollama embedding requests */
-const EMBED_CONCURRENCY = 5;
+const EMBED_CONCURRENCY = config.indexerEmbedConcurrency;
 /** Number of reply-chain messages to include as context on each side */
-const THREAD_WINDOW = 2;
+const THREAD_WINDOW = config.indexerThreadWindow;
 /** Number of temporal neighbor messages to include as fallback context */
-const LOCAL_WINDOW = 5;
+const LOCAL_WINDOW = config.indexerLocalWindow;
 /** Max characters for contextual embedding text */
-const MAX_CONTEXT_CHARS = 2000;
+const MAX_CONTEXT_CHARS = config.indexerMaxContextChars;
 /** Minimum message/caption length that the explorer embedding worker will process */
-const EMBED_TRIGGER_MIN_TEXT_LENGTH = 20;
+const EMBED_TRIGGER_MIN_TEXT_LENGTH = config.indexerEmbedTriggerMinTextLength;
 
 /**
  * Service that indexes group chat messages into the telegram-chat-explorer database.

@@ -36,6 +36,7 @@ vi.mock("../../src/config", () => ({
 		userFundsAddress: "juno1testuserfundsaddress000000000000000",
 		junoRpcUrl: "https://rpc.example.com",
 		junoApiUrl: "https://api.example.com",
+		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
 	},
 }));
 
@@ -110,9 +111,9 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 		(LedgerService.getUserBalance as any).mockResolvedValue(4.99025);
 
 		(UnifiedWalletService as any).wallet = {
-			getAccounts: vi.fn().mockResolvedValue([
-				{ address: `juno1${"s".repeat(38)}` },
-			]),
+			getAccounts: vi
+				.fn()
+				.mockResolvedValue([{ address: `juno1${"s".repeat(38)}` }]),
 		};
 		(UnifiedWalletService as any).rpcEndpoint = "https://rpc.example.com";
 	});
@@ -124,7 +125,11 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 
 		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(totalMicro);
 
-		const result = await UnifiedWalletService.processWithdrawal(12345, recipientAddress, 10);
+		const result = await UnifiedWalletService.processWithdrawal(
+			12345,
+			recipientAddress,
+			10,
+		);
 
 		expect(result.success).toBe(true);
 		expect(LedgerService.processWithdrawal).toHaveBeenCalledWith(
@@ -151,12 +156,19 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 
 	it("requires enough balance to cover the withdrawal amount plus the network fee", async () => {
 		const fee = getWithdrawalNetworkFee();
-		const insufficientMicro = 10_000_000 + Math.round((fee - 0.000001) * 1_000_000);
+		const insufficientMicro =
+			10_000_000 + Math.round((fee - 0.000001) * 1_000_000);
 		const recipientAddress = `juno1${"r".repeat(38)}`;
 
-		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(insufficientMicro);
+		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(
+			insufficientMicro,
+		);
 
-		const result = await UnifiedWalletService.processWithdrawal(12345, recipientAddress, 10);
+		const result = await UnifiedWalletService.processWithdrawal(
+			12345,
+			recipientAddress,
+			10,
+		);
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("network fee");

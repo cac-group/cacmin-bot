@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getMock, executeMock, listMock, recordProfileMock, updateUsernameMock } =
-	vi.hoisted(() => ({
-		getMock: vi.fn(),
-		executeMock: vi.fn(),
-		listMock: vi.fn(),
-		recordProfileMock: vi.fn(),
-		updateUsernameMock: vi.fn(),
-	}));
+const {
+	getMock,
+	executeMock,
+	listMock,
+	recordProfileMock,
+	updateUsernameMock,
+} = vi.hoisted(() => ({
+	getMock: vi.fn(),
+	executeMock: vi.fn(),
+	listMock: vi.fn(),
+	recordProfileMock: vi.fn(),
+	updateUsernameMock: vi.fn(),
+}));
 
 vi.mock("../../src/database", () => ({
 	get: getMock,
@@ -15,7 +20,11 @@ vi.mock("../../src/database", () => ({
 }));
 
 vi.mock("../../src/config", () => ({
-	config: { groupChatId: -100123456789 },
+	config: {
+		groupChatId: -100123456789,
+		identityCrawlThrottleMs: 60,
+		identityCrawlMaxRetries: 3,
+	},
 }));
 
 vi.mock("../../src/services/chatInteractionIndexerService", () => ({
@@ -62,7 +71,10 @@ describe("IdentityCrawlService rate limiting", () => {
 				user: { id: 111, username: "alice", first_name: "A" },
 			});
 
-		const result = await IdentityCrawlService.runBatch(fakeBot(getChatMember), 10);
+		const result = await IdentityCrawlService.runBatch(
+			fakeBot(getChatMember),
+			10,
+		);
 
 		expect(getChatMember).toHaveBeenCalledTimes(2);
 		expect(result.filled).toBe(1);
@@ -76,7 +88,10 @@ describe("IdentityCrawlService rate limiting", () => {
 			.fn()
 			.mockRejectedValue({ code: 429, parameters: { retry_after: 0 } });
 
-		const result = await IdentityCrawlService.runBatch(fakeBot(getChatMember), 10);
+		const result = await IdentityCrawlService.runBatch(
+			fakeBot(getChatMember),
+			10,
+		);
 
 		expect(result.error).toMatch(/rate limited/i);
 		expect(result.filled).toBe(0);
@@ -91,7 +106,10 @@ describe("IdentityCrawlService rate limiting", () => {
 			.fn()
 			.mockRejectedValue({ code: 400, description: "user not found" });
 
-		const result = await IdentityCrawlService.runBatch(fakeBot(getChatMember), 10);
+		const result = await IdentityCrawlService.runBatch(
+			fakeBot(getChatMember),
+			10,
+		);
 
 		expect(getChatMember).toHaveBeenCalledTimes(1);
 		expect(result.unavailable).toBe(1);

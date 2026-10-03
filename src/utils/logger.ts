@@ -21,6 +21,12 @@ if (!fs.existsSync(logDir)) {
 	fs.mkdirSync(logDir, { recursive: true });
 }
 
+/** Serialize Error values inside metadata instead of collapsing them to `{}`. */
+const errorReplacer = (_key: string, value: unknown): unknown =>
+	value instanceof Error
+		? { message: value.message, stack: value.stack }
+		: value;
+
 /**
  * Custom format for log entries.
  * Combines timestamp, error stack traces, and metadata into a readable format.
@@ -37,7 +43,7 @@ const logFormat = winston.format.combine(
 			if (Object.keys(meta).length > 0 && meta.stack) {
 				msg += `\n${meta.stack}`;
 			} else if (Object.keys(meta).length > 0) {
-				msg += ` ${JSON.stringify(meta)}`;
+				msg += ` ${JSON.stringify(meta, errorReplacer)}`;
 			}
 			return msg;
 		},

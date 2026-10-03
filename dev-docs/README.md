@@ -5,6 +5,9 @@ that has no home beside the code.
 
 ## Documents
 
+- `configuration.md` — `src/config.ts` is the single source of truth for
+  tunable values; group map, the "no local tuning constants" rule, and mock
+  gotchas.
 - `message-filtering.md` — how the group message filter enforces flood/rate
   limits and restrictions, and how bot responses are deduplicated under
   concurrent updates.
@@ -24,3 +27,7 @@ that has no home beside the code.
 
 - `logs/2026-09-10.md` — ongoing work log, newest entry last.
 - `logs/2026-09-12.md` — reaction spam tightening + flood limiter.
+- `logs/2026-09-28.md` — database audit and verification pass.
+- `logs/2026-10-02.md` — centralize tunable constants into `config.ts`.
+- `logs/2026-10-03.md` — fix rate-limit muting (`ctx.telegram` vs `bot.telegram`)
+  and error-metadata logging.

@@ -7,6 +7,7 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
+import { config } from "../config";
 import { adminOrHigher } from "../middleware";
 import { logger } from "../utils/logger";
 
@@ -18,8 +19,7 @@ import { logger } from "../utils/logger";
 const STICKER_PACK = {
 	// CACGifs pack stickers
 	cacgifs: {
-		first:
-			"CAACAgIAAxkBAAICIGkIxVYID2ee6Z3t3fzMKGyrzCLlAAJmNgACfvIoSL_cdmEGklS0NgQ", // satellite sticker
+		first: config.botIdentity.cacgifsFirstStickerId, // satellite sticker
 	},
 };
 
@@ -159,9 +159,10 @@ ${code(`/addaction no_specific_gif ${fileUniqueId}`)} (global)`,
 			const stickerSetName = sticker.set_name;
 			const emoji = sticker.emoji;
 
-			// Log sticker info for CACGifs pack specifically
-			if (stickerSetName === "CACGifs") {
-				logger.info("CACGifs sticker received", {
+			// Log sticker info for the configured sticker pack specifically
+			if (stickerSetName === config.botIdentity.stickerPackName) {
+				logger.info("Sticker pack sticker received", {
+					stickerSetName,
 					fileId,
 					emoji,
 					userId: ctx.from?.id,
@@ -171,7 +172,7 @@ ${code(`/addaction no_specific_gif ${fileUniqueId}`)} (global)`,
 				// Optionally notify in DM
 				if (ctx.chat.type === "private") {
 					await ctx.reply(
-						fmt`CACGifs sticker logged!
+						fmt`${config.botIdentity.stickerPackName} sticker logged!
 
 File ID: ${code(fileId)}
 Emoji: ${emoji || "N/A"}`,
@@ -196,7 +197,7 @@ Emoji: ${emoji || "N/A"}`,
 			if (!STICKER_PACK.cacgifs.first) {
 				return ctx.reply(
 					"Sticker not configured yet\\!\n\n" +
-						"Please send me the first sticker from https://t\\.me/addstickers/CACGifs\n" +
+						`Please send me the first sticker from https://t\\.me/addstickers/${config.botIdentity.stickerPackName}\n` +
 						"in a DM, and I will save it for this command\\.",
 				);
 			}

@@ -8,6 +8,7 @@
 import { createHash, randomBytes } from "crypto";
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
+import { config } from "../config";
 import { execute, get } from "../database";
 import { LedgerService, TransactionType } from "../services/ledgerService";
 import { TransactionLockService } from "../services/transactionLock";
@@ -17,11 +18,11 @@ import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 
 // Minimum and maximum bets
-export const MIN_BET = 0.1;
-export const MAX_BET = 100;
+export const MIN_BET = config.gambling.minBet;
+export const MAX_BET = config.gambling.maxBet;
 
 // Payout multiplier (9x profit = 10x total return for 10% win chance = fair game)
-export const WIN_MULTIPLIER = 9;
+export const WIN_MULTIPLIER = config.gambling.winMultiplier;
 
 // System state keys for database persistence
 const STATE_HASH_CHAIN = "roll_hash_chain";

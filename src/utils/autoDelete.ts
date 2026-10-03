@@ -5,9 +5,10 @@
  */
 
 import type { Context, Telegram } from "telegraf";
+import { config } from "../config";
 
 /** Responses with the same event key are considered duplicates for this period. */
-const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
+const DEDUPE_WINDOW_MS = config.timing.dedupeWindowMs;
 
 interface TrackedResponse {
 	chatId: number;

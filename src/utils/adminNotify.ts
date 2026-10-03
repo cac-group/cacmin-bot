@@ -4,6 +4,7 @@
  */
 
 import type { Context } from "telegraf";
+import { config } from "../config";
 import { logger } from "./logger";
 
 /**
@@ -25,8 +26,7 @@ export async function sendUserError(
 		return;
 	}
 
-	const dmLink =
-		'<a href="https://t.me/banbabybot">Check DM for full error details</a>';
+	const dmLink = `<a href="https://t.me/${config.botIdentity.supportUsername}">Check DM for full error details</a>`;
 
 	try {
 		await ctx.telegram.sendMessage(

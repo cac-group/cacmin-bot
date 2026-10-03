@@ -31,9 +31,11 @@ export function getDuelEscrowId(duelId: number): number {
 	return SYSTEM_USER_IDS.DUEL_ESCROW_BASE - duelId;
 }
 
-const WITHDRAWAL_GAS_PRICE = "0.075ujuno";
-const WITHDRAWAL_GAS_LIMIT = 130000;
-const WITHDRAWAL_FEE_UJUNO = Math.ceil(WITHDRAWAL_GAS_LIMIT * 0.075);
+const WITHDRAWAL_GAS_PRICE = config.chain.withdrawalGasPrice;
+const WITHDRAWAL_GAS_LIMIT = config.chain.withdrawalGasLimit;
+const WITHDRAWAL_FEE_UJUNO = Math.ceil(
+	WITHDRAWAL_GAS_LIMIT * Number.parseFloat(WITHDRAWAL_GAS_PRICE),
+);
 const WITHDRAWAL_NETWORK_FEE =
 	AmountPrecision.fromDbMicro(WITHDRAWAL_FEE_UJUNO);
 
@@ -72,10 +74,8 @@ export class UnifiedWalletService {
 	 * Initialize the unified wallet service
 	 */
 	static async initialize(): Promise<void> {
-		UnifiedWalletService.rpcEndpoint =
-			config.junoRpcUrl || "https://rpc.juno.basementnodes.ca";
-		UnifiedWalletService.apiEndpoint =
-			config.junoApiUrl || "https://api.juno.basementnodes.ca";
+		UnifiedWalletService.rpcEndpoint = config.junoRpcUrl;
+		UnifiedWalletService.apiEndpoint = config.junoApiUrl;
 
 		// Get wallet address from config (single wallet for all users)
 		UnifiedWalletService.walletAddress = config.userFundsAddress || "";

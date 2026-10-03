@@ -84,7 +84,7 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 	bot.command("bailhelp", async (ctx) => {
 		if (ctx.chat?.type !== "private") {
 			await ctx.reply(
-				"Please DM me and send /bailhelp for complete bail payment details: https://t.me/banbabybot",
+				`Please DM me and send /bailhelp for complete bail payment details: https://t.me/${config.botIdentity.supportUsername}`,
 			);
 			return;
 		}

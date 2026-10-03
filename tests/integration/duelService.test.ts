@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { Database } from "../../src/sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
@@ -6,7 +14,10 @@ import { DuelService } from "../../src/services/duelService";
 import { LedgerService } from "../../src/services/ledgerService";
 import { getDuelEscrowId } from "../../src/services/unifiedWalletService";
 
-const INTEGRATION_DB_PATH = join(__dirname, "../test-data/integration-duels.db");
+const INTEGRATION_DB_PATH = join(
+	__dirname,
+	"../test-data/integration-duels.db",
+);
 let db: Database;
 
 const dbHelpers = {
@@ -123,17 +134,23 @@ function createTestUsers(): void {
 		{ id: 1001, username: "alice" },
 		{ id: 1002, username: "bob" },
 	]) {
-		dbHelpers.execute("INSERT INTO users (id, username, role) VALUES (?, ?, 'pleb')", [
-			user.id,
-			user.username,
-		]);
+		dbHelpers.execute(
+			"INSERT INTO users (id, username, role) VALUES (?, ?, 'pleb')",
+			[user.id, user.username],
+		);
 	}
 }
 
 vi.mock("../../src/database", () => ({
-	query: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.query(sql, params)),
-	execute: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.execute(sql, params)),
-	get: vi.fn((sql: string, params: unknown[] = []) => dbHelpers.get(sql, params)),
+	query: vi.fn((sql: string, params: unknown[] = []) =>
+		dbHelpers.query(sql, params),
+	),
+	execute: vi.fn((sql: string, params: unknown[] = []) =>
+		dbHelpers.execute(sql, params),
+	),
+	get: vi.fn((sql: string, params: unknown[] = []) =>
+		dbHelpers.get(sql, params),
+	),
 	withTransaction: vi.fn(<T>(fn: () => T) => dbHelpers.withTransaction(fn)),
 	initDb: vi.fn(),
 }));
@@ -145,6 +162,16 @@ vi.mock("../../src/config", () => ({
 		groupChatId: "-100123456789",
 		botTreasuryAddress: "juno1testtreasuryaddress",
 		userFundsAddress: "juno1testuserfundsaddress",
+		duel: { timeoutSeconds: 300, minWager: 0.1, maxWager: 50 },
+		defaultJailBailAmount: 69.42,
+		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
+		price: {
+			cacheDurationMs: 300000,
+			coingeckoId: "juno-network",
+			rollingAverageHours: 24,
+			historyRetentionDays: 7,
+			apiUrl: "https://api.coingecko.com/api/v3/simple/price",
+		},
 	},
 }));
 
@@ -284,9 +311,9 @@ describe("DuelService integration", () => {
 		expect(DuelService.getDuel(duel?.id || 0)?.status).toBe("completed");
 		expect(await LedgerService.getUserBalance(1001)).toBe(110);
 		expect(await LedgerService.getUserBalance(1002)).toBe(90);
-		expect(await LedgerService.getUserBalance(getDuelEscrowId(duel?.id || 0))).toBe(
-			0,
-		);
+		expect(
+			await LedgerService.getUserBalance(getDuelEscrowId(duel?.id || 0)),
+		).toBe(0);
 	});
 
 	it("backfills challenger escrow before accepting a legacy pending duel", async () => {
@@ -376,9 +403,8 @@ describe("DuelService integration", () => {
 		const duelId = createResult.duel?.id || 0;
 		const escrowId = getDuelEscrowId(duelId);
 
-		const transferBetweenUsers = LedgerService.transferBetweenUsers.bind(
-			LedgerService,
-		);
+		const transferBetweenUsers =
+			LedgerService.transferBetweenUsers.bind(LedgerService);
 		let transferCallCount = 0;
 		const transferSpy = vi
 			.spyOn(LedgerService, "transferBetweenUsers")

@@ -5,10 +5,11 @@
  * @module utils/safeRegex
  */
 
+import { config } from "../config";
 import { logger } from "./logger";
 
-const MAX_PATTERN_LENGTH = 500;
-const DEFAULT_TIMEOUT_MS = 100;
+const MAX_PATTERN_LENGTH = config.limits.maxRegexPatternLength;
+const DEFAULT_TIMEOUT_MS = config.limits.regexTimeoutMs;
 const SAFE_FLAGS = "gimsu";
 
 /**

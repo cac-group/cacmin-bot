@@ -212,7 +212,7 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 					.join(" | ");
 				try {
 					await RateLimitService.muteUser(
-						ctx.telegram as any,
+						ctx.telegram,
 						ctx.chat?.id as number,
 						ctx.from.id,
 						until,

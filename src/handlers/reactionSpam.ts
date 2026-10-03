@@ -6,8 +6,8 @@
  *
  * Enforcement is always a temporary jail (mute); the bot never bans or kicks.
  *
- * Only new users (fewer than NEW_USER_MESSAGE_LIMIT lifetime group messages)
- * are checked; established and elevated users are exempt.
+ * Only new users (fewer than `config.reactionSpam.newUserMessageLimit` lifetime
+ * group messages) are checked; established and elevated users are exempt.
  *
  * @module handlers/reactionSpam
  */
@@ -23,62 +23,6 @@ import { logger, StructuredLogger } from "../utils/logger";
 import { checkIsElevated } from "../utils/roles";
 import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { getDbSpamReacts } from "./spamReacts";
-
-/** Lifetime group messages after which a user is exempt from spam checks */
-const NEW_USER_MESSAGE_LIMIT = 5;
-
-/**
- * Fallback exemption: account age (seconds) after which a member is treated as
- * established even with few indexed messages. Covers long-time lurkers who
- * have no group-message history to count.
- */
-const NEW_USER_MAX_AGE_SECONDS = 14 * 24 * 60 * 60;
-
-/** Max reactions allowed within the time window before triggering a velocity jail */
-const VELOCITY_REACTION_LIMIT = 3;
-
-/** Time window in milliseconds for velocity tracking (60 seconds) */
-const VELOCITY_WINDOW_MS = 60_000;
-
-/** How often to prune stale entries from the velocity tracker (5 minutes) */
-const VELOCITY_CLEANUP_INTERVAL_MS = 300_000;
-
-/** How often to prune the established-user exemption cache (20 minutes) */
-const ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS = 1_200_000;
-
-/**
- * Patterns that indicate a spam bot bio.
- * These are common patterns found in adult content spam bots.
- */
-const SPAM_BIO_PATTERNS = [
-	/18\+/i, // "18+" age indicator
-	/secret\s*place/i, // "Secret Place" channel promotion
-	/hi,?\s*baby/i, // Spam greeting pattern
-	/create\s*(a\s*)?similar\s*video/i, // Video creation spam
-	/onlyfans/i, // OnlyFans promotion
-	/subscribe.*channel/i, // Channel subscription spam
-	/adult\s*content/i, // Explicit adult content
-	/private\s*video/i, // Private video spam
-	/hot\s*(girl|video|content)/i, // Hot content spam
-	/click.*link.*bio/i, // Link in bio spam
-	/free\s*nudes/i, // Explicit spam
-	/dating\s*site/i, // Dating spam
-	/meet\s*single/i, // Dating spam
-	/sexy?\s*(girl|video|photo)/i, // Explicit content spam
-	/\uD83D\uDD1E/, // 18+ emoji
-	/bonus\s*\d+\s*\$/i, // "BONUS 1000$" scam channel spam
-	/elon\s*musk/i, // Elon Musk crypto scam channels
-];
-
-/**
- * Fun jail messages for reaction spammers.
- * One is randomly selected when jailing.
- */
-const JAIL_MESSAGES = [
-	"{name} has been jailed for spamming reactions.",
-	"{name} tried to corrupt the chat. The horny police have intervened.",
-	"{name} is cooling off in horny jail for reaction spam.",
-];
 
 /**
  * In-memory tracker for reaction velocity per user per chat.
@@ -123,7 +67,10 @@ function detectSpamProfile(
 
 	// Check built-in patterns (always match both fields)
 	for (const [field, value] of fields) {
-		if (value && SPAM_BIO_PATTERNS.some((pattern) => pattern.test(value))) {
+		if (
+			value &&
+			config.reactionSpam.bioPatterns.some((pattern) => pattern.test(value))
+		) {
 			return { field, patternSource: "builtin" };
 		}
 	}
@@ -173,7 +120,9 @@ function getJailMessage(user: User): string {
 		? `<a href="https://t.me/${user.username}">${escapeHtml(displayName)}</a>`
 		: escapeHtml(displayName);
 	const template =
-		JAIL_MESSAGES[Math.floor(Math.random() * JAIL_MESSAGES.length)];
+		config.reactionSpam.jailMessages[
+			Math.floor(Math.random() * config.reactionSpam.jailMessages.length)
+		];
 	return template.replace("{name}", nameHtml);
 }
 
@@ -260,7 +209,7 @@ async function getUserProfile(
 function checkReactionVelocity(userId: number, chatId: number): boolean {
 	const key = `${userId}:${chatId}`;
 	const now = Date.now();
-	const cutoff = now - VELOCITY_WINDOW_MS;
+	const cutoff = now - config.reactionSpam.velocityWindowMs;
 
 	// Get existing timestamps and prune old ones
 	const timestamps = (reactionTracker.get(key) ?? []).filter((t) => t > cutoff);
@@ -269,7 +218,7 @@ function checkReactionVelocity(userId: number, chatId: number): boolean {
 	timestamps.push(now);
 	reactionTracker.set(key, timestamps);
 
-	return timestamps.length >= VELOCITY_REACTION_LIMIT;
+	return timestamps.length >= config.reactionSpam.velocityReactionLimit;
 }
 
 /**
@@ -300,8 +249,10 @@ async function jailSpammer(
 /**
  * Returns true if the user is still considered "new" and subject to spam
  * checks. A user is exempt (not new) when either:
- * - they have sent at least NEW_USER_MESSAGE_LIMIT lifetime group messages, or
- * - their tracked account is at least NEW_USER_MAX_AGE_SECONDS old.
+ * - they have sent at least `config.reactionSpam.newUserMessageLimit` lifetime
+ *   group messages, or
+ * - their tracked account is at least `config.reactionSpam.newUserMaxAgeSeconds`
+ *   old.
  *
  * The age fallback only applies when `created_at` is known, so a user the bot
  * has never recorded is still treated as new. Exemptions are cached in-memory
@@ -328,8 +279,8 @@ function isNewUser(userId: number): boolean {
 	const ageSeconds = ageBase > 0 ? Date.now() / 1000 - ageBase : 0;
 
 	if (
-		messageCount >= NEW_USER_MESSAGE_LIMIT ||
-		ageSeconds >= NEW_USER_MAX_AGE_SECONDS
+		messageCount >= config.reactionSpam.newUserMessageLimit ||
+		ageSeconds >= config.reactionSpam.newUserMaxAgeSeconds
 	) {
 		establishedUsers.set(userId, Date.now());
 		return false;
@@ -343,7 +294,8 @@ function isNewUser(userId: number): boolean {
  * bounded without leaving established users re-evaluated too aggressively.
  */
 function pruneEstablishedCache(): void {
-	const cutoff = Date.now() - ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS;
+	const cutoff =
+		Date.now() - config.reactionSpam.establishedCacheCleanupIntervalMs;
 	for (const [userId, lastChecked] of establishedUsers) {
 		if (lastChecked < cutoff) establishedUsers.delete(userId);
 	}
@@ -354,7 +306,7 @@ function pruneEstablishedCache(): void {
  */
 function pruneReactionTracker(): void {
 	const now = Date.now();
-	const cutoff = now - VELOCITY_WINDOW_MS;
+	const cutoff = now - config.reactionSpam.velocityWindowMs;
 
 	for (const [key, timestamps] of reactionTracker) {
 		const fresh = timestamps.filter((t) => t > cutoff);
@@ -401,10 +353,16 @@ function pruneReactionTracker(): void {
  */
 export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 	// Periodic cleanup of stale velocity tracking data
-	setInterval(pruneReactionTracker, VELOCITY_CLEANUP_INTERVAL_MS);
+	setInterval(
+		pruneReactionTracker,
+		config.reactionSpam.velocityCleanupIntervalMs,
+	);
 
 	// Periodic cleanup of the established-user exemption cache
-	setInterval(pruneEstablishedCache, ESTABLISHED_CACHE_CLEANUP_INTERVAL_MS);
+	setInterval(
+		pruneEstablishedCache,
+		config.reactionSpam.establishedCacheCleanupIntervalMs,
+	);
 
 	bot.on("message_reaction", async (ctx) => {
 		const reaction = ctx.messageReaction;

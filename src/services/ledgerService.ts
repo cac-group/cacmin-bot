@@ -67,8 +67,7 @@ export class LedgerService {
 	 * Initialize the ledger service
 	 */
 	static initialize(): void {
-		LedgerService.apiEndpoint =
-			config.junoApiUrl || "https://api.juno.basementnodes.ca";
+		LedgerService.apiEndpoint = config.junoApiUrl;
 
 		// Get or set system wallet addresses
 		LedgerService.botTreasuryAddress = config.botTreasuryAddress || "";

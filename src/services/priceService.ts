@@ -6,6 +6,7 @@
  * @module services/priceService
  */
 
+import { config } from "../config";
 import { execute, get, query } from "../database";
 import { StructuredLogger } from "../utils/logger";
 
@@ -23,9 +24,10 @@ interface FineConfig {
 export class PriceService {
 	private static cachedPrice: number | null = null;
 	private static lastFetch: number = 0;
-	private static readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-	private static readonly COINGECKO_ID = "juno-network";
-	private static readonly ROLLING_AVERAGE_HOURS = 24;
+	private static readonly CACHE_DURATION = config.price.cacheDurationMs;
+	private static readonly COINGECKO_ID = config.price.coingeckoId;
+	private static readonly ROLLING_AVERAGE_HOURS =
+		config.price.rollingAverageHours;
 
 	/**
 	 * Fetches current JUNO price from CoinGecko API.
@@ -44,7 +46,7 @@ export class PriceService {
 
 		try {
 			const response = await fetch(
-				`https://api.coingecko.com/api/v3/simple/price?ids=${PriceService.COINGECKO_ID}&vs_currencies=usd`,
+				`${config.price.apiUrl}?ids=${PriceService.COINGECKO_ID}&vs_currencies=usd`,
 			);
 
 			if (!response.ok) {
@@ -93,8 +95,8 @@ export class PriceService {
 			timestamp,
 		]);
 
-		// Clean up old entries (keep 7 days)
-		const cutoff = timestamp - 7 * 24 * 60 * 60;
+		// Clean up old entries beyond the retention window
+		const cutoff = timestamp - config.price.historyRetentionDays * 24 * 60 * 60;
 		execute("DELETE FROM price_history WHERE timestamp < ?", [cutoff]);
 	}
 

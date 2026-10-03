@@ -7,6 +7,7 @@
  */
 
 import type { Context, Telegraf } from "telegraf";
+import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
@@ -18,11 +19,11 @@ import { getDuelEscrowId } from "./unifiedWalletService";
 import { addUserRestriction } from "./userService";
 
 // Duel timeout in seconds (5 minutes)
-export const DUEL_TIMEOUT_SECONDS = 300;
+export const DUEL_TIMEOUT_SECONDS = config.duel.timeoutSeconds;
 
 // Minimum and maximum wager amounts
-export const MIN_WAGER = 0.1;
-export const MAX_WAGER = 50;
+export const MIN_WAGER = config.duel.minWager;
+export const MAX_WAGER = config.duel.maxWager;
 
 // Consequence types that can be applied to losers
 export type DuelConsequence =

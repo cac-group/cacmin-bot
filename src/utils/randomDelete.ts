@@ -2,8 +2,12 @@
  * Shared helpers for the chance-based random delete restriction.
  */
 
-export const DEFAULT_RANDOM_DELETE_CHANCE = "10%";
-export const RANDOM_DELETE_MIN_UNIQUE_WORDS = 6;
+import { config } from "../config";
+
+export const DEFAULT_RANDOM_DELETE_CHANCE =
+	config.limits.randomDeleteDefaultChance;
+export const RANDOM_DELETE_MIN_UNIQUE_WORDS =
+	config.limits.randomDeleteMinUniqueWords;
 
 function formatPercent(percent: number): string {
 	const rounded = Number.parseFloat(percent.toFixed(2));

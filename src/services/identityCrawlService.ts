@@ -25,10 +25,10 @@ const CURSOR_KEY = "identity_crawl_cursor";
 const DONE_KEY = "identity_crawl_done";
 
 /** Delay between Telegram calls to stay well under the API rate limit. */
-const THROTTLE_MS = 60;
+const THROTTLE_MS = config.identityCrawlThrottleMs;
 
 /** How many times to honor a 429 retry_after for the same user before pausing. */
-const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_RATE_LIMIT_RETRIES = config.identityCrawlMaxRetries;
 
 /**
  * Returns the delay (ms) Telegram asked us to wait for a 429, or null when the

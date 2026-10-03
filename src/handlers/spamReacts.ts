@@ -12,6 +12,7 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, type FmtString, fmt } from "telegraf/format";
+import { config } from "../config";
 import { execute, get, query } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware";
 import { spamReactFieldKeyboard } from "../utils/keyboards";
@@ -53,7 +54,7 @@ let cachedPatterns: CompiledSpamReact[] | null = null;
 let cacheTimestamp = 0;
 
 /** Cache TTL in milliseconds (60 seconds) */
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = config.timing.patternCacheTtlMs;
 
 /**
  * Invalidates the spam react pattern cache.
