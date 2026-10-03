@@ -6,7 +6,14 @@ import {
 	jailIfBlockedIdentity,
 } from "../../src/handlers/identityBlocks";
 
-const { executeMock, isAdminMock, isOwnerMock, queryMock } = vi.hoisted(() => ({
+const {
+	applyTelegramMuteMock,
+	executeMock,
+	isAdminMock,
+	isOwnerMock,
+	queryMock,
+} = vi.hoisted(() => ({
+	applyTelegramMuteMock: vi.fn().mockResolvedValue(undefined),
 	executeMock: vi.fn(),
 	isAdminMock: vi.fn(),
 	isOwnerMock: vi.fn(),
@@ -27,6 +34,7 @@ vi.mock("../../src/utils/roles", () => ({
 vi.mock("../../src/services/jailService", () => ({
 	JailService: {
 		jailUser: vi.fn(() => ({ mutedUntil: 1234567890, bailAmount: 0 })),
+		applyTelegramMute: applyTelegramMuteMock,
 	},
 }));
 
@@ -125,12 +133,7 @@ describe("identity block jails", () => {
 	});
 
 	it("jails matching non-admin users", async () => {
-		const telegram = {
-			restrictChatMember: vi.fn().mockResolvedValue(true),
-		};
-
 		const jailed = await jailIfBlockedIdentity(
-			telegram as never,
 			-100123,
 			user({
 				id: 456,
@@ -141,24 +144,18 @@ describe("identity block jails", () => {
 		);
 
 		expect(jailed).toBe(true);
-		expect(telegram.restrictChatMember).toHaveBeenCalledWith(
-			-100123,
+		expect(applyTelegramMuteMock).toHaveBeenCalledWith(
 			456,
-			expect.objectContaining({
-				permissions: expect.objectContaining({ can_send_messages: false }),
-				until_date: 1234567890,
-			}),
+			-100123,
+			1234567890,
+			"identity_block",
 		);
 	});
 
 	it("does not jail configured owners", async () => {
-		const telegram = {
-			restrictChatMember: vi.fn(),
-		};
 		isOwnerMock.mockReturnValue(true);
 
 		const jailed = await jailIfBlockedIdentity(
-			telegram as never,
 			-100123,
 			user({
 				id: 789,
@@ -169,19 +166,15 @@ describe("identity block jails", () => {
 		);
 
 		expect(jailed).toBe(false);
-		expect(telegram.restrictChatMember).not.toHaveBeenCalled();
+		expect(applyTelegramMuteMock).not.toHaveBeenCalled();
 		expect(queryMock).not.toHaveBeenCalled();
 	});
 
 	it("does not jail configured admins", async () => {
-		const telegram = {
-			restrictChatMember: vi.fn(),
-		};
 		isOwnerMock.mockReturnValue(false);
 		isAdminMock.mockReturnValue(true);
 
 		const jailed = await jailIfBlockedIdentity(
-			telegram as never,
 			-100123,
 			user({
 				id: 789,
@@ -192,7 +185,7 @@ describe("identity block jails", () => {
 		);
 
 		expect(jailed).toBe(false);
-		expect(telegram.restrictChatMember).not.toHaveBeenCalled();
+		expect(applyTelegramMuteMock).not.toHaveBeenCalled();
 		expect(queryMock).not.toHaveBeenCalled();
 	});
 });

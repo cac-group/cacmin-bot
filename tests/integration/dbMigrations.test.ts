@@ -4,6 +4,7 @@ import { join } from "path";
 import { runMigration as run009 } from "../../src/migrations/009_null_placeholder_usernames";
 import { runMigration as run010 } from "../../src/migrations/010_normalize_bail_units";
 import { runMigration as run011 } from "../../src/migrations/011_reconcile_user_balances";
+import { runMigration as run012 } from "../../src/migrations/012_mute_kinds";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -42,11 +43,23 @@ afterEach(() => {
 
 describe("migration 009 null placeholder usernames", () => {
 	it("nulls unknown and user_<digits>, keeps real handles", () => {
-		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(1, "unknown");
-		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(2, "user_2");
-		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(3, "@alice");
+		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+			1,
+			"unknown",
+		);
+		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+			2,
+			"user_2",
+		);
+		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+			3,
+			"@alice",
+		);
 		// digits-only guard: a real-looking handle that merely starts with user_ is kept
-		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(4, "user_123abc");
+		db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
+			4,
+			"user_123abc",
+		);
 
 		run009(db);
 
@@ -58,7 +71,9 @@ describe("migration 009 null placeholder usernames", () => {
 			{ id: 4, username: "user_123abc" },
 		]);
 		expect(
-			num("SELECT COUNT(*) AS v FROM system_state WHERE key='migration_009_null_placeholder_usernames'"),
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_009_null_placeholder_usernames'",
+			),
 		).toBe(1);
 	});
 });
@@ -69,55 +84,178 @@ describe("migration 010 normalize bail units", () => {
 			"INSERT INTO system_state (key, value, updated_at) VALUES ('migration_001_integer_balances','completed',1000)",
 		).run();
 		// Written before migration 001: already micro, must not be scaled.
-		db.prepare("INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 500000, 500)").run();
+		db.prepare(
+			"INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 500000, 500)",
+		).run();
 		// Written after migration 001: decimal JUNO.
-		db.prepare("INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 4.17, 2000)").run();
-		db.prepare("INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 0, 2000)").run();
-		db.prepare("INSERT INTO jail_events (user_id, event_type, bail_amount, timestamp) VALUES (1,'jailed',69.42,2000)").run();
-		db.prepare("INSERT INTO jail_events (user_id, event_type, bail_amount, timestamp) VALUES (1,'jailed',5000000,2000)").run();
-		db.prepare("INSERT INTO user_restrictions (user_id, restriction, auto_jail_fine, created_at) VALUES (1,'no_urls',10.0,2000)").run();
+		db.prepare(
+			"INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 4.17, 2000)",
+		).run();
+		db.prepare(
+			"INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 0, 2000)",
+		).run();
+		db.prepare(
+			"INSERT INTO jail_events (user_id, event_type, bail_amount, timestamp) VALUES (1,'jailed',69.42,2000)",
+		).run();
+		db.prepare(
+			"INSERT INTO jail_events (user_id, event_type, bail_amount, timestamp) VALUES (1,'jailed',5000000,2000)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_restrictions (user_id, restriction, auto_jail_fine, created_at) VALUES (1,'no_urls',10.0,2000)",
+		).run();
 
 		run010(db);
 
-		expect(num("SELECT bail_amount AS v FROM violations WHERE id=1")).toBe(500000);
-		expect(num("SELECT bail_amount AS v FROM violations WHERE id=2")).toBe(4170000);
+		expect(num("SELECT bail_amount AS v FROM violations WHERE id=1")).toBe(
+			500000,
+		);
+		expect(num("SELECT bail_amount AS v FROM violations WHERE id=2")).toBe(
+			4170000,
+		);
 		expect(num("SELECT bail_amount AS v FROM violations WHERE id=3")).toBe(0);
-		expect(num("SELECT bail_amount AS v FROM jail_events WHERE id=1")).toBe(69420000);
-		expect(num("SELECT bail_amount AS v FROM jail_events WHERE id=2")).toBe(5000000);
-		expect(num("SELECT auto_jail_fine AS v FROM user_restrictions WHERE id=1")).toBe(10000000);
+		expect(num("SELECT bail_amount AS v FROM jail_events WHERE id=1")).toBe(
+			69420000,
+		);
+		expect(num("SELECT bail_amount AS v FROM jail_events WHERE id=2")).toBe(
+			5000000,
+		);
+		expect(
+			num("SELECT auto_jail_fine AS v FROM user_restrictions WHERE id=1"),
+		).toBe(10000000);
 	});
 
 	it("is idempotent and does not double-scale on a second run", () => {
-		db.prepare("INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 4.17, 2000)").run();
+		db.prepare(
+			"INSERT INTO violations (user_id, bail_amount, timestamp) VALUES (1, 4.17, 2000)",
+		).run();
 		run010(db);
 		run010(db);
-		expect(num("SELECT bail_amount AS v FROM violations WHERE id=1")).toBe(4170000);
+		expect(num("SELECT bail_amount AS v FROM violations WHERE id=1")).toBe(
+			4170000,
+		);
 	});
 });
 
 describe("migration 011 reconcile user balances", () => {
 	it("recomputes real users, resets only system accounts, and preserves escrow", () => {
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (1, 100)").run();
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (2, 0)").run();
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (3, 0)").run();
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (-1, 791558)").run();
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (-2, 0)").run();
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (-3, 0)").run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (1, 100)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (2, 0)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (3, 0)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (-1, 791558)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (-2, 0)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (-3, 0)",
+		).run();
 		// Giveaway escrow holds real funds and must survive untouched.
-		db.prepare("INSERT INTO user_balances (user_id, balance) VALUES (-1001, 400000)").run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (-1001, 400000)",
+		).run();
 
-		db.prepare("INSERT INTO transactions (transaction_type, to_user_id, amount) VALUES ('giveaway', 1, 5000000)").run();
-		db.prepare("INSERT INTO transactions (transaction_type, to_user_id, amount) VALUES ('deposit', 2, 2000000)").run();
-		db.prepare("INSERT INTO transactions (transaction_type, from_user_id, to_user_id, amount) VALUES ('bail', 2, 3, 2000000)").run();
+		db.prepare(
+			"INSERT INTO transactions (transaction_type, to_user_id, amount) VALUES ('giveaway', 1, 5000000)",
+		).run();
+		db.prepare(
+			"INSERT INTO transactions (transaction_type, to_user_id, amount) VALUES ('deposit', 2, 2000000)",
+		).run();
+		db.prepare(
+			"INSERT INTO transactions (transaction_type, from_user_id, to_user_id, amount) VALUES ('bail', 2, 3, 2000000)",
+		).run();
 
 		run011(db);
 
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=1")).toBe(5000000);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=2")).toBe(0);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=3")).toBe(0);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-1")).toBe(0);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-2")).toBe(0);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-3")).toBe(0);
-		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-1001")).toBe(400000);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=1")).toBe(
+			5000000,
+		);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=2")).toBe(
+			0,
+		);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=3")).toBe(
+			0,
+		);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-1")).toBe(
+			0,
+		);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-2")).toBe(
+			0,
+		);
+		expect(num("SELECT balance AS v FROM user_balances WHERE user_id=-3")).toBe(
+			0,
+		);
+		expect(
+			num("SELECT balance AS v FROM user_balances WHERE user_id=-1001"),
+		).toBe(400000);
+	});
+});
+
+describe("migration 012 mute kinds", () => {
+	it("adds a kind column and allows one row per kind per user", () => {
+		db.exec("PRAGMA foreign_keys = ON");
+		db.prepare("INSERT INTO users (id) VALUES (1)").run();
+		db.exec(`
+			CREATE TABLE user_rate_limit_mutes (
+				user_id INTEGER PRIMARY KEY,
+				muted_until INTEGER NOT NULL,
+				limiting_window TEXT NOT NULL,
+				permission_snapshot TEXT NOT NULL,
+				created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			);
+		`);
+		db.prepare(
+			"INSERT INTO user_rate_limit_mutes (user_id, muted_until, limiting_window, permission_snapshot) VALUES (1, 999, '15m', '{\"a\":1}')",
+		).run();
+
+		run012(db);
+
+		expect(
+			db
+				.prepare("SELECT kind FROM user_rate_limit_mutes WHERE user_id=1")
+				.get(),
+		).toEqual({ kind: "rate_limit" });
+		db.prepare(
+			"INSERT INTO user_rate_limit_mutes (user_id, kind, muted_until, limiting_window, permission_snapshot) VALUES (1, 'jail', 1000, 'jail', '{}')",
+		).run();
+		expect(
+			num("SELECT COUNT(*) AS v FROM user_rate_limit_mutes WHERE user_id=1"),
+		).toBe(2);
+	});
+
+	it("is idempotent: a second run leaves the rebuilt table intact", () => {
+		db.exec("PRAGMA foreign_keys = ON");
+		db.prepare("INSERT INTO users (id) VALUES (1)").run();
+		db.exec(`
+			CREATE TABLE user_rate_limit_mutes (
+				user_id INTEGER PRIMARY KEY, muted_until INTEGER NOT NULL,
+				limiting_window TEXT NOT NULL, permission_snapshot TEXT NOT NULL,
+				created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			);
+		`);
+		db.prepare(
+			"INSERT INTO user_rate_limit_mutes (user_id, muted_until, limiting_window, permission_snapshot) VALUES (1, 999, '15m', '{}')",
+		).run();
+		run012(db);
+		run012(db);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_012_mute_kinds'",
+			),
+		).toBe(1);
+		// The rebuilt table still has `kind` and its row survived.
+		expect(
+			db
+				.prepare("SELECT kind FROM user_rate_limit_mutes WHERE user_id=1")
+				.get(),
+		).toEqual({ kind: "rate_limit" });
 	});
 });

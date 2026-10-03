@@ -13,7 +13,7 @@ import {
 } from "../utils/randomDelete";
 import { restrictionLabel } from "../utils/restrictionLabels";
 import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
+import { muteMember } from "./chatMuteService";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { createViolation } from "./violationService";
 
@@ -385,10 +385,7 @@ Check your status with ${code("/violations")}.`,
 
 			// Actually restrict the user in Telegram (if in a group)
 			if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: mutedUntil,
-				});
+				await JailService.applyTelegramMute(userId, ctx.chat.id, mutedUntil);
 			}
 
 			// Notify user with payment guidance
@@ -448,10 +445,7 @@ View your violations: ${code("/violations")}`,
 
 			// Actually restrict the user in Telegram (if in a group)
 			if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: mutedUntil,
-				});
+				await JailService.applyTelegramMute(userId, ctx.chat.id, mutedUntil);
 			}
 
 			await RestrictionService.sendTrackedViolationResponse(
@@ -495,10 +489,11 @@ View your violations: ${code("/violations")}`,
 
 			// Actually mute the user in Telegram (remove send message permissions)
 			if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: mutedUntil,
-				});
+				await muteMember(
+					{ telegram: ctx.telegram, chatId: ctx.chat.id, userId },
+					"restriction",
+					mutedUntil,
+				);
 			}
 
 			// Update user's muted_until timestamp in database

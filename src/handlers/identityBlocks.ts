@@ -20,7 +20,6 @@ import {
 	compileSafeRegex,
 	validatePattern,
 } from "../utils/safeRegex";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 
 export type IdentityBlockField = "name" | "username" | "both";
 
@@ -146,7 +145,6 @@ export function detectBlockedIdentity(user: User): IdentityMatch | null {
 }
 
 export async function jailIfBlockedIdentity(
-	telegram: Telegraf<Context>["telegram"],
 	chatId: number,
 	user: User,
 	source: string,
@@ -174,10 +172,12 @@ export async function jailIfBlockedIdentity(
 			},
 		});
 
-		await telegram.restrictChatMember(chatId, user.id, {
-			permissions: CHAT_MUTE_PERMISSIONS,
-			until_date: mutedUntil,
-		});
+		await JailService.applyTelegramMute(
+			user.id,
+			chatId,
+			mutedUntil,
+			"identity_block",
+		);
 
 		StructuredLogger.logSecurityEvent("User auto-jailed via identity block", {
 			userId: user.id,
@@ -226,18 +226,13 @@ export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
 
 		if ("new_chat_members" in msg && msg.new_chat_members) {
 			for (const member of msg.new_chat_members) {
-				await jailIfBlockedIdentity(ctx.telegram, chatId, member, "join");
+				await jailIfBlockedIdentity(chatId, member, "join");
 			}
 			return next();
 		}
 
 		if (ctx.from) {
-			const jailed = await jailIfBlockedIdentity(
-				ctx.telegram,
-				chatId,
-				ctx.from,
-				"message",
-			);
+			const jailed = await jailIfBlockedIdentity(chatId, ctx.from, "message");
 
 			if (jailed) {
 				try {
@@ -257,7 +252,6 @@ export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
 		if (!update || update.chat.type === "private") return;
 
 		await jailIfBlockedIdentity(
-			ctx.telegram,
 			update.chat.id,
 			update.new_chat_member.user,
 			"chat_member",

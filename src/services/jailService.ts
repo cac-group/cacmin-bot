@@ -19,6 +19,7 @@ import type { JailEvent, User } from "../types";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
+import { hasStoredBinding, muteMember, releaseMute } from "./chatMuteService";
 import { PriceService } from "./priceService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
@@ -374,20 +375,34 @@ export class JailService {
 						[now, user.id],
 					);
 
-					// Try to restore permissions in the configured group chat
+					// Restore the permissions captured when the jail was applied.
+					// releaseMute leaves the restriction if another mute kind is
+					// still active; a missing binding leaves Telegram's own
+					// until_date to lift it.
 					if (config.groupChatId) {
 						try {
-							await JailService.bot.telegram.restrictChatMember(
-								config.groupChatId,
-								user.id,
+							const released = await releaseMute(
 								{
-									permissions: CHAT_RESTORE_PERMISSIONS,
+									telegram: JailService.bot.telegram,
+									chatId: config.groupChatId,
+									userId: user.id,
 								},
+								"jail",
 							);
+							// A jail applied before this service stored no binding;
+							// fall back to standard member rights once.
+							if (!released && !hasStoredBinding(user.id)) {
+								await JailService.bot.telegram.restrictChatMember(
+									config.groupChatId,
+									user.id,
+									{ permissions: CHAT_RESTORE_PERMISSIONS },
+								);
+							}
 
 							StructuredLogger.logSecurityEvent("User auto-unjailed", {
 								userId: user.id,
 								operation: "auto_unjailed",
+								restored: released,
 							});
 
 							// Log the auto-unjail event
@@ -428,5 +443,29 @@ export class JailService {
 				operation: "clean_expired_jails",
 			});
 		}
+	}
+
+	/**
+	 * Apply a Telegram chat restriction matching an existing jail. The database
+	 * `muted_until` must already be set (via `jailUser`); this captures the
+	 * member's current permissions so `cleanExpiredJails` can restore exactly
+	 * what they had, and clamps the deadline past Telegram's permanent threshold.
+	 *
+	 * @param userId - Telegram user ID to mute
+	 * @param chatId - Chat to mute in
+	 * @param mutedUntil - Jail expiry (unix seconds)
+	 * @param kind - Mute source (defaults to a plain jail)
+	 */
+	static async applyTelegramMute(
+		userId: number,
+		chatId: number,
+		mutedUntil: number,
+		kind: "jail" | "reaction_spam" | "identity_block" | "flood" = "jail",
+	): Promise<void> {
+		await muteMember(
+			{ telegram: JailService.bot.telegram, chatId, userId },
+			kind,
+			mutedUntil,
+		);
 	}
 }

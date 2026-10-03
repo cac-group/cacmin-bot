@@ -1,8 +1,34 @@
 # Message Filtering and Response Dedupe
 
 Applies to `src/middleware/messageFilter.ts`, `src/utils/autoDelete.ts`,
-`src/services/rateLimitService.ts`, `src/services/restrictionService.ts`, and
-`src/services/spamLimiterService.ts`.
+`src/services/rateLimitService.ts`, `src/services/restrictionService.ts`,
+`src/services/chatMuteService.ts`, and `src/services/spamLimiterService.ts`.
+
+## Chat muting
+
+All Telegram muting goes through `src/services/chatMuteService.ts`.
+`user_rate_limit_mutes` is keyed on `(user_id, kind)` — migration 012 — so each
+mute source (rate limit, flood, jail, reaction spam, identity block, duel,
+restriction) holds its own deadline and captured binding and a short jail never
+overwrites a long rate-limit mute.
+
+- `muteMember(kind)` denies the explicit `CHAT_MUTE_PERMISSIONS` set, clamps the
+  deadline to at least now + 31s (Telegram treats a sub-30s `until_date` as
+  permanent), keeps the furthest-out deadline for that kind, captures the
+  member's prior binding via `getChatMember`, stores it in `permission_snapshot`,
+  and posts a short `@user has been muted.` notice.
+- `releaseMute(kind)` deletes that kind's binding once its deadline passes and
+  only re-applies the captured permissions when no other kind is still active.
+  It is idempotent (a second call for a missing row is a no-op), so the two
+  cleanup timers cannot double-restore or double-announce.
+- A `status` binding (administrator/creator) is never applied as a permission
+  set — that would risk demoting them; the binding is just cleared.
+- `RateLimitService.cleanExpiredMutes` runs on `config.intervals.muteCleanupMs`
+  and releases every expired binding by kind. `JailService.applyTelegramMute`
+  records the matching `jail`/`reaction_spam`/`identity_block` kind so
+  `cleanExpiredJails` releases exactly the jail binding at expiry.
+- Announcements are skipped when no real `@username` is known (placeholders like
+  `user_123` are ignored).
 
 ## Flood limiter
 
@@ -43,15 +69,10 @@ character windows (`RateLimitService.admitMessage`). On violation:
 3. One warning is posted; subsequent violations for the same user reuse the
    same warning slot instead of piling up messages.
 
-`muteUser` receives the `Telegram` client (`ctx.telegram`), not a Telegraf bot,
-and applies the explicit `CHAT_MUTE_PERMISSIONS` deny set. It stores the
-member's prior permissions (or `CHAT_RESTORE_PERMISSIONS` when the member has
-none) in `permission_snapshot`, which `cleanExpiredMutes` and
-`releaseMuteIfAllowed` merge back over `CHAT_RESTORE_PERMISSIONS`. Both restore
-paths skip the Telegram restore while a separate jail is still active. Because Telegram treats an `until_date` under 30
-seconds away as a permanent restriction, the mute date is clamped to at least
-now + 31s. A failed mute must not abort the warning: the call is wrapped in
-`try/catch` and logged.
+`RateLimitService.muteUser` delegates to `chatMuteService.muteMember` (see
+above) and `cleanExpiredMutes` restores through it. Both restore paths skip the
+Telegram restore while a separate jail is still active. A failed mute must not
+abort the warning: the call is wrapped in `try/catch` and logged.
 
 ## Response deduplication contract
 

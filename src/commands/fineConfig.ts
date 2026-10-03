@@ -13,7 +13,6 @@ import { JailService } from "../services/jailService";
 import { PriceService } from "../services/priceService";
 import { logger, StructuredLogger } from "../utils/logger";
 import { isImmuneToModeration } from "../utils/roles";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 /**
@@ -241,10 +240,7 @@ ${code("/customjail @alice 120 5.0 Repeated spamming")}`,
 		// Actually restrict the user in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: mutedUntil,
-				});
+				await JailService.applyTelegramMute(userId, ctx.chat.id, mutedUntil);
 			} catch (error) {
 				logger.error("Failed to restrict user in Telegram", {
 					userId,

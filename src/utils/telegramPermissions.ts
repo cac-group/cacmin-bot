@@ -1,8 +1,10 @@
 /**
  * Shared Telegram chat-permission sets.
  *
- * `restrictChatMember` needs a full permission object; keeping the two
- * canonical shapes here avoids copy-pasting 14 fields across handlers.
+ * `restrictChatMember` needs a full permission object; keeping the canonical
+ * shapes here avoids copy-pasting 14 fields across handlers. The mute set is
+ * owned by `chatMuteService` (the only place that applies/restores mutes); this
+ * module re-exports it so handlers keep a single import path.
  *
  * @module utils/telegramPermissions
  */
@@ -44,3 +46,21 @@ export const CHAT_RESTORE_PERMISSIONS: ChatPermissions = {
 	can_pin_messages: false,
 	can_manage_topics: false,
 };
+
+/** The 14 permission fields, used to fill defaults for omitted ones. */
+export const PERMISSION_FIELDS = [
+	"can_send_messages",
+	"can_send_audios",
+	"can_send_documents",
+	"can_send_photos",
+	"can_send_videos",
+	"can_send_video_notes",
+	"can_send_voice_notes",
+	"can_send_polls",
+	"can_send_other_messages",
+	"can_add_web_page_previews",
+	"can_change_info",
+	"can_invite_users",
+	"can_pin_messages",
+	"can_manage_topics",
+] as const;

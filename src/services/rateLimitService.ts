@@ -1,13 +1,9 @@
 import type { Context, Telegraf, Telegram } from "telegraf";
-import type { ChatPermissions } from "telegraf/types";
 import { config } from "../config";
 import { execute, get, query, transaction } from "../database";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import {
-	CHAT_MUTE_PERMISSIONS,
-	CHAT_RESTORE_PERMISSIONS,
-} from "../utils/telegramPermissions";
+import { muteMember, releaseMute } from "./chatMuteService";
 
 export type RateLimitWindow = "15m" | "1h" | "24h";
 /** Default tier multipliers: 15m base, 1h 2x base, 24h 4x hourly. */
@@ -61,23 +57,7 @@ interface LimitRow {
 
 interface MuteRow {
 	muted_until: number;
-	limiting_window: RateLimitWindow;
-	permission_snapshot: string;
-}
-
-/**
- * Parse a stored permission snapshot for a restore. Missing fields fall back to
- * standard member rights because Telegram treats omitted permissions as false.
- */
-function parsePermissionSnapshot(snapshot: string): ChatPermissions {
-	try {
-		const parsed = JSON.parse(snapshot);
-		return parsed && typeof parsed === "object"
-			? { ...CHAT_RESTORE_PERMISSIONS, ...(parsed as ChatPermissions) }
-			: CHAT_RESTORE_PERMISSIONS;
-	} catch {
-		return CHAT_RESTORE_PERMISSIONS;
-	}
+	kind: import("./chatMuteService").MuteKind;
 }
 
 /** Persistent character accounting and enforcement state for configured users. */
@@ -145,7 +125,10 @@ export class RateLimitService {
 		transaction(() => {
 			execute("DELETE FROM user_rate_limits WHERE user_id = ?", [userId]);
 			execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [userId]);
-			execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
+			execute(
+				"DELETE FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'rate_limit'",
+				[userId],
+			);
 			logger.info("Rate-limit config and state cleared", {
 				tag: "config",
 				subtag: "clear_limits",
@@ -235,7 +218,10 @@ export class RateLimitService {
 	static clearUsage(userId: number): void {
 		transaction(() => {
 			execute("DELETE FROM user_rate_limit_usage WHERE user_id = ?", [userId]);
-			execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
+			execute(
+				"DELETE FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'rate_limit'",
+				[userId],
+			);
 			logger.info("Rate-limit usage and mute cleared", {
 				tag: "config",
 				subtag: "clear_usage",
@@ -285,35 +271,19 @@ export class RateLimitService {
 		until: number,
 		window: RateLimitWindow,
 	): Promise<void> {
-		const member = await telegram.getChatMember(chatId, userId);
-		const permissions =
-			"permissions" in member && member.permissions
-				? member.permissions
-				: CHAT_RESTORE_PERMISSIONS;
-		// Telegram treats an until_date less than 30s away as a permanent restriction.
-		const untilDate = Math.max(until, Math.floor(Date.now() / 1000) + 31);
-		await telegram.restrictChatMember(chatId, userId, {
-			permissions: CHAT_MUTE_PERMISSIONS,
-			until_date: untilDate,
-		});
-		execute(
-			`INSERT INTO user_rate_limit_mutes (user_id, muted_until, limiting_window, permission_snapshot)
-			VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET muted_until=excluded.muted_until,
-			limiting_window=excluded.limiting_window, permission_snapshot=excluded.permission_snapshot`,
-			[userId, untilDate, window, JSON.stringify(permissions)],
-		);
+		await muteMember({ telegram, chatId, userId }, "rate_limit", until);
 		logger.warn("Rate-limit mute applied", {
 			tag: "moderation",
 			subtag: "mute_applied",
 			userId,
 			chatId,
-			until: untilDate,
+			until,
 			window,
 			operation: "rate_limit_mute",
 		});
 	}
 
-	/** Restore expired rate-limit mutes without overriding an active jail. */
+	/** Restore expired chat mutes without overriding an active jail. */
 	static async cleanExpiredMutes(
 		bot: Telegraf<Context>,
 		chatId?: number,
@@ -326,32 +296,22 @@ export class RateLimitService {
 		);
 		for (const mute of mutes) {
 			try {
-				const user = get<{
-					muted_until: number | null;
-					username: string | null;
-				}>("SELECT muted_until FROM users WHERE id = ?", [mute.user_id]);
-				if (!user?.muted_until || user.muted_until <= now) {
-					await bot.telegram.restrictChatMember(chatId, mute.user_id, {
-						permissions: parsePermissionSnapshot(mute.permission_snapshot),
-					});
-				}
-				execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [
-					mute.user_id,
-				]);
-				await bot.telegram.sendMessage(
-					chatId,
-					`Rate-limit mute expired for ${user?.username ? `@${user.username}` : `user ${mute.user_id}`}. ${user?.muted_until && user.muted_until > now ? "Your separate jail restriction is still active." : "Your previous group permissions have been restored."}`,
+				// releaseMute only lifts the chat restriction once no other kind
+				// (e.g. an active jail) still holds a deadline.
+				const released = await releaseMute(
+					{ telegram: bot.telegram, chatId, userId: mute.user_id },
+					mute.kind,
 				);
-				logger.info("Rate-limit mute expired, permissions restored", {
+				logger.info("Chat mute expired", {
 					tag: "moderation",
 					subtag: "mute_expired",
 					userId: mute.user_id,
 					chatId,
-					window: mute.limiting_window,
-					jailStillActive: Boolean(user?.muted_until && user.muted_until > now),
+					kind: mute.kind,
+					released,
 				});
 			} catch (error) {
-				logger.error("Failed to restore rate-limit permissions", {
+				logger.error("Failed to restore chat mute permissions", {
 					userId: mute.user_id,
 					error,
 				});
@@ -359,7 +319,7 @@ export class RateLimitService {
 		}
 	}
 
-	/** Clear a rate-limit mute and restore its captured permissions when no window is full. */
+	/** Clear a chat mute and restore its captured permissions when no window is full. */
 	static async releaseMuteIfAllowed(
 		bot: Telegraf<Context>,
 		chatId: number,
@@ -374,35 +334,25 @@ export class RateLimitService {
 		)
 			return false;
 		const mute = get<MuteRow>(
-			"SELECT * FROM user_rate_limit_mutes WHERE user_id = ?",
+			"SELECT * FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'rate_limit'",
 			[userId],
 		);
 		if (!mute) return true;
-		const now = Math.floor(Date.now() / 1000);
-		const user = get<{
-			username: string | null;
-			muted_until: number | null;
-		}>("SELECT username, muted_until FROM users WHERE id = ?", [userId]);
-		const jailed = Boolean(user?.muted_until && user.muted_until > now);
-		// Do not lift Telegram restrictions that belong to an active jail.
-		if (!jailed) {
-			await bot.telegram.restrictChatMember(chatId, userId, {
-				permissions: parsePermissionSnapshot(mute.permission_snapshot),
-			});
-		}
-		execute("DELETE FROM user_rate_limit_mutes WHERE user_id = ?", [userId]);
-		await bot.telegram.sendMessage(
-			chatId,
-			jailed
-				? `Rate-limit mute removed for ${user?.username ? `@${user.username}` : `user ${userId}`}. Your separate jail restriction is still active.`
-				: `Rate-limit mute removed for ${user?.username ? `@${user.username}` : `user ${userId}`}. Your previous group permissions have been restored.`,
+		// Force-expire the rate-limit deadline so releaseMute lifts it now.
+		execute(
+			"UPDATE user_rate_limit_mutes SET muted_until = 0 WHERE user_id = ? AND kind = 'rate_limit'",
+			[userId],
 		);
-		logger.info("Rate-limit mute removed after reset", {
+		const released = await releaseMute(
+			{ telegram: bot.telegram, chatId, userId },
+			"rate_limit",
+		);
+		logger.info("Chat mute removed after reset", {
 			tag: "moderation",
 			subtag: "mute_removed",
 			userId,
 			chatId,
-			jailStillActive: jailed,
+			released,
 		});
 		return true;
 	}

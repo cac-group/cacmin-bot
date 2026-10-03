@@ -9,6 +9,7 @@ import type { Context, MiddlewareFn } from "telegraf";
 import { config } from "../config";
 import { get } from "../database";
 import { ChatIndexerService } from "../services/chatIndexerService";
+import { muteMember } from "../services/chatMuteService";
 import { JailService } from "../services/jailService";
 import { RateLimitService } from "../services/rateLimitService";
 import { RestrictionService } from "../services/restrictionService";
@@ -20,7 +21,6 @@ import {
 import type { User } from "../types";
 import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 
 function formatRateLimitDuration(seconds: number): string {
 	const hours = Math.floor(seconds / 3600);
@@ -133,7 +133,7 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 		}
 
 		const rateMute = get<{ muted_until: number }>(
-			"SELECT muted_until FROM user_rate_limit_mutes WHERE user_id = ?",
+			"SELECT MAX(muted_until) AS muted_until FROM user_rate_limit_mutes WHERE user_id = ?",
 			[ctx.from.id],
 		);
 		if (isGroupChat && rateMute && rateMute.muted_until > Date.now() / 1000) {
@@ -162,23 +162,23 @@ export const messageFilterMiddleware: MiddlewareFn<Context> = async (
 
 				const until =
 					Math.floor(Date.now() / 1000) + config.spamLimit.jailMinutes * 60;
+				// Record the jail in users.muted_until and the audit trail, then mute.
 				JailService.jailUser({
 					userId: floodUserId,
 					durationMinutes: config.spamLimit.jailMinutes,
 					metadata: { reason: "message_flood" },
 				});
-				await ctx.telegram
-					.restrictChatMember(chatId, floodUserId, {
-						permissions: CHAT_MUTE_PERMISSIONS,
-						until_date: until,
-					})
-					.catch((error) =>
-						logger.error("Failed to restrict flooding user", {
-							userId: floodUserId,
-							chatId,
-							error,
-						}),
-					);
+				await muteMember(
+					{ telegram: ctx.telegram, chatId, userId: floodUserId },
+					"flood",
+					until,
+				).catch((error) =>
+					logger.error("Failed to restrict flooding user", {
+						userId: floodUserId,
+						chatId,
+						error,
+					}),
+				);
 
 				logger.warn("Flood limiter jailed user", {
 					userId: floodUserId,

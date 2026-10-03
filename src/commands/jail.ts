@@ -12,6 +12,7 @@ import { config } from "../config";
 import { get } from "../database";
 import { elevatedOrHigher } from "../middleware/index";
 import { ChatIndexerService } from "../services/chatIndexerService";
+import { releaseMember } from "../services/chatMuteService";
 import { JailService } from "../services/jailService";
 import { JunoService } from "../services/junoService";
 import {
@@ -24,7 +25,6 @@ import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { escapeNumber } from "../utils/markdown";
 import { AmountPrecision } from "../utils/precision";
-import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
 import {
 	formatUserIdDisplay,
 	getRemainingArgs,
@@ -641,8 +641,10 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 		// Restore permissions in group chat
 		if (config.groupChatId) {
 			try {
-				await bot.telegram.restrictChatMember(config.groupChatId, userId, {
-					permissions: CHAT_RESTORE_PERMISSIONS,
+				await releaseMember({
+					telegram: bot.telegram,
+					chatId: config.groupChatId,
+					userId,
 				});
 				StructuredLogger.logTransaction("User released via bail payment", {
 					userId,

@@ -51,6 +51,10 @@ import {
 	isMigrationApplied as check011,
 	runMigration as run011,
 } from "./011_reconcile_user_balances";
+import {
+	isMigrationApplied as check012,
+	runMigration as run012,
+} from "./012_mute_kinds";
 
 interface Migration {
 	id: string;
@@ -125,6 +129,12 @@ const migrations: Migration[] = [
 		name: "reconcile_user_balances",
 		check: check011,
 		run: run011,
+	},
+	{
+		id: "012",
+		name: "mute_kinds",
+		check: check012,
+		run: run012,
 	},
 ];
 

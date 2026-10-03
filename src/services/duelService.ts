@@ -11,7 +11,7 @@ import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
+import { muteMember } from "./chatMuteService";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
@@ -954,10 +954,7 @@ export class DuelService {
 
 			// Actually restrict in Telegram
 			try {
-				await DuelService.bot.telegram.restrictChatMember(chatId, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: untilTimestamp,
-				});
+				await JailService.applyTelegramMute(userId, chatId, untilTimestamp);
 			} catch (error) {
 				logger.error("Failed to apply Telegram restriction for duel jail", {
 					userId,
@@ -970,10 +967,11 @@ export class DuelService {
 
 			// Telegram restriction
 			try {
-				await DuelService.bot.telegram.restrictChatMember(chatId, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: untilTimestamp,
-				});
+				await muteMember(
+					{ telegram: DuelService.bot.telegram, chatId, userId },
+					"duel",
+					untilTimestamp,
+				);
 			} catch (error) {
 				logger.error("Failed to apply Telegram restriction for duel mute", {
 					userId,

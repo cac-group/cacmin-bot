@@ -145,8 +145,8 @@ interface Config {
 	intervals: {
 		/** Expired restriction cleanup */
 		restrictionCleanupMs: number;
-		/** Expired rate-limit mute cleanup */
-		rateLimitMuteCleanupMs: number;
+		/** Expired chat-mute cleanup */
+		muteCleanupMs: number;
 		/** Identity crawl batch run */
 		identityCrawlMs: number;
 		/** Expired jail cleanup */
@@ -485,10 +485,7 @@ export const config: Config = {
 			"RESTRICTION_CLEANUP_INTERVAL_MS",
 			60 * 60 * 1000,
 		),
-		rateLimitMuteCleanupMs: envInt(
-			"RATELIMIT_MUTE_CLEANUP_INTERVAL_MS",
-			60 * 1000,
-		),
+		muteCleanupMs: envInt("MUTE_CLEANUP_INTERVAL_MS", 60 * 1000),
 		identityCrawlMs: envInt("IDENTITY_CRAWL_INTERVAL_MS", 5 * 60 * 1000),
 		jailCleanupMs: envInt("JAIL_CLEANUP_INTERVAL_MS", 5 * 60 * 1000),
 		transactionLockCleanupMs: envInt("TX_LOCK_CLEANUP_INTERVAL_MS", 60 * 1000),

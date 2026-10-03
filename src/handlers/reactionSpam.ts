@@ -21,7 +21,6 @@ import { ensureUserExists } from "../services/userService";
 import { dedupeResponse } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { checkIsElevated } from "../utils/roles";
-import { CHAT_MUTE_PERMISSIONS } from "../utils/telegramPermissions";
 import { getDbSpamReacts } from "./spamReacts";
 
 /**
@@ -228,11 +227,7 @@ function checkReactionVelocity(userId: number, chatId: number): boolean {
  * @param chatId - Chat to jail in
  * @param user - User to jail
  */
-async function jailSpammer(
-	telegram: Telegraf<Context>["telegram"],
-	chatId: number,
-	user: User,
-): Promise<void> {
+async function jailSpammer(chatId: number, user: User): Promise<void> {
 	const minutes = config.reactionSpamJailMinutes;
 	ensureUserExists(user.id, user.username || `user_${user.id}`);
 	const { mutedUntil } = JailService.jailUser({
@@ -240,10 +235,12 @@ async function jailSpammer(
 		durationMinutes: minutes,
 		metadata: { reason: "reaction_spam" },
 	});
-	await telegram.restrictChatMember(chatId, user.id, {
-		permissions: CHAT_MUTE_PERMISSIONS,
-		until_date: mutedUntil,
-	});
+	await JailService.applyTelegramMute(
+		user.id,
+		chatId,
+		mutedUntil,
+		"reaction_spam",
+	);
 }
 
 /**
@@ -454,7 +451,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 				});
 
 				try {
-					await jailSpammer(ctx.telegram, chat.id, user);
+					await jailSpammer(chat.id, user);
 					handledUsers.add(userChatKey);
 					reactionTracker.delete(userChatKey);
 
@@ -508,7 +505,7 @@ export function registerReactionSpamHandler(bot: Telegraf<Context>): void {
 			);
 
 			try {
-				await jailSpammer(ctx.telegram, chat.id, user);
+				await jailSpammer(chat.id, user);
 				handledUsers.add(userChatKey);
 				reactionTracker.delete(userChatKey);
 

@@ -228,9 +228,9 @@ async function main() {
 		intervals.push(
 			setInterval(() => {
 				RateLimitService.cleanExpiredMutes(bot, config.groupChatId).catch(
-					(error) => logger.error("Error cleaning rate-limit mutes", { error }),
+					(error) => logger.error("Error cleaning chat mutes", { error }),
 				);
-			}, config.intervals.rateLimitMuteCleanupMs),
+			}, config.intervals.muteCleanupMs),
 		);
 
 		// Gradually fill missing usernames/profiles for known group members.

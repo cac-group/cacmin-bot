@@ -10,16 +10,13 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { execute, get } from "../database";
 import { adminOrHigher, ownerOnly } from "../middleware/index";
+import { releaseMember } from "../services/chatMuteService";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { jailDurationKeyboard } from "../utils/keyboards";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { isImmuneToModeration } from "../utils/roles";
-import {
-	CHAT_MUTE_PERMISSIONS,
-	CHAT_RESTORE_PERMISSIONS,
-} from "../utils/telegramPermissions";
 import {
 	formatUserIdDisplay,
 	getRemainingArgs,
@@ -167,10 +164,7 @@ Please make the bot an admin with delete permissions.`,
 		// Actually restrict the user in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_MUTE_PERMISSIONS,
-					until_date: mutedUntil,
-				});
+				await JailService.applyTelegramMute(userId, ctx.chat.id, mutedUntil);
 				StructuredLogger.logSecurityEvent("User restricted in Telegram", {
 					userId: adminId,
 					username: ctx.from?.username,
@@ -260,8 +254,10 @@ ${reason ? `Reason: ${reason}` : ""}`,
 		// Restore user permissions in Telegram (if in a group)
 		if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
 			try {
-				await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
-					permissions: CHAT_RESTORE_PERMISSIONS,
+				await releaseMember({
+					telegram: ctx.telegram,
+					chatId: ctx.chat.id,
+					userId,
 				});
 				StructuredLogger.logSecurityEvent(
 					"User permissions restored in Telegram",
