@@ -10,15 +10,13 @@ import type { Context, Telegraf } from "telegraf";
 import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { get } from "../database";
-import { elevatedOrHigher } from "../middleware/index";
+import { adminOrHigher, elevatedOrHigher } from "../middleware/index";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { releaseMember } from "../services/chatMuteService";
 import { JailService } from "../services/jailService";
 import { JunoService } from "../services/junoService";
-import {
-	getTotalFines,
-	getUnpaidViolations,
-} from "../services/violationService";
+import { LedgerService } from "../services/ledgerService";
+import { SYSTEM_USER_IDS } from "../services/unifiedWalletService";
 import type { User } from "../types";
 import { formatActiveTime } from "../utils/activeTime";
 import { autoDeleteInGroup } from "../utils/autoDelete";
@@ -57,6 +55,146 @@ function formatTimeRemaining(seconds: number): string {
 	} else {
 		return `${secs}s`;
 	}
+}
+
+/**
+ * Send bail payment instructions for a user's current jail.
+ * Shared by /paybail and the legacy fine-payment aliases.
+ */
+async function sendBailInstructions(
+	ctx: Context,
+	targetUserId: number,
+): Promise<void> {
+	const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
+	if (!user) {
+		const msg = await ctx.reply(fmt`User not found in database.`);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	if (!user.muted_until || user.muted_until <= now) {
+		const msg = await ctx.reply(
+			fmt`You are not currently jailed. No bail required!`,
+		);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const timeRemaining = user.muted_until - now;
+	const bailAmount = JailService.getCurrentBailAmount(targetUserId);
+
+	const msg = await ctx.reply(
+		fmt`${bold("Pay Your Bail")}
+
+Current jail time remaining: ${formatTimeRemaining(timeRemaining)}
+Bail amount: ${escapeNumber(bailAmount, 3)} JUNO
+
+Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:
+${code(JunoService.getPaymentAddress())}
+
+After payment, send:
+/verifybail <txhash>`,
+	);
+	autoDeleteInGroup(ctx, msg.message_id);
+}
+
+/**
+ * Verify an on-chain bail payment and release the jailed user.
+ * Shared by /verifybail and the legacy /verifypayment alias.
+ */
+async function verifyBailPayment(
+	ctx: Context,
+	userId: number,
+	paidByUserId: number,
+	txHash: string,
+): Promise<void> {
+	const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
+	if (!user) {
+		const msg = await ctx.reply(fmt`User not found in database.`);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	if (!user.muted_until || user.muted_until <= now) {
+		const msg = await ctx.reply(
+			fmt`You are not currently jailed. No bail payment needed.`,
+		);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const bailAmount = JailService.getCurrentBailAmount(userId);
+
+	if (JailService.isBailPaymentUsed(txHash)) {
+		const msg = await ctx.reply(
+			"This transaction hash has already been used for a bail payment.",
+		);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const verified = await JunoService.verifyPayment(txHash, bailAmount);
+	if (!verified) {
+		const msg = await ctx.reply(
+			fmt`Payment could not be verified. Please check the transaction hash and amount.`,
+		);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	const payment = JailService.recordBailPayment(
+		userId,
+		paidByUserId,
+		bailAmount,
+		txHash,
+	);
+	if (!payment.success) {
+		const msg = await ctx.reply(
+			payment.duplicate
+				? "This transaction hash has already been used for a bail payment."
+				: "The bail payment could not be recorded. Please try again.",
+		);
+		autoDeleteInGroup(ctx, msg.message_id);
+		return;
+	}
+
+	if (config.groupChatId) {
+		try {
+			await releaseMember({
+				telegram: ctx.telegram,
+				chatId: config.groupChatId,
+				userId,
+			});
+			StructuredLogger.logTransaction("User released via bail payment", {
+				userId,
+				txHash,
+				amount: bailAmount.toString(),
+				operation: "bail_payment",
+			});
+		} catch (error) {
+			logger.error("Failed to restore permissions after bail payment", {
+				userId,
+				error,
+			});
+		}
+	}
+
+	const msg = await ctx.reply(
+		fmt`${bold("Bail Payment Verified!")}
+
+You have been released from jail.
+Transaction: ${code(txHash)}`,
+	);
+	autoDeleteInGroup(ctx, msg.message_id);
+
+	StructuredLogger.logTransaction("Bail paid and verified", {
+		userId,
+		txHash,
+		amount: bailAmount.toString(),
+		operation: "bail_verification",
+	});
 }
 
 /**
@@ -330,7 +468,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 
 	/**
 	 * Command: /mystatus
-	 * Check your own status including jail time, role, warnings, and unpaid fines.
+	 * Check your own status including jail time, role, warnings, and violations.
 	 *
 	 * Permission: Any user
 	 * Syntax: /mystatus
@@ -345,12 +483,10 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 	 *
 	 *      Currently Jailed
 	 *      Time remaining: 30m 15s
-	 *      Bail amount: 3.50 JUNO
+	 *      Bail amount: 69.420 JUNO
 	 *      To pay bail: /paybail
 	 *
-	 *      Unpaid Fines
-	 *      Count: 2
-	 *      Total: 5.00 JUNO
+	 *      Violations: 2 (view with /violations)
 	 */
 	bot.command("mystatus", async (ctx) => {
 		const userId = ctx.from?.id;
@@ -408,19 +544,13 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			parts.push(`Messages tracked: ${activeStats.messageCount}\n\n`);
 		}
 
-		// Show unpaid violations
-		const violations = getUnpaidViolations(userId);
-		if (violations.length > 0) {
-			const totalFines = getTotalFines(userId);
-			parts.push(bold("Unpaid Fines"));
-			parts.push("\n");
-			parts.push(`Count: ${violations.length}\n`);
-			parts.push(`Total: ${totalFines.toFixed(2)} JUNO\n\n`);
-			parts.push("View details: /violations\n");
-			parts.push("Pay fines: /payfine\n");
-		} else {
-			parts.push("No unpaid fines\n");
-		}
+		// Violations are warning history; the only payable amount is the bail above.
+		const violationCount =
+			get<{ n: number }>(
+				"SELECT COUNT(*) AS n FROM violations WHERE user_id = ?",
+				[userId],
+			)?.n ?? 0;
+		parts.push(`Violations: ${violationCount} (view with /violations)\n`);
 
 		const msg = await ctx.reply(fmt(parts));
 		autoDeleteInGroup(ctx, msg.message_id);
@@ -512,6 +642,49 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			return;
 		}
 
+		await sendBailInstructions(ctx, targetUserId);
+	});
+
+	// Legacy fine-payment commands are aliases of the single bail flow.
+	bot.command("payfine", async (ctx) => {
+		const userId = ctx.from?.id;
+		if (userId) await sendBailInstructions(ctx, userId);
+	});
+	bot.command("payfines", async (ctx) => {
+		const userId = ctx.from?.id;
+		if (userId) await sendBailInstructions(ctx, userId);
+	});
+
+	/**
+	 * Command: /payallfines
+	 * Admin/owner-only: cover a jailed user's bail from the system reserve.
+	 *
+	 * Permission: Admin or owner
+	 * Syntax: /payallfines <@username|userId>
+	 */
+	bot.command("payallfines", adminOrHigher, async (ctx) => {
+		const adminId = ctx.from?.id;
+		if (!adminId) return;
+
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
+		const hasReply = Boolean(
+			ctx.message &&
+				"reply_to_message" in ctx.message &&
+				ctx.message.reply_to_message,
+		);
+		const target =
+			resolveTargetUser(ctx, args) ||
+			(hasReply ? resolveTargetUser(ctx, []) : null);
+		const targetUserId = target?.userId;
+
+		if (!targetUserId) {
+			const msg = await ctx.reply(
+				"Usage: /payallfines <@username|userId>, or reply /payallfines to a jailed user's message.",
+			);
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
+
 		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
 		if (!user) {
 			const msg = await ctx.reply(fmt`User not found in database.`);
@@ -520,30 +693,77 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 		}
 
 		const now = Math.floor(Date.now() / 1000);
-
 		if (!user.muted_until || user.muted_until <= now) {
-			const msg = await ctx.reply(
-				fmt`You are not currently jailed. No bail required!`,
-			);
+			const msg = await ctx.reply(fmt`That user is not currently jailed.`);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
 
-		const timeRemaining = user.muted_until - now;
 		const bailAmount = JailService.getCurrentBailAmount(targetUserId);
 
-		const parts = [bold("Pay Your Bail"), "\n\n"];
-		parts.push(
-			`Current jail time remaining: ${formatTimeRemaining(timeRemaining)}\n`,
+		// Cover the bail from the system reserve, never a game/escrow account.
+		const adjustment = await LedgerService.processAdjustment(
+			SYSTEM_USER_IDS.SYSTEM_RESERVE,
+			-bailAmount,
+			`Bail paid for user ${targetUserId} by admin ${adminId}`,
 		);
-		parts.push(`Bail amount: ${escapeNumber(bailAmount, 3)} JUNO\n\n`);
-		parts.push(`Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:\n`);
-		parts.push(`${code(JunoService.getPaymentAddress())}\n\n`);
-		parts.push("After payment, send:\n");
-		parts.push("/verifybail <txhash>\n");
+		if (!adjustment.success) {
+			const msg = await ctx.reply("Failed to debit the system reserve.");
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
 
-		const msg = await ctx.reply(fmt(parts));
+		const payment = JailService.recordBailPayment(
+			targetUserId,
+			adminId,
+			bailAmount,
+			`reserve_${targetUserId}_${Date.now()}`,
+		);
+		if (!payment.success) {
+			// Compensate: the reserve was already debited in its own transaction.
+			await LedgerService.processAdjustment(
+				SYSTEM_USER_IDS.SYSTEM_RESERVE,
+				bailAmount,
+				`Refund: bail record failed for user ${targetUserId}`,
+			);
+			const msg = await ctx.reply("Failed to record the bail payment.");
+			autoDeleteInGroup(ctx, msg.message_id);
+			return;
+		}
+
+		if (config.groupChatId) {
+			try {
+				await releaseMember({
+					telegram: ctx.telegram,
+					chatId: config.groupChatId,
+					userId: targetUserId,
+				});
+			} catch (error) {
+				logger.error("Failed to restore permissions after reserve bail", {
+					userId: targetUserId,
+					error,
+				});
+			}
+		}
+
+		const userDisplay = formatUserIdDisplay(targetUserId);
+		const msg = await ctx.reply(
+			fmt`${bold("Bail Paid from Reserve")}
+
+User: ${userDisplay}
+Bail: ${escapeNumber(bailAmount, 3)} JUNO
+Reserve balance: ${AmountPrecision.format(adjustment.newBalance)} JUNO
+
+The user has been released.`,
+		);
 		autoDeleteInGroup(ctx, msg.message_id);
+
+		StructuredLogger.logTransaction("Bail paid from system reserve", {
+			userId: adminId,
+			targetUserId,
+			amount: bailAmount.toString(),
+			operation: "reserve_bail_payment",
+		});
 	});
 
 	/**
@@ -584,94 +804,20 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			return;
 		}
 
-		const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
-		if (!user) {
-			const msg = await ctx.reply(fmt`User not found in database.`);
+		await verifyBailPayment(ctx, userId, payerId, txHash);
+	});
+
+	// Legacy fine verification alias: /verifypayment <violationId> <txhash>.
+	bot.command("verifypayment", async (ctx) => {
+		const payerId = ctx.from?.id;
+		if (!payerId) return;
+		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
+		const txHash = args[args.length - 1];
+		if (args.length === 0 || !txHash) {
+			const msg = await ctx.reply("Usage: /verifypayment <txhash>");
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
-
-		const now = Math.floor(Date.now() / 1000);
-
-		if (!user.muted_until || user.muted_until <= now) {
-			const msg = await ctx.reply(
-				fmt`You are not currently jailed. No bail payment needed.`,
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
-
-		const bailAmount = JailService.getCurrentBailAmount(userId);
-
-		if (JailService.isBailPaymentUsed(txHash)) {
-			const msg = await ctx.reply(
-				"This transaction hash has already been used for a bail payment.",
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
-
-		// Verify payment on blockchain
-		const verified = await JunoService.verifyPayment(txHash, bailAmount);
-
-		if (!verified) {
-			const msg = await ctx.reply(
-				fmt`Payment could not be verified. Please check the transaction hash and amount.`,
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
-
-		const payment = JailService.recordBailPayment(
-			userId,
-			payerId,
-			bailAmount,
-			txHash,
-		);
-		if (!payment.success) {
-			const msg = await ctx.reply(
-				payment.duplicate
-					? "This transaction hash has already been used for a bail payment."
-					: "The bail payment could not be recorded. Please try again.",
-			);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
-
-		// Restore permissions in group chat
-		if (config.groupChatId) {
-			try {
-				await releaseMember({
-					telegram: bot.telegram,
-					chatId: config.groupChatId,
-					userId,
-				});
-				StructuredLogger.logTransaction("User released via bail payment", {
-					userId,
-					txHash,
-					amount: bailAmount.toString(),
-					operation: "bail_payment",
-				});
-			} catch (error) {
-				logger.error("Failed to restore permissions after bail payment", {
-					userId,
-					error,
-				});
-			}
-		}
-
-		const parts = [bold("Bail Payment Verified!"), "\n\n"];
-		parts.push("You have been released from jail.\n");
-		parts.push(`Transaction: ${code(txHash)}`);
-
-		const msg = await ctx.reply(fmt(parts));
-		autoDeleteInGroup(ctx, msg.message_id);
-
-		StructuredLogger.logTransaction("Bail paid and verified", {
-			userId,
-			txHash,
-			amount: bailAmount.toString(),
-			operation: "bail_verification",
-		});
+		await verifyBailPayment(ctx, payerId, payerId, txHash);
 	});
 }

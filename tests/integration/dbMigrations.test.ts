@@ -5,6 +5,7 @@ import { runMigration as run009 } from "../../src/migrations/009_null_placeholde
 import { runMigration as run010 } from "../../src/migrations/010_normalize_bail_units";
 import { runMigration as run011 } from "../../src/migrations/011_reconcile_user_balances";
 import { runMigration as run012 } from "../../src/migrations/012_mute_kinds";
+import { runMigration as run013 } from "../../src/migrations/013_drop_fine_config";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -257,5 +258,45 @@ describe("migration 012 mute kinds", () => {
 				.prepare("SELECT kind FROM user_rate_limit_mutes WHERE user_id=1")
 				.get(),
 		).toEqual({ kind: "rate_limit" });
+	});
+});
+
+describe("migration 013 drop fine config", () => {
+	it("drops fine_config and the restriction fine columns, keeping rows", () => {
+		db.exec(
+			"ALTER TABLE user_restrictions ADD COLUMN fine_amount REAL DEFAULT 0",
+		);
+		db.exec(
+			"CREATE TABLE fine_config (fine_type TEXT PRIMARY KEY, amount_usd REAL NOT NULL)",
+		);
+		db.prepare(
+			"INSERT INTO user_restrictions (user_id, restriction, auto_jail_fine) VALUES (1,'no_urls',10)",
+		).run();
+
+		run013(db);
+
+		expect(
+			db
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='fine_config'",
+				)
+				.all(),
+		).toEqual([]);
+		const columns = db
+			.prepare("PRAGMA table_info(user_restrictions)")
+			.all() as { name: string }[];
+		expect(columns.some((c) => c.name === "auto_jail_fine")).toBe(false);
+		expect(columns.some((c) => c.name === "fine_amount")).toBe(false);
+		expect(num("SELECT COUNT(*) AS v FROM user_restrictions")).toBe(1);
+	});
+
+	it("is idempotent", () => {
+		run013(db);
+		run013(db);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_013_drop_fine_config'",
+			),
+		).toBe(1);
 	});
 });

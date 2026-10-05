@@ -171,28 +171,42 @@ export class UnifiedWalletService {
 		// One-time migration: transfer any SYSTEM_RESERVE deficit to BOT_TREASURY.
 		// Gas fees and adjustments were incorrectly debited from SYSTEM_RESERVE
 		// (which was never funded), creating an impossible negative balance.
-		const reserveMicro = await LedgerService.getUserBalanceMicro(
-			SYSTEM_USER_IDS.SYSTEM_RESERVE,
+		// Gated by a marker: later operational debits (e.g. admin bail payments)
+		// must stay on the reserve and never be swept onto the game treasury.
+		const reserveMigrationKey = "system_reserve_deficit_migrated";
+		const reserveMigrationDone = get<{ value: string }>(
+			"SELECT value FROM system_state WHERE key = ?",
+			[reserveMigrationKey],
 		);
-		if (reserveMicro < 0) {
-			const deficitJuno = AmountPrecision.fromDbMicro(Math.abs(reserveMicro));
-			logger.info("Migrating SYSTEM_RESERVE deficit to BOT_TREASURY", {
-				reserveBalanceMicro: reserveMicro,
-				deficitJuno,
-			});
-			// Credit SYSTEM_RESERVE back to zero
-			await LedgerService.processAdjustment(
+		if (!reserveMigrationDone) {
+			const reserveMicro = await LedgerService.getUserBalanceMicro(
 				SYSTEM_USER_IDS.SYSTEM_RESERVE,
-				deficitJuno,
-				"Migration: zeroing SYSTEM_RESERVE deficit",
 			);
-			// Debit the same amount from BOT_TREASURY
-			await LedgerService.processAdjustment(
-				SYSTEM_USER_IDS.BOT_TREASURY,
-				-deficitJuno,
-				"Migration: absorbing SYSTEM_RESERVE deficit as gas/adjustment costs",
+			if (reserveMicro < 0) {
+				const deficitJuno = AmountPrecision.fromDbMicro(Math.abs(reserveMicro));
+				logger.info("Migrating SYSTEM_RESERVE deficit to BOT_TREASURY", {
+					reserveBalanceMicro: reserveMicro,
+					deficitJuno,
+				});
+				// Credit SYSTEM_RESERVE back to zero
+				await LedgerService.processAdjustment(
+					SYSTEM_USER_IDS.SYSTEM_RESERVE,
+					deficitJuno,
+					"Migration: zeroing SYSTEM_RESERVE deficit",
+				);
+				// Debit the same amount from BOT_TREASURY
+				await LedgerService.processAdjustment(
+					SYSTEM_USER_IDS.BOT_TREASURY,
+					-deficitJuno,
+					"Migration: absorbing SYSTEM_RESERVE deficit as gas/adjustment costs",
+				);
+				logger.info("SYSTEM_RESERVE deficit migrated to BOT_TREASURY");
+			}
+			execute(
+				`INSERT OR REPLACE INTO system_state (key, value, updated_at)
+				 VALUES (?, 'completed', strftime('%s', 'now'))`,
+				[reserveMigrationKey],
 			);
-			logger.info("SYSTEM_RESERVE deficit migrated to BOT_TREASURY");
 		}
 	}
 

@@ -12,7 +12,6 @@
  * - transactions: amount, balance_after
  * - violations: bail_amount
  * - jail_events: bail_amount
- * - user_restrictions: auto_jail_fine
  * - processed_deposits: amount
  * - transaction_locks: amount
  * - giveaways: total_amount, amount_per_slot
@@ -22,7 +21,6 @@
  *
  * NOT affected (USD values, keep as REAL):
  * - price_history: price_usd
- * - fine_config: amount_usd
  */
 
 import type { SqliteDatabase } from "../sqlite";
@@ -166,25 +164,34 @@ export function runMigration(db: SqliteDatabase): MigrationResult {
 			result.errors.push(`jail_events: ${e}`);
 		}
 
-		// 5. user_restrictions.auto_jail_fine
-		try {
-			const restrictions = db
-				.prepare(
-					"SELECT id, auto_jail_fine FROM user_restrictions WHERE auto_jail_fine > 0",
-				)
-				.all() as { id: number; auto_jail_fine: number }[];
+		// 5. user_restrictions.auto_jail_fine (dropped in migration 013)
+		const restrictionColumns = db
+			.prepare("PRAGMA table_info(user_restrictions)")
+			.all() as { name: string }[];
+		if (restrictionColumns.some((c) => c.name === "auto_jail_fine")) {
+			try {
+				const restrictions = db
+					.prepare(
+						"SELECT id, auto_jail_fine FROM user_restrictions WHERE auto_jail_fine > 0",
+					)
+					.all() as { id: number; auto_jail_fine: number }[];
 
-			for (const row of restrictions) {
-				const microFine = Math.round(row.auto_jail_fine * MICRO_MULTIPLIER);
-				db.prepare(
-					"UPDATE user_restrictions SET auto_jail_fine = ? WHERE id = ?",
-				).run(microFine, row.id);
-				result.rowsConverted++;
+				for (const row of restrictions) {
+					const microFine = Math.round(row.auto_jail_fine * MICRO_MULTIPLIER);
+					db.prepare(
+						"UPDATE user_restrictions SET auto_jail_fine = ? WHERE id = ?",
+					).run(microFine, row.id);
+					result.rowsConverted++;
+				}
+				result.tablesUpdated.push("user_restrictions");
+				logger.info(`Converted ${restrictions.length} user_restrictions rows`);
+			} catch (e) {
+				result.errors.push(`user_restrictions: ${e}`);
 			}
-			result.tablesUpdated.push("user_restrictions");
-			logger.info(`Converted ${restrictions.length} user_restrictions rows`);
-		} catch (e) {
-			result.errors.push(`user_restrictions: ${e}`);
+		} else {
+			logger.info(
+				"Migration 001: user_restrictions.auto_jail_fine absent, skipping",
+			);
 		}
 
 		// 6. processed_deposits.amount

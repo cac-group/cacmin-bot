@@ -284,21 +284,19 @@ the selected window.
 - `/duelhistory [limit]` - View your recent completed duels
 - `/duelcancel` - Cancel your pending outgoing duel
 
-### Payments, Bail, and Verification
-- `/payfines` - View all unpaid fines in DM
-- `/payallfines` - Pay all unpaid fines from your internal wallet in DM
-- `/payfine [violationId]` - List unpaid fines, or show payment instructions for one fine
-- `/verifypayment <violationId> <txhash>` - Verify an on-chain fine payment
-- `/paybail [<@username|userId>]` - Pay your own bail, or another user's bail; in a group, you can reply `/paybail` to their message
+### Bail and Verification
+- `/paybail [<@username|userId>]` - Show the bail amount and payment address; reply `/paybail` to a jailed user's message to pay for them
 - `/verifybail <txhash>` - Verify your own bail payment
 - `/verifybail <@username|userId> <txhash>` - Verify another user's bail payment, or reply `/verifybail <txhash>` to their group message
 - `/bailhelp` - Get complete bail payment and verification details in a DM
+- `/payfines`, `/payfine` - Legacy aliases that show the same bail instructions
+- `/verifypayment <txhash>` - Legacy alias for `/verifybail`
 
 ### Moderation and Restrictions
 - `/jail <@username|userId> <minutes> ["reason"]` or `/silence <@username|userId> <minutes> ["reason"]` - Jail a user for a fixed duration, optionally recording a quoted reason (`admin+`)
 - `/unjail <@username|userId>` or `/unsilence <@username|userId>` - Release a jailed user (`admin+`)
 - `/warn <@username|userId> <reason>` - Issue a warning and violation (`admin+`)
-- `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]` - Add a user restriction (`admin+`)
+- `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration]` - Add a user restriction (`admin+`)
 - `/listrestrictions <@username|userId>` - View a user's restrictions (`elevated+`)
 - `/removerestriction <@username|userId> [type]` - Remove one restriction, or omit `[type]` to remove them all (`elevated+`)
 - `/clearrestrictions <@username|userId>` - Remove all restrictions from a user (`elevated+`)
@@ -328,11 +326,8 @@ the selected window.
 - `/elevate <@username|userId>` - Promote a user to elevated (`admin+`)
 - `/revoke <@username|userId>` - Demote an elevated or admin user (`admin+`)
 
-### Fines and Custom Punishments
-- `/setfine <type> <amount_usd> [description]` - Configure a violation fine (`owner`)
-- `/listfines` - View fine configuration (`owner`)
-- `/initfines` - Seed default fine configuration (`owner`)
-- `/customjail <@username|userId> <minutes> <juno_amount> <reason>` - Jail a user with a custom fine (`owner`)
+### Violations and Moderation Ops
+- `/payallfines <@username|userId>` - Release a jailed user by covering their bail from the system reserve (`admin+`)
 - `/junoprice` - View the current JUNO price (`owner`)
 - `/clearviolations <@username|userId>` - Clear all violations for a user (`owner`)
 - `/crawlidentities [count|reset]` - Backfill missing usernames and profiles for known members (`owner`)

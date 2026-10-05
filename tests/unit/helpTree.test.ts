@@ -40,7 +40,6 @@ describe("helpTree structure", () => {
 		expect(topLevelRoles["shared"]).toEqual(ALL_ROLES);
 		expect(topLevelRoles["user"]).toEqual(ALL_ROLES);
 		expect(topLevelRoles["giveaways"]).toEqual(ALL_ROLES);
-		expect(topLevelRoles["payments"]).toEqual(ALL_ROLES);
 		expect(topLevelRoles["games"]).toEqual(ALL_ROLES);
 		expect(topLevelRoles["elevated"]).toEqual(ELEVATED_ROLES);
 		expect(topLevelRoles["admin"]).toEqual(ADMIN_ROLES);
@@ -78,24 +77,20 @@ describe("helpTree structure", () => {
 				.map((node) => node.key);
 
 		expect(visibleTopLevel("pleb")).toEqual([
-			"menu",
 			"wallet",
 			"shared",
 			"user",
 			"giveaways",
-			"payments",
 			"games",
 		]);
 		expect(visibleTopLevel("elevated")).not.toContain("admin");
 		expect(visibleTopLevel("elevated")).not.toContain("owner");
 		expect(visibleTopLevel("admin")).not.toContain("owner");
 		expect(visibleTopLevel("owner")).toEqual([
-			"menu",
 			"wallet",
 			"shared",
 			"user",
 			"giveaways",
-			"payments",
 			"games",
 			"elevated",
 			"admin",

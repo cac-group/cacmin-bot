@@ -20,7 +20,6 @@ import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
 import { hasStoredBinding, muteMember, releaseMute } from "./chatMuteService";
-import { PriceService } from "./priceService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
 export const DEFAULT_JAIL_BAIL_AMOUNT = config.defaultJailBailAmount;
@@ -293,40 +292,6 @@ export class JailService {
 			LIMIT ?`,
 			[limit],
 		).map(toJunoJailEvent);
-	}
-
-	/**
-	 * Calculates bail amount based on jail duration using USD-based pricing.
-	 * Converts USD to JUNO using rolling average price from CoinGecko.
-	 *
-	 * @param durationMinutes - Duration of jail in minutes
-	 * @returns Promise resolving to bail amount in JUNO tokens
-	 *
-	 * @example
-	 * ```typescript
-	 * const bail = await JailService.calculateBailAmount(60); // ~1.0 JUNO for 1 hour at $0.10/min
-	 * ```
-	 */
-	static async calculateBailAmount(durationMinutes: number): Promise<number> {
-		return PriceService.calculateBailAmount(durationMinutes);
-	}
-
-	/**
-	 * Synchronous fallback for bail calculation (uses cached/default values).
-	 * Use this only when async is not possible.
-	 *
-	 * @param durationMinutes - Duration of jail in minutes
-	 * @returns Bail amount in JUNO tokens
-	 */
-	static calculateBailAmountSync(durationMinutes: number): number {
-		const perMinuteUsd = PriceService.getFineConfigUsd("jail_per_minute");
-		const minimumUsd = PriceService.getFineConfigUsd("jail_minimum");
-		const totalUsd = Math.max(minimumUsd, durationMinutes * perMinuteUsd);
-
-		// Use a default price if we can't get the rolling average synchronously
-		// This will be updated on next async call
-		const defaultPrice = 0.1; // $0.10 per JUNO as fallback
-		return Math.round((totalUsd / defaultPrice) * 100) / 100;
 	}
 
 	/**

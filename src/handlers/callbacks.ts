@@ -368,7 +368,6 @@ async function applyRestriction(
 	autoJailSetting: string,
 	threshold: number,
 	jailDuration: number,
-	jailFine: number,
 ): Promise<void> {
 	addUserRestriction(
 		targetId,
@@ -379,7 +378,6 @@ async function applyRestriction(
 		severity,
 		threshold,
 		jailDuration,
-		jailFine,
 	);
 
 	StructuredLogger.logSecurityEvent("Restriction added via interactive flow", {
@@ -392,14 +390,13 @@ async function applyRestriction(
 		autoJailSetting,
 		threshold,
 		jailDuration,
-		jailFine,
 	});
 
 	const targetDisplay = formatUserIdDisplay(targetId);
 	const autoJailText =
 		autoJailSetting === "disabled"
 			? "Auto-jail: Disabled"
-			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s), ${jailFine.toFixed(1)} JUNO fine)`;
+			: `Auto-jail: After ${threshold} violations (${Math.round(jailDuration / 1440)} day(s))`;
 	const actionText = action
 		? restrictionType === "regex_block"
 			? fmt`Pattern: ${code(action)}`
@@ -471,28 +468,23 @@ async function handleAutoJailCallback(
 	// Configure auto-jail parameters based on selection
 	let threshold: number;
 	let jailDuration: number;
-	let jailFine: number;
 
 	switch (autoJailSetting) {
 		case "strict":
 			threshold = 3;
 			jailDuration = 4320; // 3 days
-			jailFine = 15.0;
 			break;
 		case "lenient":
 			threshold = 10;
 			jailDuration = 1440; // 1 day
-			jailFine = 5.0;
 			break;
 		case "disabled":
 			threshold = 999999; // Effectively disabled
 			jailDuration = 0;
-			jailFine = 0;
 			break;
 		default:
 			threshold = 5;
 			jailDuration = 2880; // 2 days
-			jailFine = 10.0;
 			break;
 	}
 
@@ -504,7 +496,6 @@ async function handleAutoJailCallback(
 	) {
 		session.data.threshold = threshold;
 		session.data.jailDuration = jailDuration;
-		session.data.jailFine = jailFine;
 		session.data.autoJailSetting = autoJailSetting;
 		setSession(userId, "add_restriction", 4, session.data);
 
@@ -565,7 +556,6 @@ ${code("default")} - use the standard ${code("10%")} chance`,
 		autoJailSetting,
 		threshold,
 		jailDuration,
-		jailFine,
 	);
 }
 
@@ -1329,14 +1319,8 @@ async function processAddRestrictionSession(
 
 	// Step 4: Capture extra restriction configuration for types that need it.
 	if (session.step === 4) {
-		const {
-			targetId,
-			severity,
-			threshold,
-			jailDuration,
-			jailFine,
-			autoJailSetting,
-		} = session.data;
+		const { targetId, severity, threshold, jailDuration, autoJailSetting } =
+			session.data;
 
 		if (restrictionType === "regex_block") {
 			const pattern = text.trim();
@@ -1362,7 +1346,6 @@ async function processAddRestrictionSession(
 				autoJailSetting,
 				threshold,
 				jailDuration,
-				jailFine,
 			);
 			return true;
 		}
@@ -1387,7 +1370,6 @@ async function processAddRestrictionSession(
 				autoJailSetting,
 				threshold,
 				jailDuration,
-				jailFine,
 			);
 			return true;
 		}
@@ -1410,7 +1392,6 @@ async function processAddRestrictionSession(
 				autoJailSetting,
 				threshold,
 				jailDuration,
-				jailFine,
 			);
 			return true;
 		}

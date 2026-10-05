@@ -9,7 +9,6 @@
 import { registerCrawlCommands } from "./commands/crawl";
 import { registerDepositCommands } from "./commands/deposit";
 import { registerDuelCommands } from "./commands/duel";
-import { registerFineConfigCommands } from "./commands/fineConfig";
 import {
 	initializeRollSystem,
 	registerGamblingCommands,
@@ -19,7 +18,7 @@ import { registerGiveawayCommands } from "./commands/giveaway";
 import { registerHelpCommand } from "./commands/help";
 import { registerJailCommands } from "./commands/jail";
 import { registerModerationCommands } from "./commands/moderation";
-import { registerPaymentCommands } from "./commands/payment";
+import { registerPriceCommands } from "./commands/price";
 import { registerRateLimitCommands } from "./commands/rateLimit";
 import { registerSharedAccountCommands } from "./commands/sharedAccounts";
 import { registerStickerCommands } from "./commands/sticker";
@@ -172,7 +171,6 @@ async function main() {
 		registerViolationHandlers(bot);
 		registerRestrictionHandlers(bot);
 		registerModerationCommands(bot);
-		registerPaymentCommands(bot);
 		registerRateLimitCommands(bot);
 		registerJailCommands(bot);
 		registerGiveawayCommands(bot);
@@ -181,7 +179,7 @@ async function main() {
 		registerWalletTestCommands(bot); // Owner-only test commands
 		registerSharedAccountCommands(bot); // Shared account management
 		registerStickerCommands(bot); // Sticker sending and management
-		registerFineConfigCommands(bot); // Fine configuration and custom jail commands
+		registerPriceCommands(bot); // JUNO price command
 		registerCrawlCommands(bot); // Owner-driven identity backfill crawl
 		registerGamblingCommands(bot); // Roll gambling game
 		registerDuelCommands(bot); // Duel 2-player game

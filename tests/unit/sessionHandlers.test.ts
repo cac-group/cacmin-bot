@@ -172,7 +172,9 @@ describe("Session handlers", () => {
 		const userId = 222222222; // Elevated user
 
 		// Invalid user in add_restriction
-		setSession(userId, "add_restriction", 1, { restrictionType: "no_stickers" });
+		setSession(userId, "add_restriction", 1, {
+			restrictionType: "no_stickers",
+		});
 		let ctx = createAdminContext({ userId, messageText: "invalid" });
 		await handleSessionText(ctx as any);
 		expect(wasTextReplied(ctx, "User not found")).toBe(true);
@@ -219,7 +221,6 @@ describe("Session handlers", () => {
 			"delete",
 			5,
 			2880,
-			10,
 		);
 		expect(wasTextReplied(ctx, "Restriction Applied")).toBe(true);
 		expect(getSession(userId)).toBeNull();

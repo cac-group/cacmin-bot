@@ -284,8 +284,6 @@ export const initDb = (): void => {
       severity TEXT DEFAULT 'delete',
       violation_threshold INTEGER DEFAULT 5,
       auto_jail_duration INTEGER DEFAULT 2880,
-      auto_jail_fine REAL DEFAULT 10000000, -- 10 JUNO in micro-units
-      fine_amount REAL DEFAULT 0,
       custom_message TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -310,20 +308,6 @@ export const initDb = (): void => {
 	try {
 		db.exec(
 			`ALTER TABLE user_restrictions ADD COLUMN auto_jail_duration INTEGER DEFAULT 2880`,
-		);
-	} catch (_e) {
-		// Column already exists, ignore
-	}
-	try {
-		db.exec(
-			`ALTER TABLE user_restrictions ADD COLUMN auto_jail_fine REAL DEFAULT 10000000`, // 10 JUNO in micro-units
-		);
-	} catch (_e) {
-		// Column already exists, ignore
-	}
-	try {
-		db.exec(
-			`ALTER TABLE user_restrictions ADD COLUMN fine_amount REAL DEFAULT 0`,
 		);
 	} catch (_e) {
 		// Column already exists, ignore
@@ -443,18 +427,6 @@ export const initDb = (): void => {
       UNIQUE(giveaway_id, user_id),
       FOREIGN KEY (giveaway_id) REFERENCES giveaways(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-  `);
-
-	// Fine configuration table for USD-based fine amounts
-	db.exec(`
-    CREATE TABLE IF NOT EXISTS fine_config (
-      fine_type TEXT PRIMARY KEY,
-      amount_usd REAL NOT NULL,
-      description TEXT,
-      updated_at INTEGER DEFAULT (strftime('%s', 'now')),
-      updated_by INTEGER,
-      FOREIGN KEY (updated_by) REFERENCES users(id)
     );
   `);
 

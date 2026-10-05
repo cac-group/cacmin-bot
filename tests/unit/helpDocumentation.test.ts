@@ -98,6 +98,8 @@ describe("help documentation coverage", () => {
 	it("keeps role-based help aligned with every registered command", () => {
 		const registeredCommands = extractRegisteredCommands();
 		registeredCommands.delete("help");
+		// /menu is a UI entry point (like /help), not a command documented in the tree.
+		registeredCommands.delete("menu");
 
 		const documentedCommands = new Set<string>();
 		for (const text of collectLeafText(helpTree)) {
@@ -136,12 +138,12 @@ describe("help documentation coverage", () => {
 
 	it("keeps key usage signatures aligned with the live handlers", () => {
 		const readmeCommands = getReadmeCommandsSection();
-		const payments = textForSection("payments");
+		const jailed = textForSection("user:jailed");
 		const shared = textForSection("shared");
 		const owner = textForSection("owner");
 
-		expect(payments).toContain("/payfine [id]");
-		expect(payments).toContain("/verifypayment <violationId> <txhash>");
+		expect(jailed).toContain("/payfine");
+		expect(jailed).toContain("/verifypayment <txhash>");
 		expect(textForSection("games:duel")).toContain("/duelhistory [limit]");
 		expect(textForSection("elevated")).toContain(
 			"/createshared <name> <display_name> [description]",
@@ -153,29 +155,19 @@ describe("help documentation coverage", () => {
 			"/updateaccess <account_name> <@username|user_id> <level> [spend_limit]",
 		);
 		expect(textForSection("wallet")).toContain("/claimdeposit <txhash>");
-		expect(payments).toContain("/paybail <@username|userId>");
-		expect(payments).toContain(
-			"/verifybail <@username|userId> <txhash>",
-		);
-		expect(payments).toContain("/bailhelp");
+		expect(jailed).toContain("/paybail <@username|userId>");
+		expect(jailed).toContain("/verifybail <@username|userId> <txhash>");
+		expect(jailed).toContain("/bailhelp");
 		expect(shared).toContain(
 			"/sharedsend <name> <@username|user_id> <amount> [description]",
 		);
 		expect(shared).toContain(
 			"/revokeaccess <account_name> <@username|user_id>",
 		);
-		expect(owner).toContain(
-			"/setfine <type> <amount_usd> [description]",
+		expect(textForSection("admin:moderation")).toContain(
+			"/payallfines <@username|userId>",
 		);
-		expect(owner).toContain(
-			"/customjail <@username|userId> <minutes> <juno_amount> <reason>",
-		);
-		expect(owner).toContain(
-			"/addidentityblock <pattern> [name|username|both]",
-		);
-		expect(readmeCommands).toContain(
-			"`/setfine <type> <amount_usd> [description]`",
-		);
+		expect(owner).toContain("/addidentityblock <pattern> [name|username|both]");
 		expect(readmeCommands).toContain(
 			"`/grantaccess <account_name> <@username|user_id> <level> [spend_limit]`",
 		);
@@ -190,9 +182,6 @@ describe("help documentation coverage", () => {
 		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
 		expect(readmeCommands).toContain(
 			"`/verifybail <@username|userId> <txhash>`",
-		);
-		expect(readmeCommands).toContain(
-			"`/customjail <@username|userId> <minutes> <juno_amount> <reason>`",
 		);
 		expect(readmeCommands).toContain(
 			"`/addidentityblock <pattern> [name|username|both]`",

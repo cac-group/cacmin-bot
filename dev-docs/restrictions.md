@@ -50,8 +50,8 @@ same type (e.g. two different `regex_block` patterns) remain separate rows.
 
 ## Upsert policy
 
-Idempotent config/state writes upsert on their natural key (`fine_config`,
-`user_rate_limits`, `user_aliases`, `system_state`, `global_restrictions`,
+Idempotent config/state writes upsert on their natural key
+(`user_rate_limits`, `user_aliases`, `system_state`, `global_restrictions`,
 `user_restrictions`, `spam_patterns`, `identity_block_patterns`,
 `shared_account_permissions`, `giveaway_claims`, `user_balances`). Append-only
 audit tables are deliberately

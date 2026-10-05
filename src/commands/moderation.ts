@@ -450,8 +450,6 @@ Please follow the group rules.`,
 	 *
 	 *      Violations
 	 *      Total: 75
-	 *      Unpaid Fines: 125.50 JUNO
-	 *      Paid Fines: 300.75 JUNO
 	 */
 	bot.command("stats", ownerOnly, async (ctx) => {
 		const ownerId = ctx.from?.id;
@@ -470,16 +468,6 @@ Please follow the group rules.`,
 			totalViolations:
 				get<{ count: number }>("SELECT COUNT(*) as count FROM violations")
 					?.count || 0,
-			unpaidFines: AmountPrecision.fromDbMicro(
-				get<{ total: number }>(
-					"SELECT SUM(bail_amount) as total FROM violations WHERE paid = 0",
-				)?.total || 0,
-			),
-			paidFines: AmountPrecision.fromDbMicro(
-				get<{ total: number }>(
-					"SELECT SUM(bail_amount) as total FROM violations WHERE paid = 1",
-				)?.total || 0,
-			),
 			activeRestrictions:
 				get<{ count: number }>(
 					"SELECT COUNT(*) as count FROM user_restrictions WHERE restricted_until IS NULL OR restricted_until > ?",
@@ -515,8 +503,6 @@ Whitelisted: ${stats.whitelisted}
 
 ${bold("Violations")}
 Total: ${stats.totalViolations}
-Unpaid Fines: ${stats.unpaidFines.toFixed(2)} JUNO
-Paid Fines: ${stats.paidFines.toFixed(2)} JUNO
 
 ${bold("Jails")}
 Currently Jailed: ${stats.activeJails}

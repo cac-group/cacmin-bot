@@ -6,7 +6,6 @@ import { execute, query } from "../database";
 import type { GlobalAction, User, UserRestriction } from "../types";
 import { prepareResponse, recordResponse } from "../utils/autoDelete";
 import { logger } from "../utils/logger";
-import { AmountPrecision } from "../utils/precision";
 import {
 	getRandomDeleteProbability,
 	RANDOM_DELETE_MIN_UNIQUE_WORDS,
@@ -110,14 +109,10 @@ export class RestrictionService {
 		const userRestrictions = query<UserRestriction>(
 			`SELECT id, user_id AS userId, restriction, restricted_action AS restrictedAction,
 			 metadata, restricted_until AS restrictedUntil, severity, violation_threshold AS violationThreshold,
-			 auto_jail_duration AS autoJailDuration, auto_jail_fine AS autoJailFine,
-			 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
+			 auto_jail_duration AS autoJailDuration, custom_message AS customMessage, created_at AS createdAt
 			 FROM user_restrictions WHERE user_id = ? AND (restricted_until IS NULL OR restricted_until > ?)`,
 			[userId, now],
-		).map((row) => ({
-			...row,
-			autoJailFine: AmountPrecision.fromDbMicro(row.autoJailFine),
-		}));
+		);
 
 		// Get global restrictions - only apply if user is NOT elevated
 		let globalRestrictions: GlobalAction[] = [];
@@ -293,19 +288,13 @@ export class RestrictionService {
 				default: {
 					// Use custom message if available, otherwise default
 					const customMsg = userRestriction.customMessage;
-					const fineAmt = userRestriction.fineAmount || 0;
 
 					if (customMsg) {
-						// Custom message mode with optional fine
-						// Reply to violating message first (flags the user), then delete it
-						const fineText =
-							fineAmt > 0
-								? `\n\n${bold("To remove this restriction:")} Pay ${fineAmt} JUNO using ${code("/payfine")}`
-								: "";
+						// Custom message mode
 						await RestrictionService.sendTrackedViolationResponse(
 							ctx,
 							restriction.restriction,
-							fmt`${customMsg}${fineText}`,
+							fmt`${customMsg}`,
 							violatingMessageId,
 						);
 						await ctx.deleteMessage();
@@ -314,18 +303,14 @@ export class RestrictionService {
 						const label = restrictionLabel(restriction.restriction);
 						const warningText =
 							recentViolations.length >= threshold - 1
-								? `\n${bold("Heads up:")} one more violation means an automatic 2-day jail and a 10 JUNO fine.`
-								: "";
-						const fineText =
-							fineAmt > 0
-								? `\n\nRemove this restriction by paying ${fineAmt} JUNO: ${code("/payfine")}`
+								? fmt`\n${bold("Heads up:")} one more violation means an automatic 2-day jail.`
 								: "";
 						await RestrictionService.sendTrackedViolationResponse(
 							ctx,
 							restriction.restriction,
 							fmt`Your message was removed: ${bold(label)}.
 
-Violations in the last hour: ${recentViolations.length}/${threshold}${warningText}${fineText}
+Violations in the last hour: ${recentViolations.length}/${threshold}${warningText}
 
 Check your status with ${code("/violations")}.`,
 							violatingMessageId,

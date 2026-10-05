@@ -31,3 +31,5 @@ that has no home beside the code.
 - `logs/2026-10-02.md` — centralize tunable constants into `config.ts`.
 - `logs/2026-10-03.md` — fix rate-limit muting (`ctx.telegram` vs `bot.telegram`)
   and error-metadata logging.
+- `logs/2026-10-05.md` — `/help` cleanup; fines consolidated into a fixed
+  69.420 JUNO bail; admin/owner reserve-funded bail; fine config dropped.

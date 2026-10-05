@@ -80,6 +80,13 @@ export function runMigration(db: SqliteDatabase): MigrationResult {
 
 		db.exec("BEGIN TRANSACTION");
 		for (const { table, column, timeColumn } of COLUMNS) {
+			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as {
+				name: string;
+			}[];
+			if (!columns.some((existing) => existing.name === column)) {
+				logger.info(`Migration 010: ${table}.${column} absent, skipping`);
+				continue;
+			}
 			const scheduled = db
 				.prepare(
 					`SELECT COUNT(*) AS count FROM ${table}

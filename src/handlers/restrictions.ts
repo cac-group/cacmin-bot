@@ -65,7 +65,7 @@ export const registerRestrictionHandlers = (bot: Telegraf<Context>) => {
 	 *
 	 * 2. **Command-line mode** (with arguments):
 	 *    Full control via command arguments:
-	 *    `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]`
+	 *    `/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration]`
 	 *
 	 * **Restriction Types:**
 	 * no_stickers, no_urls, no_media, no_photos, no_videos, no_documents,
@@ -121,10 +121,10 @@ ${bold("Restriction Types:")}
 ${bold("Severity Levels:")}
 • ${bold("delete")} (default) - Just delete the violating message
 • ${bold("mute")} - 30-minute mute on each violation
-• ${bold("jail")} - Immediate 1-hour jail with 5 JUNO fine
+• ${bold("jail")} - Immediate 1-hour jail (69.420 JUNO bail)
 
 Command format:
-${code("/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]")}
+${code("/addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration]")}
 
 ${bold("Examples:")}
 ${code("/addrestriction @alice no_photos")} (delete only)
@@ -148,7 +148,7 @@ You can also reply to a user's message: ${code("/addrestriction <type> [options.
 		const target = resolveTargetUser(ctx, args);
 		if (!target) {
 			return ctx.reply(
-				fmt`${bold("Usage")}: /addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration] [jailFine]
+				fmt`${bold("Usage")}: /addrestriction <@username|userId> <type> [action] [until] [severity] [threshold] [jailDuration]
 
 Or reply to a user's message with: /addrestriction <type> [options...]`,
 			);
@@ -162,7 +162,6 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 			severity,
 			violationThreshold,
 			autoJailDuration,
-			autoJailFine,
 		] = remainingArgs;
 
 		if (!restriction) {
@@ -217,8 +216,6 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 				autoJailDuration && autoJailDuration !== "-"
 					? parseInt(autoJailDuration, 10)
 					: 2880;
-			const jailFine =
-				autoJailFine && autoJailFine !== "-" ? parseFloat(autoJailFine) : 10.0;
 
 			addUserRestriction(
 				target.userId,
@@ -229,7 +226,6 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 				severityLevel,
 				threshold,
 				jailDuration,
-				jailFine,
 			);
 
 			StructuredLogger.logSecurityEvent("Restriction added to user", {
@@ -242,13 +238,12 @@ Or reply to a user's message with: /addrestriction <type> [options...]`,
 				severity: severityLevel,
 				violationThreshold: threshold,
 				autoJailDuration: jailDuration,
-				autoJailFine: jailFine,
 			});
 
 			await ctx.reply(
 				fmt`Restriction '${restrictionLabel(restriction)}' added for @${target.username} (${target.userId}).
 Severity: ${severityLevel}
-Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, ${jailFine.toFixed(1)} JUNO fine)`,
+Auto-jail after ${threshold} violations in 60 minutes (${jailDuration} min jail, 69.420 JUNO bail)`,
 			);
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {
@@ -391,7 +386,6 @@ ${bold("Action:")} ${r.restrictedAction || "N/A"}
 ${bold("Severity:")} ${r.severity || "delete"}
 ${bold("Threshold:")} ${r.violationThreshold || 5} violations in 60 min
 ${bold("Auto-jail:")} ${r.autoJailDuration || 2880} min (${daysCount} days)
-${bold("Fine:")} ${(r.autoJailFine || 10.0).toFixed(1)} JUNO
 ${bold("Expires:")} ${expiresText}`.text;
 				})
 				.join("\n\n━━━━━━━━━━━━━━\n\n");

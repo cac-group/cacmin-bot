@@ -11,7 +11,6 @@ import { bold, code, fmt } from "telegraf/format";
 import { query } from "../database";
 import type { Violation } from "../types";
 import { StructuredLogger } from "../utils/logger";
-import { AmountPrecision } from "../utils/precision";
 
 /**
  * Registers all violation management command handlers with the bot.
@@ -50,50 +49,34 @@ export const registerViolationHandlers = (bot: Telegraf<Context>) => {
 
 		try {
 			const violations = query<Violation>(
-				`SELECT id, user_id AS userId, rule_id AS ruleId, restriction,
-				 message, timestamp, bail_amount AS bailAmount, paid, payment_tx AS paymentTx,
-				 paid_by_user_id AS paidByUserId, paid_at AS paidAt
+				`SELECT id, restriction, message, timestamp
 				 FROM violations WHERE user_id = ?`,
 				[userId],
-			).map((row) => ({
-				...row,
-				bailAmount: AmountPrecision.fromDbMicro(row.bailAmount),
-			}));
+			);
 
 			if (violations.length === 0) {
 				return ctx.reply("You have no violations!");
 			}
 
 			const parts = [bold("Your Violations"), ""];
-			let totalUnpaid = 0;
-			let unpaidCount = 0;
 
 			for (const v of violations) {
-				const paidStatus = v.paid
-					? "Paid"
-					: `Unpaid (${v.bailAmount.toFixed(2)} JUNO)`;
 				parts.push(`#${v.id} - ${v.restriction}`);
-				parts.push(`Status: ${paidStatus}`);
 				if (v.message) {
 					parts.push(`Message: ${code(v.message.substring(0, 50))}`);
 				}
 				parts.push("");
-
-				if (!v.paid) {
-					totalUnpaid += v.bailAmount;
-					unpaidCount++;
-				}
 			}
 
-			parts.push("Use /payfine to see payment instructions.");
+			parts.push(
+				"Violations are warning history. A jail's bail is the only amount owed; use /paybail.",
+			);
 			await ctx.reply(fmt([parts.join("\n")]));
 
 			StructuredLogger.logUserAction("Violations queried", {
 				userId,
 				operation: "view_violations",
 				totalViolations: violations.length.toString(),
-				unpaidCount: unpaidCount.toString(),
-				totalUnpaid: totalUnpaid.toFixed(2),
 			});
 		} catch (error) {
 			StructuredLogger.logError(error as Error, {

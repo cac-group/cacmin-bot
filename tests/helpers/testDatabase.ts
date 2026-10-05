@@ -74,7 +74,6 @@ export function initTestDatabase(): Database {
       severity TEXT DEFAULT 'delete',
       violation_threshold INTEGER DEFAULT 5,
       auto_jail_duration INTEGER DEFAULT 2880,
-      auto_jail_fine REAL DEFAULT 10.0,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -220,14 +219,6 @@ export function initTestDatabase(): Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       price_usd REAL NOT NULL,
       timestamp INTEGER DEFAULT (strftime('%s', 'now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS fine_config (
-      fine_type TEXT PRIMARY KEY,
-      amount_usd REAL NOT NULL,
-      description TEXT,
-      updated_at INTEGER DEFAULT (strftime('%s', 'now')),
-      updated_by INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS idx_price_history_timestamp ON price_history(timestamp);

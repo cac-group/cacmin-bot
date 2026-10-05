@@ -128,13 +128,6 @@ console.log(`   Log Level: ${config.logLevel}`);
 console.log(`   Database Path: ${config.databasePath}`);
 console.log(`   JUNO RPC: ${config.junoRpcUrl}`);
 
-// Fine amounts
-console.log('\n Fine Configuration:');
-console.log(`   Stickers: ${config.fineAmounts.sticker} JUNO`);
-console.log(`   URLs: ${config.fineAmounts.url} JUNO`);
-console.log(`   Regex: ${config.fineAmounts.regex} JUNO`);
-console.log(`   Blacklist: ${config.fineAmounts.blacklist} JUNO`);
-
 // Final result
 console.log('\n' + '='.repeat(50));
 if (hasErrors) {

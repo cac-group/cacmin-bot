@@ -3,7 +3,6 @@
 import { execute, query } from "../database";
 import type { User, UserRestriction } from "../types";
 import { StructuredLogger } from "../utils/logger";
-import { AmountPrecision } from "../utils/precision";
 
 /**
  * Create new user with all required fields
@@ -229,7 +228,6 @@ export const setUserRole = (
  * severity: 'delete' (default), 'mute' (30 min), or 'jail' (1 hour immediate)
  * violationThreshold: Number of violations before auto-jail (default: 5)
  * autoJailDuration: Auto-jail duration in minutes (default: 2880 = 2 days)
- * autoJailFine: JUNO fine amount for auto-jail (default: 10.0)
  */
 export const addUserRestriction = (
 	userId: number,
@@ -240,18 +238,16 @@ export const addUserRestriction = (
 	severity: "delete" | "mute" | "jail" = "delete",
 	violationThreshold: number = 5,
 	autoJailDuration: number = 2880,
-	autoJailFine: number = 10.0,
 ): void => {
 	execute(
-		`INSERT INTO user_restrictions (user_id, restriction, restricted_action, metadata, restricted_until, severity, violation_threshold, auto_jail_duration, auto_jail_fine)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO user_restrictions (user_id, restriction, restricted_action, metadata, restricted_until, severity, violation_threshold, auto_jail_duration)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(user_id, restriction, restricted_action) DO UPDATE SET
 		   metadata = excluded.metadata,
 		   restricted_until = excluded.restricted_until,
 		   severity = excluded.severity,
 		   violation_threshold = excluded.violation_threshold,
-		   auto_jail_duration = excluded.auto_jail_duration,
-		   auto_jail_fine = excluded.auto_jail_fine`,
+		   auto_jail_duration = excluded.auto_jail_duration`,
 		[
 			userId,
 			restriction,
@@ -261,7 +257,6 @@ export const addUserRestriction = (
 			severity,
 			violationThreshold,
 			autoJailDuration,
-			AmountPrecision.toDbMicro(autoJailFine),
 		],
 	);
 
@@ -272,7 +267,6 @@ export const addUserRestriction = (
 		severity,
 		violationThreshold,
 		autoJailDuration,
-		autoJailFine,
 	});
 };
 
@@ -317,12 +311,8 @@ export const getUserRestrictions = (userId: number): UserRestriction[] => {
 	return query<UserRestriction>(
 		`SELECT id, user_id AS userId, restriction, restricted_action AS restrictedAction,
 		 metadata, restricted_until AS restrictedUntil, severity, violation_threshold AS violationThreshold,
-		 auto_jail_duration AS autoJailDuration, auto_jail_fine AS autoJailFine,
-		 fine_amount AS fineAmount, custom_message AS customMessage, created_at AS createdAt
+		 auto_jail_duration AS autoJailDuration, custom_message AS customMessage, created_at AS createdAt
 		 FROM user_restrictions WHERE user_id = ?`,
 		[userId],
-	).map((row) => ({
-		...row,
-		autoJailFine: AmountPrecision.fromDbMicro(row.autoJailFine),
-	}));
+	);
 };
