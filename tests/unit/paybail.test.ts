@@ -98,7 +98,7 @@ describe("paybail", () => {
 
 		const text = getReplyText(ctx);
 		expect(text).toContain("juno1testaddress");
-		expect(text).toContain("69\\.420 JUNO");
+		expect(text).toContain("69.420 JUNO");
 		expect(text).not.toContain("[object Object]");
 	});
 });

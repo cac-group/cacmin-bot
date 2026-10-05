@@ -21,7 +21,6 @@ import type { User } from "../types";
 import { formatActiveTime } from "../utils/activeTime";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
-import { escapeNumber } from "../utils/markdown";
 import { AmountPrecision } from "../utils/precision";
 import {
 	formatUserIdDisplay,
@@ -88,9 +87,9 @@ async function sendBailInstructions(
 		fmt`${bold("Pay Your Bail")}
 
 Current jail time remaining: ${formatTimeRemaining(timeRemaining)}
-Bail amount: ${escapeNumber(bailAmount, 3)} JUNO
+Bail amount: ${bailAmount.toFixed(3)} JUNO
 
-Send exactly ${escapeNumber(bailAmount, 3)} JUNO to:
+Send exactly ${bailAmount.toFixed(3)} JUNO to:
 ${code(JunoService.getPaymentAddress())}
 
 After payment, send:
@@ -318,7 +317,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 					parts.push(bold("Currently Jailed:"));
 					parts.push(" Yes\n");
 					parts.push(`Time Remaining: ${formatTimeRemaining(timeRemaining)}\n`);
-					parts.push(`Bail Amount: ${escapeNumber(bailAmount, 3)} JUNO\n`);
+					parts.push(`Bail Amount: ${bailAmount.toFixed(3)} JUNO\n`);
 					parts.push(
 						`Jailed Until: ${new Date(user.muted_until * 1000).toLocaleString()}\n\n`,
 					);
@@ -343,7 +342,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 							parts.push(` (${event.durationMinutes}min)`);
 						}
 						if (event.bailAmount && event.bailAmount > 0) {
-							parts.push(` - ${escapeNumber(event.bailAmount, 3)} JUNO`);
+							parts.push(` - ${event.bailAmount.toFixed(3)} JUNO`);
 						}
 						parts.push(`\n  ${eventDate}\n`);
 					}
@@ -374,9 +373,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 				parts.push("\n");
 				parts.push(`Times Jailed: ${totalJails}\n`);
 				parts.push(`Bails Paid: ${totalBailsPaid}\n`);
-				parts.push(
-					`Total Bail Spent: ${escapeNumber(totalBailSpent, 2)} JUNO\n`,
-				);
+				parts.push(`Total Bail Spent: ${totalBailSpent.toFixed(2)} JUNO\n`);
 
 				const msg = await ctx.reply(fmt(parts));
 				autoDeleteInGroup(ctx, msg.message_id);
@@ -445,7 +442,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 				const userDisplay = formatUserIdDisplay(jail.id);
 				const bailAmount = JailService.getCurrentBailAmount(jail.id);
 				parts.push(
-					`${index + 1}. ${userDisplay} - ${timeRemaining} (${escapeNumber(bailAmount, 3)} JUNO)\n`,
+					`${index + 1}. ${userDisplay} - ${timeRemaining} (${bailAmount.toFixed(3)} JUNO)\n`,
 				);
 			}
 			parts.push("\n");
@@ -456,9 +453,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 		parts.push(`Total Jail Events: ${totalJailEvents}\n`);
 		parts.push(`Unique Users Jailed: ${totalJailed}\n`);
 		parts.push(`Bails Paid: ${totalBailsPaid}\n`);
-		parts.push(
-			`Total Bail Revenue: ${escapeNumber(totalBailAmount, 2)} JUNO\n`,
-		);
+		parts.push(`Total Bail Revenue: ${totalBailAmount.toFixed(2)} JUNO\n`);
 		parts.push(`Auto-Releases: ${totalAutoReleases}\n`);
 		parts.push(`Manual Releases: ${totalManualReleases}\n`);
 
@@ -591,7 +586,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 
 			parts.push(`${index + 1}. ${userDisplay}\n`);
 			parts.push(`   Time: ${timeRemaining}\n`);
-			parts.push(`   Bail: ${escapeNumber(bailAmount, 3)} JUNO\n`);
+			parts.push(`   Bail: ${bailAmount.toFixed(3)} JUNO\n`);
 			parts.push(`   Pay: /paybail ${jail.id}\n\n`);
 		}
 
@@ -751,7 +746,7 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			fmt`${bold("Bail Paid from Reserve")}
 
 User: ${userDisplay}
-Bail: ${escapeNumber(bailAmount, 3)} JUNO
+Bail: ${bailAmount.toFixed(3)} JUNO
 Reserve balance: ${AmountPrecision.format(adjustment.newBalance)} JUNO
 
 The user has been released.`,

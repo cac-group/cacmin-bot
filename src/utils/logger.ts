@@ -1,123 +1,12 @@
 /**
  * Logger utility module for the CAC Admin Bot.
- * Provides structured logging with Winston, including file rotation,
- * console output, and specialized handlers for errors and rejections.
+ *
+ * Structured console logging with levels. The service manager (systemd/journald)
+ * captures stdout/stderr and owns rotation, so there are no file transports and
+ * no logging dependency.
  *
  * @module utils/logger
  */
-
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as winston from "winston";
-
-/**
- * Directory path for log files.
- * Logs are stored in the 'logs' directory at the project root.
- */
-const logDir = path.join(__dirname, "../../logs");
-
-// Ensure log directory exists
-if (!fs.existsSync(logDir)) {
-	fs.mkdirSync(logDir, { recursive: true });
-}
-
-/** Serialize Error values inside metadata instead of collapsing them to `{}`. */
-const errorReplacer = (_key: string, value: unknown): unknown =>
-	value instanceof Error
-		? { message: value.message, stack: value.stack }
-		: value;
-
-/**
- * Custom format for log entries.
- * Combines timestamp, error stack traces, and metadata into a readable format.
- */
-const logFormat = winston.format.combine(
-	winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-	winston.format.errors({ stack: true }),
-	winston.format.printf(
-		({ timestamp, level, message, tag, subtag, ...meta }) => {
-			let msg = `[${timestamp}] [${level.toUpperCase()}]`;
-			if (tag) msg += ` [${String(tag).toUpperCase()}]`;
-			if (subtag) msg += `[${String(subtag).toUpperCase()}]`;
-			msg += ` ${message}`;
-			if (Object.keys(meta).length > 0 && meta.stack) {
-				msg += `\n${meta.stack}`;
-			} else if (Object.keys(meta).length > 0) {
-				msg += ` ${JSON.stringify(meta, errorReplacer)}`;
-			}
-			return msg;
-		},
-	),
-);
-
-/**
- * Gets the log level from environment variables.
- * Reads directly from process.env to avoid circular dependency with config module.
- *
- * @returns The log level (error, warn, info, debug) - defaults to 'info'
- */
-const getLogLevel = (): string => {
-	return process.env.LOG_LEVEL || "info";
-};
-
-/**
- * Main Winston logger instance with multiple transports.
- *
- * Features:
- * - Console output with color coding
- * - Combined log file (all levels) with 10MB rotation, 5 files max
- * - Error log file (errors only) with 10MB rotation, 5 files max
- * - Exception handler for uncaught exceptions
- * - Rejection handler for unhandled promise rejections
- *
- * @example
- * ```typescript
- * logger.info('User action', { userId: 123, action: 'deposit' });
- * logger.error('Transaction failed', { error, txId: '123' });
- * logger.debug('Validation check', { field: 'amount', value: 100 });
- * ```
- */
-export const logger = winston.createLogger({
-	level: getLogLevel(),
-	format: logFormat,
-	transports: [
-		// Console output (no colors when running under systemd/piped)
-		new winston.transports.Console({
-			format: process.stdout.isTTY
-				? winston.format.combine(winston.format.colorize(), logFormat)
-				: logFormat,
-		}),
-		// Combined log file with rotation
-		new winston.transports.File({
-			filename: path.join(logDir, "combined.log"),
-			maxsize: 10485760, // 10MB
-			maxFiles: 5,
-			tailable: true,
-		}),
-		// Error log file with rotation
-		new winston.transports.File({
-			filename: path.join(logDir, "error.log"),
-			level: "error",
-			maxsize: 10485760, // 10MB
-			maxFiles: 5,
-			tailable: true,
-		}),
-	],
-	exceptionHandlers: [
-		new winston.transports.File({
-			filename: path.join(logDir, "exceptions.log"),
-			maxsize: 10485760, // 10MB
-			maxFiles: 3,
-		}),
-	],
-	rejectionHandlers: [
-		new winston.transports.File({
-			filename: path.join(logDir, "rejections.log"),
-			maxsize: 10485760, // 10MB
-			maxFiles: 3,
-		}),
-	],
-});
 
 /**
  * Context metadata for structured logging.
@@ -143,6 +32,76 @@ export interface LogContext {
 	[key: string]: unknown;
 }
 
+type Level = "error" | "warn" | "info" | "debug";
+
+const LEVELS: Record<Level, number> = { error: 0, warn: 1, info: 2, debug: 3 };
+
+/** Gets the log level from the environment (error, warn, info, debug). */
+const currentLevel = (): number => {
+	const configured = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
+	return LEVELS[configured] ?? LEVELS.info;
+};
+
+/** Serialize Error values inside metadata instead of collapsing them to `{}`. */
+const errorReplacer = (_key: string, value: unknown): unknown =>
+	value instanceof Error
+		? { message: value.message, stack: value.stack }
+		: value;
+
+/** `YYYY-MM-DD HH:MM:SS` in local time. */
+const timestamp = (): string => {
+	const d = new Date();
+	const p = (n: number) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+
+const formatMeta = (meta: Record<string, unknown>): string => {
+	if (Object.keys(meta).length === 0) return "";
+	if (meta.stack) return `\n${meta.stack}`;
+	return ` ${JSON.stringify(meta, errorReplacer)}`;
+};
+
+const emit = (level: Level, message: string, meta?: unknown): void => {
+	if (LEVELS[level] > currentLevel()) return;
+
+	// winston parity: a bare Error second arg contributes its message to the
+	// line and its stack to the metadata (Errors have no enumerable props).
+	let lineMessage = message;
+	let record: Record<string, unknown> = {};
+	if (meta instanceof Error) {
+		lineMessage = `${message} ${meta.message}`;
+		record = { stack: meta.stack };
+	} else if (meta && typeof meta === "object") {
+		record = meta as Record<string, unknown>;
+	}
+
+	const { tag, subtag, ...rest } = record;
+	let line = `[${timestamp()}] [${level.toUpperCase()}]`;
+	if (tag) line += ` [${String(tag).toUpperCase()}]`;
+	if (subtag) line += `[${String(subtag).toUpperCase()}]`;
+	line += ` ${lineMessage}${formatMeta(rest)}`;
+
+	const stream = level === "error" ? process.stderr : process.stdout;
+	stream.write(`${line}\n`);
+};
+
+/**
+ * Main logger instance.
+ *
+ * @example
+ * ```typescript
+ * logger.info('User action', { userId: 123, action: 'deposit' });
+ * logger.error('Transaction failed', { error, txId: '123' });
+ * logger.debug('Validation check', { field: 'amount', value: 100 });
+ * ```
+ */
+export const logger = {
+	info: (message: string, meta?: unknown) => emit("info", message, meta),
+	warn: (message: string, meta?: unknown) => emit("warn", message, meta),
+	error: (message: string, meta?: unknown) => emit("error", message, meta),
+	debug: (message: string, meta?: unknown) => emit("debug", message, meta),
+};
+
 /**
  * Helper class for structured logging with consistent context.
  * Provides domain-specific logging methods for common operations.
@@ -150,19 +109,6 @@ export interface LogContext {
 export class StructuredLogger {
 	/**
 	 * Logs a user action with context.
-	 *
-	 * @param action - Description of the action
-	 * @param context - User and operation context
-	 *
-	 * @example
-	 * ```typescript
-	 * StructuredLogger.logUserAction('Wallet deposit initiated', {
-	 *   userId: 12345,
-	 *   username: 'alice',
-	 *   amount: '100',
-	 *   operation: 'deposit'
-	 * });
-	 * ```
 	 */
 	static logUserAction(action: string, context: LogContext): void {
 		logger.info(
@@ -173,19 +119,6 @@ export class StructuredLogger {
 
 	/**
 	 * Logs a transaction event with context.
-	 *
-	 * @param event - Transaction event description
-	 * @param context - Transaction context including txId, amount, etc.
-	 *
-	 * @example
-	 * ```typescript
-	 * StructuredLogger.logTransaction('Deposit confirmed', {
-	 *   txId: 'tx123',
-	 *   txHash: '0xabc...',
-	 *   amount: '50',
-	 *   userId: 12345
-	 * });
-	 * ```
 	 */
 	static logTransaction(event: string, context: LogContext): void {
 		logger.info(
@@ -196,19 +129,6 @@ export class StructuredLogger {
 
 	/**
 	 * Logs a security event (violations, restrictions, bans).
-	 *
-	 * @param event - Security event description
-	 * @param context - Security context
-	 *
-	 * @example
-	 * ```typescript
-	 * StructuredLogger.logSecurityEvent('User restricted', {
-	 *   userId: 12345,
-	 *   username: 'badactor',
-	 *   operation: 'add_restriction',
-	 *   reason: 'spam'
-	 * });
-	 * ```
 	 */
 	static logSecurityEvent(event: string, context: LogContext): void {
 		logger.warn(
@@ -219,18 +139,6 @@ export class StructuredLogger {
 
 	/**
 	 * Logs an error with full context and stack trace.
-	 *
-	 * @param error - Error object or message
-	 * @param context - Error context
-	 *
-	 * @example
-	 * ```typescript
-	 * StructuredLogger.logError(error, {
-	 *   userId: 12345,
-	 *   operation: 'withdrawal',
-	 *   txId: 'tx456'
-	 * });
-	 * ```
 	 */
 	static logError(error: Error | string, context: LogContext = {}): void {
 		if (error instanceof Error) {
@@ -245,9 +153,6 @@ export class StructuredLogger {
 
 	/**
 	 * Logs a debug message (only in debug log level).
-	 *
-	 * @param message - Debug message
-	 * @param context - Debug context
 	 */
 	static logDebug(message: string, context: LogContext = {}): void {
 		logger.debug(message, StructuredLogger.sanitizeContext(context));
@@ -256,9 +161,6 @@ export class StructuredLogger {
 	/**
 	 * Sanitizes context to prevent logging sensitive data.
 	 * Removes or masks sensitive fields like mnemonics, private keys, etc.
-	 *
-	 * @param context - Raw context object
-	 * @returns Sanitized context safe for logging
 	 */
 	private static sanitizeContext(context: LogContext): LogContext {
 		const sanitized = { ...context };

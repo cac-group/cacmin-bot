@@ -9,7 +9,6 @@ import { config } from "../config";
 import { logger } from "./logger";
 
 const MAX_PATTERN_LENGTH = config.limits.maxRegexPatternLength;
-const DEFAULT_TIMEOUT_MS = config.limits.regexTimeoutMs;
 const SAFE_FLAGS = "gimsu";
 
 /**
@@ -149,53 +148,6 @@ export function compileSafeRegex(pattern: string): CompiledPattern {
 }
 
 /**
- * Tests a pattern against a string with timeout protection.
- * Prevents ReDoS attacks by limiting execution time.
- *
- * @param regex - Compiled RegExp to test
- * @param text - Text to test against
- * @param timeoutMs - Maximum execution time in milliseconds
- * @returns Promise resolving to true if match found, false otherwise
- *
- * @example
- * ```typescript
- * const regex = /test.pattern/gi;
- * const matches = await testPatternSafely(regex, 'test my pattern', 100);
- * ```
- */
-export function testPatternSafely(
-	regex: RegExp,
-	text: string,
-	timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<boolean> {
-	return new Promise((resolve) => {
-		const timeoutId = setTimeout(() => {
-			logger.warn("Regex execution timeout", {
-				pattern: regex.source,
-				flags: regex.flags,
-				timeoutMs,
-			});
-			resolve(false);
-		}, timeoutMs);
-
-		try {
-			// Reset lastIndex to avoid issues with global flag
-			regex.lastIndex = 0;
-			const result = regex.test(text);
-			clearTimeout(timeoutId);
-			resolve(result);
-		} catch (error) {
-			clearTimeout(timeoutId);
-			logger.error("Regex execution error", {
-				pattern: regex.source,
-				error,
-			});
-			resolve(false);
-		}
-	});
-}
-
-/**
  * Creates a complete pattern object from raw input.
  * Validates, sanitizes, and compiles the pattern.
  *
@@ -206,7 +158,7 @@ export function testPatternSafely(
  * ```typescript
  * const pattern = createPatternObject('test*');
  * if (pattern) {
- *   const matches = await testPatternSafely(pattern.regex, 'testing');
+ *   const matches = pattern.regex.test('testing');
  * }
  * ```
  */

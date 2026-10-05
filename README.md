@@ -347,18 +347,6 @@ the selected window.
 - `/removeidentityblock <id>` - Remove a custom identity block pattern (`owner`)
 - `/testidentityblock <pattern> <sample>` - Test an identity block pattern without saving it (`owner`)
 
-### Wallet Test Commands (`owner`)
-- `/testbalance` - Check your balance and the bot treasury balance
-- `/testdeposit` - Show the raw deposit address and memo generated for you
-- `/testtransfer <toUserId> <amount>` - Run a direct internal transfer test
-- `/testfine [amount]` - Run a fine-payment test
-- `/testwithdraw <address> <amount>` - Run a dry-run withdrawal validation
-- `/testverify <txhash>` - Test on-chain transaction verification
-- `/testwalletstats` - Dump diagnostic wallet and reconciliation stats
-- `/testsimulatedeposit [userId] [amount]` - Simulate a deposit directly in the ledger
-- `/testhistory` - Show a short transaction-history sample
-- `/testfullflow` - Run the end-to-end wallet-flow test sequence
-
 ## Architecture
 
 ```

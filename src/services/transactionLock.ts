@@ -485,26 +485,6 @@ export class TransactionLockService {
 	}
 
 	/**
-	 * Alias for hasLock - checks if a user has an active transaction lock.
-	 *
-	 * @param userId - User ID to check
-	 * @returns True if user has an active lock, false otherwise
-	 */
-	static async isUserLocked(userId: number): Promise<boolean> {
-		return TransactionLockService.hasLock(userId);
-	}
-
-	/**
-	 * Alias for getActiveLock - get lock details for a user.
-	 *
-	 * @param userId - User ID to get lock for
-	 * @returns Lock details or null if no active lock
-	 */
-	static async getUserLock(userId: number): Promise<TransactionLock | null> {
-		return TransactionLockService.getActiveLock(userId);
-	}
-
-	/**
 	 * Generic lock acquisition (alias for lockWithdrawal for simple locking)
 	 */
 	static async acquireLock(
@@ -587,27 +567,6 @@ export class TransactionLockService {
 				lockType: lock.lock_type,
 				age: now - lock.locked_at,
 			});
-		}
-	}
-
-	/**
-	 * Emergency force unlock (admin only)
-	 */
-	static async forceUnlock(userId: number, reason: string): Promise<void> {
-		const lock = await TransactionLockService.getActiveLock(userId);
-
-		if (lock) {
-			logger.warn("Force unlocking user", {
-				tag: "admin",
-				subtag: "lock_force_unlock",
-				userId,
-				lockType: lock.lockType,
-				amount: lock.amount,
-				txHash: lock.txHash,
-				reason,
-			});
-
-			execute("DELETE FROM transaction_locks WHERE user_id = ?", [userId]);
 		}
 	}
 }

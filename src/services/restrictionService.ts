@@ -11,7 +11,7 @@ import {
 	RANDOM_DELETE_MIN_UNIQUE_WORDS,
 } from "../utils/randomDelete";
 import { restrictionLabel } from "../utils/restrictionLabels";
-import { createPatternObject, testPatternSafely } from "../utils/safeRegex";
+import { createPatternObject } from "../utils/safeRegex";
 import { muteMember } from "./chatMuteService";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "./jailService";
 import { createViolation } from "./violationService";
@@ -186,7 +186,9 @@ export class RestrictionService {
 		}
 
 		try {
-			return await testPatternSafely(compiledPattern.regex, text, 100);
+			// Reset lastIndex so a global-flagged pattern doesn't resume mid-string.
+			compiledPattern.regex.lastIndex = 0;
+			return compiledPattern.regex.test(text);
 		} catch (error) {
 			logger.error("Regex matching error", { pattern, error });
 			return false;

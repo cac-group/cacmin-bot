@@ -232,8 +232,6 @@ interface Config {
 	timing: {
 		/** Interactive menu expiry */
 		menuExpiryMs: number;
-		/** Interactive menu cleanup sweep interval */
-		menuCleanupIntervalMs: number;
 		/** Bot-response dedupe window */
 		dedupeWindowMs: number;
 		/** Multi-step session timeout */
@@ -246,8 +244,6 @@ interface Config {
 	limits: {
 		/** Maximum allowed regex pattern length */
 		maxRegexPatternLength: number;
-		/** Regex execution timeout in milliseconds */
-		regexTimeoutMs: number;
 		/** Default random-delete chance, e.g. "10%" */
 		randomDeleteDefaultChance: string;
 		/** Minimum unique words before random delete can apply */
@@ -540,14 +536,12 @@ export const config: Config = {
 	},
 	timing: {
 		menuExpiryMs: envInt("MENU_EXPIRY_MS", 30 * 1000),
-		menuCleanupIntervalMs: envInt("MENU_CLEANUP_INTERVAL_MS", 60 * 1000),
 		dedupeWindowMs: envInt("RESPONSE_DEDUPE_WINDOW_MS", 2 * 60 * 1000),
 		sessionTimeoutMs: envInt("SESSION_TIMEOUT_MS", 5 * 60 * 1000),
 		patternCacheTtlMs: envInt("PATTERN_CACHE_TTL_MS", 60_000),
 	},
 	limits: {
 		maxRegexPatternLength: envInt("MAX_REGEX_PATTERN_LENGTH", 500),
-		regexTimeoutMs: envInt("REGEX_TIMEOUT_MS", 100),
 		randomDeleteDefaultChance: envString("RANDOM_DELETE_DEFAULT_CHANCE", "10%"),
 		randomDeleteMinUniqueWords: envInt("RANDOM_DELETE_MIN_UNIQUE_WORDS", 6),
 	},

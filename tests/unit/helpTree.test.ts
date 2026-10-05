@@ -128,7 +128,7 @@ describe("helpTree structure", () => {
 	it("computes parent keys for back navigation", () => {
 		expect(parentHelpKey("wallet")).toBeNull();
 		expect(parentHelpKey("wallet:account")).toBe("wallet");
-		expect(parentHelpKey("owner:wallet-tests")).toBe("owner");
+		expect(parentHelpKey("owner:treasury")).toBe("owner");
 	});
 
 	it("resolves nested node lookups", () => {
@@ -138,9 +138,7 @@ describe("helpTree structure", () => {
 		expect(findHelpNode(helpTree, "admin:ratelimits")?.title).toBe(
 			"Rate Limits",
 		);
-		expect(findHelpNode(helpTree, "owner:wallet-tests")?.title).toBe(
-			"Wallet Test Suite",
-		);
+		expect(findHelpNode(helpTree, "owner:treasury")?.title).toBe("Treasury");
 		expect(findHelpNode(helpTree, "missing")).toBeNull();
 	});
 });

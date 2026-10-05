@@ -69,7 +69,9 @@ const MENU_EXPIRY_MS = config.timing.menuExpiryMs;
 // Key: `${chatId}_${menuType}` to prevent duplicate menus of same type per chat
 const activeMenus = new Map<string, MenuSession>();
 
-// Track menus by message ID for quick lookup during callbacks
+// Track menus by message ID for quick lookup during callbacks.
+// ponytail: no sweep timer; expiry is enforced on read and reuse. Bounded by
+// chats × menuTypes, so unbounded growth is not a concern at this scale.
 const menusByMessageId = new Map<string, MenuSession>();
 
 /**
@@ -202,20 +204,3 @@ export async function validateMenuInteraction(
 
 	return null; // Interaction allowed
 }
-
-/**
- * Clean up all expired sessions (call periodically)
- */
-export function cleanupExpiredSessions(): void {
-	const now = Date.now();
-
-	for (const [key, session] of activeMenus.entries()) {
-		if (now > session.expiresAt) {
-			activeMenus.delete(key);
-			menusByMessageId.delete(`${session.chatId}_${session.messageId}`);
-		}
-	}
-}
-
-// Run cleanup periodically
-setInterval(cleanupExpiredSessions, config.timing.menuCleanupIntervalMs);

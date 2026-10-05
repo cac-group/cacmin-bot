@@ -19,6 +19,9 @@ that has no home beside the code.
   the remaining display-name-keyed surfaces.
 - `interactive-menus.md` — the one-message rule, callback answering, entry
   points, permission model, and removed dead menu code.
+- `chat-explorer-integration.md` — the co-dependency with
+  `telegram-chat-explorer`: config contract, the tables this bot writes, the
+  embedding hand-off, and the cross-repo change protocol.
 - `database-audit-2026-09-28.md` — read-only prod DB audit plus a verification
   pass: confirmed findings, corrections, mixed-unit `bail_amount` columns,
   indexer reaction FK orphans, and legacy tables.

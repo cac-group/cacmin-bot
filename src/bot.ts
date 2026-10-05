@@ -23,7 +23,6 @@ import { registerRateLimitCommands } from "./commands/rateLimit";
 import { registerSharedAccountCommands } from "./commands/sharedAccounts";
 import { registerStickerCommands } from "./commands/sticker";
 import { registerWalletCommands } from "./commands/wallet";
-import { registerWalletTestCommands } from "./commands/walletTest";
 import { config, validateConfig } from "./config";
 import { execute, initDb } from "./database";
 import { registerActionHandlers } from "./handlers/actions";
@@ -55,7 +54,6 @@ import { RateLimitService } from "./services/rateLimitService";
 import { RestrictionService } from "./services/restrictionService";
 import { TransactionLockService } from "./services/transactionLock";
 import { UnifiedWalletService } from "./services/unifiedWalletService";
-import { waitForBotLaunch } from "./utils/botLifecycle";
 import { logger } from "./utils/logger";
 import { createTelegramBot } from "./utils/telegram";
 
@@ -176,7 +174,6 @@ async function main() {
 		registerGiveawayCommands(bot);
 		registerDepositCommands(bot); // Deposit management commands
 		registerWalletCommands(bot);
-		registerWalletTestCommands(bot); // Owner-only test commands
 		registerSharedAccountCommands(bot); // Shared account management
 		registerStickerCommands(bot); // Sticker sending and management
 		registerPriceCommands(bot); // JUNO price command
@@ -328,30 +325,30 @@ async function main() {
 		process.once("SIGTERM", () => shutdown("SIGTERM"));
 
 		// Start the bot with message_reaction updates enabled for spam detection
-		const launchResult = await waitForBotLaunch(
-			() =>
-				bot.launch({
-					allowedUpdates: [
-						"message",
-						"edited_message",
-						"channel_post",
-						"edited_channel_post",
-						"callback_query",
-						"inline_query",
-						"chosen_inline_result",
-						"shipping_query",
-						"pre_checkout_query",
-						"poll",
-						"poll_answer",
-						"my_chat_member",
-						"chat_member",
-						"chat_join_request",
-						"message_reaction", // Required for reaction spam detection
-					],
-				}),
-			() => shutdownRequested,
-		);
-		if (launchResult === "stopped") {
+		try {
+			await bot.launch({
+				allowedUpdates: [
+					"message",
+					"edited_message",
+					"channel_post",
+					"edited_channel_post",
+					"callback_query",
+					"inline_query",
+					"chosen_inline_result",
+					"shipping_query",
+					"pre_checkout_query",
+					"poll",
+					"poll_answer",
+					"my_chat_member",
+					"chat_member",
+					"chat_join_request",
+					"message_reaction", // Required for reaction spam detection
+				],
+			});
+		} catch (error) {
+			if (!shutdownRequested) throw error;
+		}
+		if (shutdownRequested) {
 			logger.info("Bot stopped cleanly");
 			return;
 		}

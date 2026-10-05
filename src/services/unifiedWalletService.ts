@@ -1058,38 +1058,6 @@ export class UnifiedWalletService {
 	}
 
 	/**
-	 * Pay fine (internal transfer to bot treasury)
-	 */
-	static async payFine(
-		userId: number,
-		amount: number,
-		reason?: string,
-	): Promise<{ success: boolean; error?: string; newBalance?: number }> {
-		// Use internal transfer to bot treasury
-		const result = await LedgerService.transferBetweenUsers(
-			userId,
-			SYSTEM_USER_IDS.BOT_TREASURY,
-			amount,
-			reason || "Fine payment",
-		);
-
-		if (result.success) {
-			logger.info("Fine paid", {
-				userId,
-				amount,
-				newBalance: result.fromBalance,
-				botBalance: result.toBalance,
-			});
-		}
-
-		return {
-			success: result.success,
-			error: result.error,
-			newBalance: result.fromBalance,
-		};
-	}
-
-	/**
 	 * Transfer between users (internal) with simple locking and exact precision
 	 */
 	static async transferToUser(

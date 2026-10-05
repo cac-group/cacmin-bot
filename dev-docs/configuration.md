@@ -26,8 +26,8 @@ Migration files are historical snapshots and keep their own frozen constants.
 | `defaultJailBailAmount` | fallback bail when none is configured |
 | `chain` | withdrawal gas price/limit; fee is derived from the gas price |
 | `price` | CoinGecko cache, id, rolling-average window, history retention, URL |
-| `timing` | menu expiry/cleanup, response dedupe, session timeout, pattern cache TTL |
-| `limits` | regex length/timeout, random-delete defaults |
+| `timing` | menu expiry, response dedupe, session timeout, pattern cache TTL |
+| `limits` | regex length, random-delete defaults |
 | `indexer*` | embedding concurrency, context windows, trigger thresholds |
 | `identityCrawl*` | crawl throttle and 429 retry budget |
 | `botIdentity` | support username, sticker pack name and file id |
