@@ -673,8 +673,8 @@ Example: ${code("/checkdeposit ABCD1234...")}`,
 
 		await ctx.reply(" Checking transaction...");
 
-		// Use UnifiedWalletService to verify transaction
-		const result = await UnifiedWalletService.verifyTransaction(txHash);
+		// Use the shared REST verifier (explicit-hash backup path)
+		const result = await JunoService.inspectTransaction(txHash);
 
 		if (!result.verified) {
 			await ctx.reply(" Transaction not found on-chain or invalid.");

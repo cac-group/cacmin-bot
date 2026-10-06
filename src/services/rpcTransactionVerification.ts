@@ -246,35 +246,29 @@ export class RPCTransactionVerification {
 			});
 		}
 
-		// Parse events to extract transfers
+		// Parse events to extract transfers. A `transfer` event carries repeating
+		// sender/recipient/amount attributes; pair them by index, not first-match,
+		// so multi-transfer transactions are attributed correctly.
 		for (const event of result.tx_result.events) {
 			if (event.type === "transfer") {
-				const sender = RPCTransactionVerification.getEventAttribute(
-					event,
-					"sender",
-				);
-				const recipient = RPCTransactionVerification.getEventAttribute(
-					event,
-					"recipient",
-				);
-				const amountStr = RPCTransactionVerification.getEventAttribute(
-					event,
-					"amount",
-				);
+				const senders: string[] = [];
+				const recipients: string[] = [];
+				const amounts: string[] = [];
+				for (const attr of event.attributes) {
+					if (attr.key === "sender") senders.push(attr.value);
+					else if (attr.key === "recipient") recipients.push(attr.value);
+					else if (attr.key === "amount") amounts.push(attr.value);
+				}
 
-				if (sender && recipient && amountStr) {
-					// Parse amount (e.g., "1000000ujuno")
-					const amountMatch = amountStr.match(/(\d+)ujuno/);
-					if (amountMatch) {
-						const ujunoAmount = parseInt(amountMatch[1], 10);
-						const junoAmount = AmountPrecision.fromMicroJuno(ujunoAmount);
-
-						parsed.transfers.push({
-							sender,
-							recipient,
-							amount: junoAmount,
-						});
-					}
+				for (let i = 0; i < amounts.length; i++) {
+					const amountMatch = amounts[i].match(/(\d+)ujuno/);
+					if (!amountMatch) continue;
+					const ujunoAmount = parseInt(amountMatch[1], 10);
+					parsed.transfers.push({
+						sender: senders[i] ?? "",
+						recipient: recipients[i] ?? "",
+						amount: AmountPrecision.fromMicroJuno(ujunoAmount),
+					});
 				}
 			}
 

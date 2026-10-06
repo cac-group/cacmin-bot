@@ -1,140 +1,100 @@
-/** JUNO blockchain REST API verification service */
+/**
+ * JUNO payment verification and treasury balance reads, on top of the shared
+ * Cosmos REST client. Used by the explicit-hash backup paths (`/verifybail`,
+ * `/verifyratelimitreset`, `/checkdeposit`); the automated deposit listener is
+ * separate.
+ *
+ * @module services/junoService
+ */
 
 import { config } from "../config";
-import { logger, StructuredLogger } from "../utils/logger";
+import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { CosmosRestService } from "./cosmosRestService";
 
 export class JunoService {
-	private static apiEndpoint = config.junoApiUrl;
+	/** Configured bot treasury address for display, or a placeholder. */
+	static getPaymentAddress(): string {
+		return config.botTreasuryAddress || "not_configured";
+	}
 
-	/** Verify a successful exact-microJUNO transfer to the configured treasury. */
+	/**
+	 * Verify an exact-micro JUNO payment to the configured treasury.
+	 * Reads signed `MsgSend` messages (not emitted events).
+	 */
 	static async verifyPayment(
 		txHash: string,
 		expectedAmount: number,
 	): Promise<boolean> {
-		try {
-			StructuredLogger.logTransaction("Verifying payment", {
+		StructuredLogger.logTransaction("Verifying payment", {
+			txHash,
+			amount: expectedAmount.toString(),
+			operation: "verify_payment",
+		});
+
+		const tx = await CosmosRestService.fetchTransaction(txHash);
+		if (!tx || tx.code !== 0) {
+			StructuredLogger.logTransaction("Transaction failed or not found", {
 				txHash,
-				amount: expectedAmount.toString(),
-				operation: "verify_payment",
+				operation: "verify_failed",
 			});
+			return false;
+		}
 
-			// Query using the REST API endpoint
-			const apiEndpoint = config.junoApiUrl;
-			const response = await fetch(
-				`${apiEndpoint}/cosmos/tx/v1beta1/txs/${txHash}`,
-			);
-
-			if (!response.ok) {
-				logger.warn("Transaction not found on chain", { txHash });
-				return false;
-			}
-
-			const data = (await response.json()) as any;
-			const tx = data.tx_response;
-
-			// Check if transaction was successful
-			if (tx.code !== 0) {
-				StructuredLogger.logTransaction("Transaction failed", {
-					txHash,
-					operation: "verify_failed",
-				});
-				return false;
-			}
-
-			// Parse messages to find transfer to our treasury
-			const messages = tx.tx.body.messages;
-			const treasuryAddress = config.botTreasuryAddress;
-
-			if (!treasuryAddress) {
-				StructuredLogger.logError("Treasury not configured", {
-					operation: "verify_payment",
-				});
-				return false;
-			}
-
-			for (const message of messages) {
-				if (message["@type"] === "/cosmos.bank.v1beta1.MsgSend") {
-					// Check if recipient is our treasury
-					if (message.to_address === treasuryAddress) {
-						// Find JUNO amount
-						const junoAmount = message.amount?.find(
-							(a: any) => a.denom === "ujuno",
-						);
-
-						if (junoAmount) {
-							const amountMicro = Number(junoAmount.amount);
-							const expectedMicro = AmountPrecision.toDbMicro(expectedAmount);
-
-							if (
-								Number.isSafeInteger(amountMicro) &&
-								amountMicro === expectedMicro
-							) {
-								StructuredLogger.logTransaction("Payment verified", {
-									txHash,
-									amount: AmountPrecision.fromDbMicro(amountMicro).toString(),
-									operation: "verify_success",
-								});
-								return true;
-							} else {
-								StructuredLogger.logTransaction("Amount mismatch", {
-									txHash,
-									amount: AmountPrecision.fromDbMicro(amountMicro).toString(),
-									operation: "verify_mismatch",
-								});
-							}
-						}
-					}
-				}
-			}
-
+		const treasury = config.botTreasuryAddress;
+		const expectedMicro = AmountPrecision.toDbMicro(expectedAmount);
+		const transfer = treasury
+			? CosmosRestService.findMsgSend(tx, treasury, expectedMicro)
+			: null;
+		if (!transfer) {
 			StructuredLogger.logTransaction("No valid payment found", {
 				txHash,
 				operation: "verify_not_found",
 			});
 			return false;
-		} catch (error) {
-			StructuredLogger.logError(error as Error, {
-				txHash,
-				operation: "verify_payment",
-			});
-			return false;
 		}
+
+		StructuredLogger.logTransaction("Payment verified", {
+			txHash,
+			amount: AmountPrecision.fromDbMicro(transfer.amountMicro).toString(),
+			operation: "verify_success",
+		});
+		return true;
 	}
 
-	/** Get configured bot treasury address */
-	static getPaymentAddress(): string {
-		return config.botTreasuryAddress || "not_configured";
+	/**
+	 * Inspect a transaction for its first `ujuno` `MsgSend` and memo. Explicit-hash
+	 * backup for `/checkdeposit`; does not assert an amount or recipient.
+	 */
+	static async inspectTransaction(txHash: string): Promise<{
+		verified: boolean;
+		amount?: number;
+		from?: string;
+		to?: string;
+		memo?: string;
+	}> {
+		const tx = await CosmosRestService.fetchTransaction(txHash);
+		if (!tx || tx.code !== 0) return { verified: false };
+
+		const transfer = CosmosRestService.findMsgSend(tx);
+		if (!transfer) return { verified: false };
+
+		return {
+			verified: true,
+			amount: AmountPrecision.fromDbMicro(transfer.amountMicro),
+			from: transfer.from,
+			to: transfer.to,
+			memo: tx.memo ?? "",
+		};
 	}
 
-	/** Query bot treasury balance in JUNO */
+	/** On-chain treasury balance in JUNO, or `null` when unavailable. */
 	static async getBalance(): Promise<number | null> {
-		if (!config.botTreasuryAddress) {
-			return null;
-		}
+		if (!config.botTreasuryAddress) return null;
 
-		try {
-			const response = await fetch(
-				`${JunoService.apiEndpoint}/cosmos/bank/v1beta1/balances/${config.botTreasuryAddress}`,
-			);
-
-			if (!response.ok) {
-				StructuredLogger.logError("Failed to query balance", {
-					operation: "get_balance",
-					status: response.status.toString(),
-				});
-				return null;
-			}
-
-			const data = (await response.json()) as any;
-			const junoBalance = data.balances?.find((b: any) => b.denom === "ujuno");
-
-			return junoBalance ? parseFloat(junoBalance.amount) / 1_000_000 : 0;
-		} catch (error) {
-			StructuredLogger.logError(error as Error, {
-				operation: "get_balance",
-			});
-			return null;
-		}
+		const micro = await CosmosRestService.fetchBalanceMicro(
+			config.botTreasuryAddress,
+		);
+		return micro === null ? null : AmountPrecision.fromDbMicro(micro);
 	}
 }

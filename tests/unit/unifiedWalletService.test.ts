@@ -213,3 +213,51 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 		);
 	});
 });
+
+describe("UnifiedWalletService.findTransferTo", () => {
+	const events = (pairs: Array<[string, string]>) => [
+		{
+			type: "transfer",
+			attributes: pairs.map(([key, value]) => ({ key, value })),
+		},
+	];
+
+	it("pairs repeating transfer attributes by index", () => {
+		const result = (UnifiedWalletService as any).findTransferTo(
+			events([
+				["sender", "A"],
+				["recipient", "B"],
+				["amount", "1000000ujuno"],
+				["sender", "C"],
+				["recipient", "WALLET"],
+				["amount", "2000000ujuno"],
+			]),
+			"WALLET",
+		);
+		expect(result).toEqual({ amount: 2, from: "C" });
+	});
+
+	it("handles the SDK's recipient-first order", () => {
+		const result = (UnifiedWalletService as any).findTransferTo(
+			events([
+				["recipient", "WALLET"],
+				["sender", "A"],
+				["amount", "500000ujuno"],
+			]),
+			"WALLET",
+		);
+		expect(result).toEqual({ amount: 0.5, from: "A" });
+	});
+
+	it("returns null when the wallet is not paid", () => {
+		const result = (UnifiedWalletService as any).findTransferTo(
+			events([
+				["sender", "A"],
+				["recipient", "B"],
+				["amount", "1000000ujuno"],
+			]),
+			"WALLET",
+		);
+		expect(result).toBeNull();
+	});
+});

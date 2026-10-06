@@ -5,6 +5,7 @@ import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { CosmosRestService } from "./cosmosRestService";
 import { DepositInstructionService } from "./depositInstructions";
 import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
@@ -66,7 +67,6 @@ export class UnifiedWalletService {
 	private static wallet: DirectSecp256k1HdWallet | null = null;
 	private static walletAddress: string;
 	private static rpcEndpoint: string;
-	private static apiEndpoint: string;
 	private static depositCheckInterval: NodeJS.Timeout | null = null;
 	private static lastCheckedHeight: number = 0;
 
@@ -75,7 +75,6 @@ export class UnifiedWalletService {
 	 */
 	static async initialize(): Promise<void> {
 		UnifiedWalletService.rpcEndpoint = config.junoRpcUrl;
-		UnifiedWalletService.apiEndpoint = config.junoApiUrl;
 
 		// Get wallet address from config (single wallet for all users)
 		UnifiedWalletService.walletAddress = config.userFundsAddress || "";
@@ -246,33 +245,13 @@ export class UnifiedWalletService {
 					continue;
 				}
 
-				// Extract deposit info
-				let amount = 0;
-				let fromAddress = "";
-
-				for (const event of tx.tx_result.events) {
-					if (event.type === "transfer") {
-						const recipient = event.attributes.find(
-							(a: any) => a.key === "recipient",
-						)?.value;
-						const amountStr = event.attributes.find(
-							(a: any) => a.key === "amount",
-						)?.value;
-						const sender = event.attributes.find(
-							(a: any) => a.key === "sender",
-						)?.value;
-
-						if (recipient === UnifiedWalletService.walletAddress && amountStr) {
-							const match = amountStr.match(/^(\d+)ujuno$/);
-							if (match) {
-								amount = parseFloat(match[1]) / 1_000_000;
-								fromAddress = sender || "";
-							}
-						}
-					}
-				}
-
-				if (amount === 0) continue;
+				// Extract the first transfer paying our wallet (attributes paired by index)
+				const transfer = UnifiedWalletService.findTransferTo(
+					tx.tx_result.events,
+					UnifiedWalletService.walletAddress,
+				);
+				if (!transfer) continue;
+				const { amount, from: fromAddress } = transfer;
 
 				// Extract memo
 				const memo = UnifiedWalletService.parseMemo(tx.tx, amount);
@@ -348,6 +327,43 @@ export class UnifiedWalletService {
 	}
 
 	/**
+	 * First `transfer` event entry paying `recipient`, with repeating
+	 * sender/recipient/amount attributes paired by index (Cosmos merges same-type
+	 * events into one event with repeated attributes).
+	 */
+	private static findTransferTo(
+		events: Array<{
+			type: string;
+			attributes: Array<{ key: string; value: string }>;
+		}>,
+		recipient: string,
+	): { amount: number; from: string } | null {
+		for (const event of events) {
+			if (event.type !== "transfer") continue;
+
+			const senders: string[] = [];
+			const recipients: string[] = [];
+			const amounts: string[] = [];
+			for (const attr of event.attributes) {
+				if (attr.key === "sender") senders.push(attr.value);
+				else if (attr.key === "recipient") recipients.push(attr.value);
+				else if (attr.key === "amount") amounts.push(attr.value);
+			}
+
+			for (let i = 0; i < amounts.length; i++) {
+				if (recipients[i] !== recipient) continue;
+				const match = amounts[i].match(/^(\d+)ujuno$/);
+				if (!match) continue;
+				return {
+					amount: parseFloat(match[1]) / 1_000_000,
+					from: senders[i] ?? "",
+				};
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Fetch recent deposits from blockchain via Cosmos REST API.
 	 *
 	 * This function queries the blockchain for transactions sent to the bot's wallet address,
@@ -402,36 +418,15 @@ export class UnifiedWalletService {
 					continue;
 				}
 
-				// Extract amount and sender from events (already decoded JSON)
-				let amount = 0;
-				let fromAddress = "";
-
-				for (const event of tx.tx_result.events) {
-					if (event.type === "transfer") {
-						const recipient = event.attributes.find(
-							(a: any) => a.key === "recipient",
-						)?.value;
-						const amountStr = event.attributes.find(
-							(a: any) => a.key === "amount",
-						)?.value;
-						const sender = event.attributes.find(
-							(a: any) => a.key === "sender",
-						)?.value;
-
-						if (recipient === UnifiedWalletService.walletAddress && amountStr) {
-							// Parse amount (format: "1000000ujuno")
-							const match = amountStr.match(/^(\d+)ujuno$/);
-							if (match) {
-								amount = parseFloat(match[1]) / 1_000_000;
-								fromAddress = sender || "";
-							}
-						}
-					}
-				}
-
-				if (amount === 0) {
+				// Extract the first transfer paying our wallet (attributes paired by index)
+				const transfer = UnifiedWalletService.findTransferTo(
+					tx.tx_result.events,
+					UnifiedWalletService.walletAddress,
+				);
+				if (!transfer) {
 					continue; // No valid transfer to our address
 				}
+				const { amount, from: fromAddress } = transfer;
 
 				// Extract memo from protobuf using structural position
 				const memo = UnifiedWalletService.parseMemo(tx.tx, amount);
@@ -1158,56 +1153,6 @@ export class UnifiedWalletService {
 	}
 
 	/**
-	 * Verify transaction on blockchain
-	 */
-	static async verifyTransaction(txHash: string): Promise<{
-		verified: boolean;
-		amount?: number;
-		from?: string;
-		to?: string;
-		memo?: string;
-	}> {
-		try {
-			const response = await fetch(
-				`${UnifiedWalletService.apiEndpoint}/cosmos/tx/v1beta1/txs/${txHash}`,
-			);
-
-			if (!response.ok) {
-				return { verified: false };
-			}
-
-			const data = (await response.json()) as any;
-			const tx = data.tx_response;
-
-			if (tx.code !== 0) {
-				return { verified: false };
-			}
-
-			// Find transfer to our wallet
-			for (const msg of tx.tx?.body?.messages || []) {
-				if (msg["@type"] === "/cosmos.bank.v1beta1.MsgSend") {
-					const junoAmount = msg.amount?.find((a: any) => a.denom === "ujuno");
-
-					if (junoAmount) {
-						return {
-							verified: true,
-							amount: parseFloat(junoAmount.amount) / 1_000_000,
-							from: msg.from_address,
-							to: msg.to_address,
-							memo: tx.tx?.body?.memo || "",
-						};
-					}
-				}
-			}
-
-			return { verified: false };
-		} catch (error) {
-			logger.error("Failed to verify transaction", { txHash, error });
-			return { verified: false };
-		}
-	}
-
-	/**
 	 * Get wallet statistics
 	 */
 	static async getStats(): Promise<{
@@ -1222,22 +1167,11 @@ export class UnifiedWalletService {
 	}> {
 		// Get on-chain balance
 		let onChainBalance = 0;
-		try {
-			const response = await fetch(
-				`${UnifiedWalletService.apiEndpoint}/cosmos/bank/v1beta1/balances/${UnifiedWalletService.walletAddress}`,
-			);
-
-			if (response.ok) {
-				const data = (await response.json()) as any;
-				const junoBalance = data.balances?.find(
-					(b: any) => b.denom === "ujuno",
-				);
-				onChainBalance = junoBalance
-					? parseFloat(junoBalance.amount) / 1_000_000
-					: 0;
-			}
-		} catch (error) {
-			logger.error("Failed to get on-chain balance", error);
+		const onChainMicro = await CosmosRestService.fetchBalanceMicro(
+			UnifiedWalletService.walletAddress,
+		);
+		if (onChainMicro !== null) {
+			onChainBalance = AmountPrecision.fromDbMicro(onChainMicro);
 		}
 
 		// Get internal totals

@@ -2,6 +2,7 @@ import { config } from "../config";
 import { execute, get, query, withTransaction } from "../database";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { CosmosRestService } from "./cosmosRestService";
 
 // Transaction types
 export enum TransactionType {
@@ -61,14 +62,11 @@ export interface ReconciliationResult {
 export class LedgerService {
 	private static botTreasuryAddress: string;
 	private static userFundsAddress: string;
-	private static apiEndpoint: string;
 
 	/**
 	 * Initialize the ledger service
 	 */
 	static initialize(): void {
-		LedgerService.apiEndpoint = config.junoApiUrl;
-
 		// Get or set system wallet addresses
 		LedgerService.botTreasuryAddress = config.botTreasuryAddress || "";
 		LedgerService.userFundsAddress = config.userFundsAddress || "";
@@ -856,26 +854,12 @@ export class LedgerService {
 			return 0;
 		}
 
-		try {
-			const response = await fetch(
-				`${LedgerService.apiEndpoint}/cosmos/bank/v1beta1/balances/${address}`,
-			);
-
-			if (!response.ok) {
-				logger.error(`Failed to query ${walletType} wallet balance`, {
-					address,
-				});
-				return 0;
-			}
-
-			const data = (await response.json()) as any;
-			const junoBalance = data.balances?.find((b: any) => b.denom === "ujuno");
-
-			return junoBalance ? parseFloat(junoBalance.amount) / 1_000_000 : 0;
-		} catch (error) {
-			logger.error(`Error querying ${walletType} wallet balance`, { error });
+		const micro = await CosmosRestService.fetchBalanceMicro(address);
+		if (micro === null) {
+			logger.error(`Failed to query ${walletType} wallet balance`, { address });
 			return 0;
 		}
+		return AmountPrecision.fromDbMicro(micro);
 	}
 
 	/**
@@ -890,40 +874,12 @@ export class LedgerService {
 		let onChainError: string | undefined;
 		const address = LedgerService.botTreasuryAddress;
 		if (address) {
-			try {
-				const response = await fetch(
-					`${LedgerService.apiEndpoint}/cosmos/bank/v1beta1/balances/${address}`,
-				);
-				if (response.ok) {
-					const data = (await response.json()) as any;
-					const junoBalance = data.balances?.find(
-						(b: any) => b.denom === "ujuno",
-					);
-					if (junoBalance?.amount !== undefined) {
-						onChainMicro = Math.round(Number(junoBalance.amount));
-					} else {
-						onChainMicro = 0;
-					}
-				} else {
-					onChainError = `HTTP ${response.status}`;
-					logger.error(
-						"Failed to query treasury wallet balance for reconciliation",
-						{
-							address,
-							status: response.status,
-						},
-					);
-				}
-			} catch (error) {
-				onChainError =
-					error instanceof Error
-						? error.message
-						: "Unknown balance query error";
+			onChainMicro = await CosmosRestService.fetchBalanceMicro(address);
+			if (onChainMicro === null) {
+				onChainError = "Failed to query treasury wallet balance";
 				logger.error(
-					"Error querying treasury wallet balance for reconciliation",
-					{
-						error,
-					},
+					"Failed to query treasury wallet balance for reconciliation",
+					{ address },
 				);
 			}
 		} else {
