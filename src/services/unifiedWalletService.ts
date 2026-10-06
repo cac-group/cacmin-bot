@@ -5,6 +5,7 @@ import { config } from "../config";
 import { execute, get, query } from "../database";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { decodeMemo } from "../utils/txMemo";
 import { CosmosRestService } from "./cosmosRestService";
 import { DepositInstructionService } from "./depositInstructions";
 import { LedgerService } from "./ledgerService";
@@ -254,7 +255,7 @@ export class UnifiedWalletService {
 				const { amount, from: fromAddress } = transfer;
 
 				// Extract memo
-				const memo = UnifiedWalletService.parseMemo(tx.tx, amount);
+				const memo = decodeMemo(tx.tx) ?? "";
 				const userId = UnifiedWalletService.parseUserId(memo);
 
 				// Process this missed deposit
@@ -428,8 +429,8 @@ export class UnifiedWalletService {
 				}
 				const { amount, from: fromAddress } = transfer;
 
-				// Extract memo from protobuf using structural position
-				const memo = UnifiedWalletService.parseMemo(tx.tx, amount);
+				// Decode the signed memo (the deposit allocation key)
+				const memo = decodeMemo(tx.tx) ?? "";
 				const userId = UnifiedWalletService.parseUserId(memo);
 
 				deposits.push({
@@ -455,100 +456,6 @@ export class UnifiedWalletService {
 		} catch (error) {
 			logger.error("Failed to fetch deposits", error);
 			return [];
-		}
-	}
-
-	/** Extract memo from protobuf tx by structural position (after amount) */
-	private static parseMemo(base64Tx: string, amount: number): string {
-		try {
-			const buffer = Buffer.from(base64Tx, "base64");
-			const amountInUjuno = (amount * 1_000_000).toString();
-
-			interface StringPosition {
-				str: string;
-				position: number;
-			}
-
-			const strings: StringPosition[] = [];
-
-			// Scan buffer for printable ASCII strings with their positions
-			for (let i = 0; i < buffer.length; i++) {
-				const strStart = i;
-				let strLength = 0;
-
-				// Find sequences of printable ASCII (0x20-0x7E)
-				while (i < buffer.length && buffer[i] >= 0x20 && buffer[i] <= 0x7e) {
-					strLength++;
-					i++;
-				}
-
-				if (strLength >= 1) {
-					const str = buffer
-						.slice(strStart, strStart + strLength)
-						.toString("utf8");
-					strings.push({ str, position: strStart });
-				}
-			}
-
-			// Find position of the amount in the buffer
-			const amountPos =
-				strings.find((s) => s.str === amountInUjuno)?.position || -1;
-
-			// Memo is the first numeric string (1-12 digits) that appears AFTER the amount
-			// User IDs can be short (1-12 digits), but we filter out microJUNO amounts
-			const numericMemo = strings.find((s) => {
-				if (!/^\d{1,12}$/.test(s.str)) return false;
-				if (s.str === amountInUjuno) return false; // Skip the amount itself
-				if (amountPos !== -1 && s.position < amountPos) return false; // Must come after amount
-				// Filter out likely microJUNO amounts (digits ending in many zeros)
-				if (/^[1-9]\d*0{5,}$/.test(s.str)) return false; // e.g., 1000000, 35050000
-				return true;
-			});
-
-			if (numericMemo) {
-				return numericMemo.str;
-			}
-
-			// Priority 2: Alphanumeric memo after amount position (for non-numeric memos)
-			const alphanumericMemo = strings.find((s) => {
-				// Must be at least 2 characters
-				if (s.str.length < 2) return false;
-
-				// Must come after amount if we found it
-				if (amountPos !== -1 && s.position < amountPos) return false;
-
-				// Exclude message types
-				if (s.str.startsWith("/cosmos.") || s.str.startsWith("/cosmwasm."))
-					return false;
-
-				// Exclude addresses (bech32 format)
-				if (s.str.match(/^(juno|cosmos|osmo|neutron|sei|terra)[a-z0-9]{38,}/))
-					return false;
-
-				// Exclude addresses with length prefix
-				if (s.str.startsWith("+")) return false;
-
-				// Exclude denominations
-				if (s.str.match(/^u(atom|juno|osmo|sei|axl|cre|akt)/)) return false;
-
-				// Exclude crypto key types
-				if (s.str.includes("PubKey") || s.str.includes("crypto")) return false;
-
-				// Exclude pure numeric strings (handled by numericMemo check above)
-				if (/^\d+$/.test(s.str)) return false;
-
-				// Exclude binary garbage
-				const alphanumericRatio =
-					(s.str.match(/[a-zA-Z0-9]/g) || []).length / s.str.length;
-				if (alphanumericRatio < 0.5) return false;
-
-				return true;
-			});
-
-			return alphanumericMemo?.str || "";
-		} catch (error) {
-			logger.error("Failed to extract memo from protobuf", error);
-			return "";
 		}
 	}
 

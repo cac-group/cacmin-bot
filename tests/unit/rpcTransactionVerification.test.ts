@@ -1,3 +1,4 @@
+import { TxBody, TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/config", () => ({
@@ -13,7 +14,26 @@ const transferEvent = (pairs: Array<[string, string]>) => ({
 	attributes: pairs.map(([key, value]) => ({ key, value, index: false })),
 });
 
-const rpcResponse = (events: unknown[], code = 0) => ({
+/** Build a base64 TxRaw carrying `memo`, as the RPC `tx` field does. */
+const memoTx = (memo: string): string => {
+	const bodyBytes = TxBody.encode(TxBody.fromPartial({ memo })).finish();
+	const raw = TxRaw.encode(
+		TxRaw.fromPartial({
+			bodyBytes,
+			authInfoBytes: new Uint8Array(),
+			signatures: [],
+		}),
+	).finish();
+	return Buffer.from(raw).toString("base64");
+};
+
+const rpcResponse = (
+	events: unknown[],
+	{
+		code = 0,
+		tx = Buffer.from("").toString("base64"),
+	}: { code?: number; tx?: string } = {},
+) => ({
 	ok: true,
 	json: vi.fn().mockResolvedValue({
 		result: {
@@ -30,7 +50,7 @@ const rpcResponse = (events: unknown[], code = 0) => ({
 				events,
 				codespace: "",
 			},
-			tx: Buffer.from("").toString("base64"),
+			tx,
 		},
 	}),
 });
@@ -105,5 +125,48 @@ describe("RPCTransactionVerification.fetchTransaction", () => {
 		fetchMock().mockResolvedValue({ ok: false, status: 500, json: vi.fn() });
 		const result = await RPCTransactionVerification.fetchTransaction("ABC");
 		expect(result.success).toBe(false);
+	});
+});
+
+describe("RPCTransactionVerification.verifyDeposit", () => {
+	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.clearAllMocks();
+	});
+
+	const walletTransfer = () =>
+		transferEvent([
+			["sender", "A"],
+			["recipient", "WALLET"],
+			["amount", "5000000ujuno"],
+		]);
+
+	it("accepts a transfer to the wallet with a matching memo", async () => {
+		fetchMock().mockResolvedValue(
+			rpcResponse([walletTransfer()], { tx: memoTx("123456") }),
+		);
+
+		expect(
+			await RPCTransactionVerification.verifyDeposit("ABC", "WALLET", 123456),
+		).toEqual({ valid: true, amount: 5, memo: "123456", sender: "A" });
+	});
+
+	it("rejects a memo mismatch", async () => {
+		fetchMock().mockResolvedValue(
+			rpcResponse([walletTransfer()], { tx: memoTx("999") }),
+		);
+		expect(
+			(await RPCTransactionVerification.verifyDeposit("ABC", "WALLET", 123456))
+				.valid,
+		).toBe(false);
+	});
+
+	it("rejects a transaction with no memo", async () => {
+		fetchMock().mockResolvedValue(rpcResponse([walletTransfer()]));
+		expect(
+			(await RPCTransactionVerification.verifyDeposit("ABC", "WALLET", 123456))
+				.valid,
+		).toBe(false);
 	});
 });

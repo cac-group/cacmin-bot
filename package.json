@@ -1,6 +1,6 @@
 {
 	"name": "cac-admin-bot",
-	"version": "3.1.1",
+	"version": "3.1.2",
 	"description": "Cosmos Airdrops Chat Admin Bot",
 	"main": "dist/bot.js",
 	"scripts": {
@@ -46,6 +46,7 @@
 		"@vitest/coverage-v8": "^4.0.7",
 		"@vitest/ui": "^4.0.7",
 		"better-sqlite3": "^12.10.0",
+		"cosmjs-types": "^0.10.1",
 		"typescript": "^5.7.2",
 		"vitest": "^4.0.7"
 	},

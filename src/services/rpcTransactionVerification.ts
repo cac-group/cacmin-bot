@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { decodeMemo } from "../utils/txMemo";
 
 interface RPCTransactionResponse {
 	jsonrpc: string;
@@ -129,122 +130,8 @@ export class RPCTransactionVerification {
 			gasWanted: parseInt(result.tx_result.gas_wanted, 10),
 		};
 
-		// Decode the transaction to get memo
-		try {
-			// The tx field is base64 encoded - decode it to get the memo
-			const txBytes = Buffer.from(result.tx, "base64");
-
-			// In Cosmos SDK transactions, the memo appears after the message body
-			// Looking for the specific pattern where memo appears after the amount "1000000"
-			// Based on the example tx, the structure is:
-			// ... "1000000" [0x12] [length] [memo] [0x12] ...
-
-			// Find the transfer amount position first
-			const txString = txBytes.toString("latin1");
-			const amountPattern = "1000000"; // The transfer amount in ujuno
-			const amountIndex = txString.indexOf(amountPattern);
-
-			if (amountIndex >= 0) {
-				// Look for memo field after the amount
-				// Start searching from after the amount string
-				const searchStart = amountIndex + amountPattern.length;
-
-				for (
-					let i = searchStart;
-					i < txBytes.length - 2 && i < searchStart + 20;
-					i++
-				) {
-					// Check for field tag 0x12 (common for string fields in protobuf)
-					if (txBytes[i] === 0x12) {
-						const length = txBytes[i + 1];
-
-						// Memo should be relatively short (user IDs are typically < 20 chars)
-						if (
-							length > 0 &&
-							length <= 20 &&
-							i + 2 + length <= txBytes.length
-						) {
-							const memoBytes = txBytes.slice(i + 2, i + 2 + length);
-							const potentialMemo = memoBytes.toString("utf8");
-
-							// Validate it's all printable ASCII
-							if (/^[\x20-\x7E]+$/.test(potentialMemo)) {
-								// Check if it's NOT a Juno address (those start with "juno1")
-								if (!potentialMemo.startsWith("juno1")) {
-									// For user IDs, we expect numeric values
-									// But also allow alphanumeric for flexibility
-									if (
-										/^\d+$/.test(potentialMemo) ||
-										/^[a-zA-Z0-9_-]+$/.test(potentialMemo)
-									) {
-										parsed.memo = potentialMemo;
-										break;
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Alternative method: Look for all 0x12 tags with short lengths
-			if (!parsed.memo) {
-				const memoFields: string[] = [];
-
-				for (let i = 0; i < txBytes.length - 2; i++) {
-					if (txBytes[i] === 0x12) {
-						const length = txBytes[i + 1];
-
-						// Focus on short strings (typical for memos/user IDs)
-						if (
-							length >= 1 &&
-							length <= 15 &&
-							i + 2 + length <= txBytes.length
-						) {
-							const fieldBytes = txBytes.slice(i + 2, i + 2 + length);
-							const fieldStr = fieldBytes.toString("utf8");
-
-							// Must be printable ASCII
-							if (/^[\x20-\x7E]+$/.test(fieldStr)) {
-								// Skip if it looks like an address or known field
-								if (
-									!fieldStr.startsWith("juno1") &&
-									!fieldStr.includes("cosmos") &&
-									!fieldStr.includes("bank") &&
-									!fieldStr.includes("ujuno")
-								) {
-									// Prefer numeric memos (user IDs)
-									if (/^\d+$/.test(fieldStr)) {
-										memoFields.push(fieldStr);
-									}
-								}
-							}
-						}
-					}
-				}
-
-				// Pick the most likely memo (prefer numeric values)
-				if (memoFields.length > 0) {
-					// Filter out values that are likely gas or other amounts
-					const filtered = memoFields.filter(
-						(m) =>
-							m !== "99334" && // gas used
-							m !== "122282" && // gas wanted
-							m !== "9172" && // fee
-							m !== "1000000", // transfer amount
-					);
-
-					if (filtered.length > 0) {
-						parsed.memo = filtered[0];
-					}
-				}
-			}
-		} catch (error) {
-			logger.warn("Failed to decode memo from transaction", {
-				hash: result.hash,
-				error,
-			});
-		}
+		// Memo is the allocation key; decode it canonically.
+		parsed.memo = decodeMemo(result.tx);
 
 		// Parse events to extract transfers. A `transfer` event carries repeating
 		// sender/recipient/amount attributes; pair them by index, not first-match,

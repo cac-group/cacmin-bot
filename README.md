@@ -383,7 +383,7 @@ src/
 - **Double-entry accounting**: Every transaction creates balanced ledger entries
 - **Transaction locks**: Prevent double-spending during withdrawals
 - **Escrow accounts**: Per-giveaway fund isolation
-- **Protobuf parsing**: Structural memo extraction from RPC data
+- **Memo decoding**: Canonical `decodeTxRaw` memo extraction for deposit allocation
 
 See [LEDGER.md](LEDGER.md) for detailed token flow documentation.
 
