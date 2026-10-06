@@ -417,6 +417,9 @@ export const config: Config = {
 		.split(",")
 		.map((id) => parseInt(id.trim(), 10))
 		.filter((id) => !Number.isNaN(id)),
+	// In-house wallet addresses: sourced ONLY from the environment. No bot command
+	// may change them — rotate via .env and restart. The frozen `config` below
+	// blocks runtime reassignment.
 	userFundsAddress: process.env.USER_FUNDS_ADDRESS,
 	userFundsMnemonic: process.env.USER_FUNDS_MNEMONIC,
 	botTreasuryAddress:
@@ -559,6 +562,15 @@ export const config: Config = {
 		),
 	},
 };
+
+// In-house wallet addresses are .env-only. Make the runtime copies non-writable
+// so no code path (including any future bot command) can change them in process.
+for (const key of ["userFundsAddress", "botTreasuryAddress"] as const) {
+	Object.defineProperty(config, key, {
+		writable: false,
+		configurable: false,
+	});
+}
 
 /**
  * Validates that all required configuration values are present and valid.

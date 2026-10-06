@@ -4,6 +4,11 @@
 Environment variables (documented in `.env.example`) override defaults; tests
 seed `process.env` in `tests/setup.ts`.
 
+**In-house wallet addresses** (`userFundsAddress`, `botTreasuryAddress`) are
+`.env`-only (`USER_FUNDS_ADDRESS`, `BOT_TREASURY_ADDRESS`). No bot command may
+change them, and the runtime properties are defined non-writable in `config.ts`
+so no code path can reassign them; rotate by editing `.env` and restarting.
+
 ## Rule
 
 Runtime code imports `config` and reads a field. It must not declare its own

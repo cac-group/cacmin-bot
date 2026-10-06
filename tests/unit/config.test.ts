@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseMemberTags, parseTelegramEndpointConfig } from "../../src/config";
+import {
+	config,
+	parseMemberTags,
+	parseTelegramEndpointConfig,
+} from "../../src/config";
 
 describe("Telegram endpoint configuration", () => {
 	it("uses Telegram's public API without requiring a file gateway", () => {
@@ -58,5 +62,18 @@ describe("member tag configuration", () => {
 		expect(parseMemberTags(undefined).size).toBe(0);
 		expect(parseMemberTags("").size).toBe(0);
 		expect(parseMemberTags("nope,123:,456:Tag").size).toBe(1);
+	});
+});
+
+describe("in-house wallet addresses", () => {
+	it("come from the environment and cannot be reassigned at runtime", () => {
+		for (const key of ["userFundsAddress", "botTreasuryAddress"] as const) {
+			expect(Object.getOwnPropertyDescriptor(config, key)?.writable).toBe(
+				false,
+			);
+			expect(() => {
+				(config as unknown as Record<string, unknown>)[key] = "juno1attacker";
+			}).toThrow();
+		}
 	});
 });
