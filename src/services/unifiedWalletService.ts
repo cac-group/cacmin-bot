@@ -221,7 +221,7 @@ export class UnifiedWalletService {
 
 			// Fetch all deposits from blockchain
 			const query = `transfer.recipient='${UnifiedWalletService.walletAddress}'`;
-			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=100`;
+			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=100&order_by=%22desc%22`;
 
 			const response = await fetch(url);
 			if (!response.ok) {
@@ -394,7 +394,7 @@ export class UnifiedWalletService {
 			// Targeted query: newest transfers to our wallet first, then stop at the
 			// last height we already processed (no re-scanning old history).
 			const query = `transfer.recipient='${UnifiedWalletService.walletAddress}'`;
-			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=20&order_by=desc`;
+			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=20&order_by=%22desc%22`;
 
 			const response = await fetch(url);
 
