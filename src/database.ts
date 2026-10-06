@@ -272,6 +272,37 @@ export const initDb = (): void => {
     );
   `);
 
+	// Canonical jail record: one row per jailing. `jail_events` is the audit log.
+	// `jailing_id` is the user-facing alphanumeric code (uppercased) the payer puts
+	// in the tx memo to release this jailing.
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS jailings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      jailing_id TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
+      bail_amount REAL NOT NULL DEFAULT 0,
+      paid INTEGER NOT NULL DEFAULT 0,
+      payment_tx TEXT,
+      paid_by_user_id INTEGER,
+      paid_at INTEGER,
+      muted_until INTEGER NOT NULL,
+      admin_id INTEGER,
+      reason TEXT,
+      created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (paid_by_user_id) REFERENCES users(id),
+      FOREIGN KEY (admin_id) REFERENCES users(id)
+    );
+  `);
+	db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_jailings_payment_tx
+      ON jailings(payment_tx)
+      WHERE payment_tx IS NOT NULL AND payment_tx <> '';
+    CREATE INDEX IF NOT EXISTS idx_jailings_user ON jailings(user_id);
+    CREATE INDEX IF NOT EXISTS idx_jailings_paid ON jailings(paid);
+    CREATE INDEX IF NOT EXISTS idx_jailings_public_id ON jailings(jailing_id);
+  `);
+
 	// Enhanced user_restrictions table with severity levels
 	db.exec(`
     CREATE TABLE IF NOT EXISTS user_restrictions (

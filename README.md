@@ -285,9 +285,8 @@ the selected window.
 - `/duelcancel` - Cancel your pending outgoing duel
 
 ### Bail and Verification
-- `/paybail [<@username|userId>]` - Show the bail amount and payment address; reply `/paybail` to a jailed user's message to pay for them
-- `/verifybail <txhash>` - Verify your own bail payment
-- `/verifybail <@username|userId> <txhash>` - Verify another user's bail payment, or reply `/verifybail <txhash>` to their group message
+- `/paybail [<@username|userId>]` - Show the Jailing ID, bail amount, and payment address; reply `/paybail` to a jailed user's message to pay for them
+- `/verifybail <txhash>` - Verify a bail payment (the tx memo must contain the Jailing ID) and release the user
 - `/bailhelp` - Get complete bail payment and verification details in a DM
 - `/payfines`, `/payfine` - Legacy aliases that show the same bail instructions
 - `/verifypayment <txhash>` - Legacy alias for `/verifybail`

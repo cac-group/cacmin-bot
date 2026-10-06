@@ -156,7 +156,7 @@ describe("help documentation coverage", () => {
 		);
 		expect(textForSection("wallet")).toContain("/claimdeposit <txhash>");
 		expect(jailed).toContain("/paybail <@username|userId>");
-		expect(jailed).toContain("/verifybail <@username|userId> <txhash>");
+		expect(jailed).toContain("/verifybail <txhash>");
 		expect(jailed).toContain("/bailhelp");
 		expect(shared).toContain(
 			"/sharedsend <name> <@username|user_id> <amount> [description]",
@@ -180,9 +180,7 @@ describe("help documentation coverage", () => {
 			"`/processdeposit <txhash> [userId|@username]`",
 		);
 		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
-		expect(readmeCommands).toContain(
-			"`/verifybail <@username|userId> <txhash>`",
-		);
+		expect(readmeCommands).toContain("`/verifybail <txhash>`");
 		expect(readmeCommands).toContain(
 			"`/addidentityblock <pattern> [name|username|both]`",
 		);

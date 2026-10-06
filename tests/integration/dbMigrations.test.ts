@@ -6,6 +6,7 @@ import { runMigration as run010 } from "../../src/migrations/010_normalize_bail_
 import { runMigration as run011 } from "../../src/migrations/011_reconcile_user_balances";
 import { runMigration as run012 } from "../../src/migrations/012_mute_kinds";
 import { runMigration as run013 } from "../../src/migrations/013_drop_fine_config";
+import { runMigration as run014 } from "../../src/migrations/014_jailings";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -296,6 +297,74 @@ describe("migration 013 drop fine config", () => {
 		expect(
 			num(
 				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_013_drop_fine_config'",
+			),
+		).toBe(1);
+	});
+});
+
+describe("migration 014 jailings", () => {
+	it("creates jailings, backfills jailed events, and marks paid from bail_paid", () => {
+		db.exec("ALTER TABLE jail_events ADD COLUMN duration_minutes INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN admin_id INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN paid_by_user_id INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN payment_tx TEXT");
+		db.exec("ALTER TABLE jail_events ADD COLUMN metadata TEXT");
+		db.prepare("INSERT INTO users (id, username) VALUES (1, 'u1')").run();
+		db.prepare("INSERT INTO users (id, username) VALUES (2, 'u2')").run();
+		db.prepare(
+			"INSERT INTO jail_events (user_id, event_type, bail_amount, duration_minutes, timestamp) VALUES (1,'jailed',69420000,60,1000)",
+		).run();
+		db.prepare(
+			"INSERT INTO jail_events (user_id, event_type, bail_amount, paid_by_user_id, payment_tx, timestamp) VALUES (1,'bail_paid',69420000,1,'TX1',1100)",
+		).run();
+
+		const result = run014(db);
+		expect(result.errors).toEqual([]);
+
+		const rows = db
+			.prepare(
+				"SELECT user_id, bail_amount, paid, payment_tx, jailing_id FROM jailings",
+			)
+			.all() as Array<{
+			user_id: number;
+			bail_amount: number;
+			paid: number;
+			payment_tx: string | null;
+			jailing_id: string;
+		}>;
+		expect(rows).toHaveLength(1);
+		expect(rows[0].user_id).toBe(1);
+		expect(rows[0].bail_amount).toBe(69420000);
+		expect(rows[0].paid).toBe(1);
+		expect(rows[0].payment_tx).toBe("TX1");
+		expect(rows[0].jailing_id).toMatch(/^[A-Z][A-Z0-9]{7}$/);
+
+		// The unique payment-tx index blocks reuse.
+		expect(() =>
+			db
+				.prepare(
+					"INSERT INTO jailings (jailing_id, user_id, bail_amount, muted_until, payment_tx) VALUES ('ZZZZZZZZ',2,1,1,'TX1')",
+				)
+				.run(),
+		).toThrow();
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_014_jailings'",
+			),
+		).toBe(1);
+	});
+
+	it("is idempotent", () => {
+		db.exec("ALTER TABLE jail_events ADD COLUMN duration_minutes INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN admin_id INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN paid_by_user_id INTEGER");
+		db.exec("ALTER TABLE jail_events ADD COLUMN payment_tx TEXT");
+		db.exec("ALTER TABLE jail_events ADD COLUMN metadata TEXT");
+		run014(db);
+		run014(db);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_014_jailings'",
 			),
 		).toBe(1);
 	});

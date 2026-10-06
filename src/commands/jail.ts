@@ -13,6 +13,7 @@ import { get } from "../database";
 import { adminOrHigher, elevatedOrHigher } from "../middleware/index";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { releaseMember } from "../services/chatMuteService";
+import { CosmosRestService } from "../services/cosmosRestService";
 import { JailService } from "../services/jailService";
 import { JunoService } from "../services/junoService";
 import { LedgerService } from "../services/ledgerService";
@@ -24,7 +25,6 @@ import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import {
 	formatUserIdDisplay,
-	getRemainingArgs,
 	resolveTargetUser,
 	resolveUserId,
 } from "../utils/userResolver";
@@ -81,17 +81,25 @@ async function sendBailInstructions(
 	}
 
 	const timeRemaining = user.muted_until - now;
-	const bailAmount = JailService.getCurrentBailAmount(targetUserId);
+	const jailing = JailService.getActiveJailing(targetUserId);
+	const bailAmount =
+		jailing?.bailAmount ?? JailService.getCurrentBailAmount(targetUserId);
+	const jailingLine = jailing
+		? fmt`Jailing ID: ${code(jailing.jailingId)}\n`
+		: "";
+	const memoLine = jailing
+		? fmt`\n${bold("IMPORTANT:")} put the Jailing ID (${code(jailing.jailingId)}) in the transaction MEMO so the payment is credited to this jailing.\n`
+		: "";
 
 	const msg = await ctx.reply(
 		fmt`${bold("Pay Your Bail")}
-
+${jailingLine}
 Current jail time remaining: ${formatTimeRemaining(timeRemaining)}
 Bail amount: ${bailAmount.toFixed(3)} JUNO
 
 Send exactly ${bailAmount.toFixed(3)} JUNO to:
 ${code(JunoService.getPaymentAddress())}
-
+${memoLine}
 After payment, send:
 /verifybail <txhash>`,
 	);
@@ -99,78 +107,69 @@ After payment, send:
 }
 
 /**
- * Verify an on-chain bail payment and release the jailed user.
- * Shared by /verifybail and the legacy /verifypayment alias.
+ * Verify an on-chain bail payment (the tx memo carries the jailing id) and
+ * release the jailed user. Shared by /verifybail and the /verifypayment alias.
  */
 async function verifyBailPayment(
 	ctx: Context,
-	userId: number,
 	paidByUserId: number,
 	txHash: string,
 ): Promise<void> {
-	const user = get<User>("SELECT * FROM users WHERE id = ?", [userId]);
-	if (!user) {
-		const msg = await ctx.reply(fmt`User not found in database.`);
+	const fail = async (text: string) => {
+		const msg = await ctx.reply(text);
 		autoDeleteInGroup(ctx, msg.message_id);
-		return;
+	};
+
+	const tx = await CosmosRestService.fetchTransaction(txHash);
+	if (!tx || tx.code !== 0) {
+		return fail("Transaction not found or failed on-chain.");
 	}
 
-	const now = Math.floor(Date.now() / 1000);
-	if (!user.muted_until || user.muted_until <= now) {
-		const msg = await ctx.reply(
-			fmt`You are not currently jailed. No bail payment needed.`,
+	const jailing = JailService.getJailingByPublicId(tx.memo ?? "");
+	if (!jailing) {
+		return fail(
+			"The transaction memo must contain a valid, open Jailing ID (alphanumeric).",
 		);
-		autoDeleteInGroup(ctx, msg.message_id);
-		return;
 	}
-
-	const bailAmount = JailService.getCurrentBailAmount(userId);
-
 	if (JailService.isBailPaymentUsed(txHash)) {
-		const msg = await ctx.reply(
+		return fail(
 			"This transaction hash has already been used for a bail payment.",
 		);
-		autoDeleteInGroup(ctx, msg.message_id);
-		return;
 	}
 
-	const verified = await JunoService.verifyPayment(txHash, bailAmount);
-	if (!verified) {
-		const msg = await ctx.reply(
-			fmt`Payment could not be verified. Please check the transaction hash and amount.`,
+	const treasury = config.botTreasuryAddress;
+	const transfer = treasury
+		? CosmosRestService.findMsgSend(tx, treasury)
+		: null;
+	if (
+		!transfer ||
+		transfer.amountMicro !== AmountPrecision.toDbMicro(jailing.bailAmount)
+	) {
+		return fail(
+			"Payment amount does not match the bail amount, or was not sent to the treasury.",
 		);
-		autoDeleteInGroup(ctx, msg.message_id);
-		return;
 	}
 
-	const payment = JailService.recordBailPayment(
-		userId,
+	const payment = JailService.payJailing(
+		jailing.jailingId,
 		paidByUserId,
-		bailAmount,
 		txHash,
 	);
 	if (!payment.success) {
-		const msg = await ctx.reply(
+		return fail(
 			payment.duplicate
 				? "This transaction hash has already been used for a bail payment."
-				: "The bail payment could not be recorded. Please try again.",
+				: "The jailing is no longer open (expired or already paid).",
 		);
-		autoDeleteInGroup(ctx, msg.message_id);
-		return;
 	}
 
+	const userId = jailing.userId;
 	if (config.groupChatId) {
 		try {
 			await releaseMember({
 				telegram: ctx.telegram,
 				chatId: config.groupChatId,
 				userId,
-			});
-			StructuredLogger.logTransaction("User released via bail payment", {
-				userId,
-				txHash,
-				amount: bailAmount.toString(),
-				operation: "bail_payment",
 			});
 		} catch (error) {
 			logger.error("Failed to restore permissions after bail payment", {
@@ -183,7 +182,7 @@ async function verifyBailPayment(
 	const msg = await ctx.reply(
 		fmt`${bold("Bail Payment Verified!")}
 
-You have been released from jail.
+Jailing ${code(jailing.jailingId)} paid for user ${code(String(userId))}. They have been released.
 Transaction: ${code(txHash)}`,
 	);
 	autoDeleteInGroup(ctx, msg.message_id);
@@ -191,7 +190,7 @@ Transaction: ${code(txHash)}`,
 	StructuredLogger.logTransaction("Bail paid and verified", {
 		userId,
 		txHash,
-		amount: bailAmount.toString(),
+		amount: jailing.bailAmount.toString(),
 		operation: "bail_verification",
 	});
 }
@@ -232,15 +231,16 @@ export function registerJailCommands(bot: Telegraf<Context>): void {
 Send the exact required bail amount in JUNO to:
 ${JunoService.getPaymentAddress()}
 
-Send /paybail in this DM to see the exact amount for your current jail, or use /paybail <@username|userId> to get the amount for another jailed user.
+Send /paybail in this DM to see your Jailing ID, the exact amount, and the address, or use /paybail <@username|userId> for another jailed user.
 
-No bail ID or memo is required. After the transaction confirms, submit its transaction hash:
-- Your own bail: /verifybail <txhash>
-- Someone else's bail: /verifybail <@username|userId> <txhash>
+CRITICAL: include the Jailing ID in the transaction MEMO. The Jailing ID is alphanumeric (for example JAIL12AB) and is shown by /paybail. A payment whose memo does not match a valid Jailing ID cannot be allocated to your jailing.
+
+After the transaction confirms, submit its transaction hash:
+- /verifybail <txhash>
 
 In a group, you can also reply /paybail to the jailed user's message before sending payment.
 
-The bot verifies a successful JUNO transfer to the treasury for the required amount, then records the transaction hash and payer and releases the jailed user.`,
+The bot confirms the transaction succeeded, the amount matches, the payment went to the treasury, and the memo matches a valid Jailing ID, then releases the user.`,
 		);
 	});
 
@@ -680,27 +680,19 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			return;
 		}
 
-		const user = get<User>("SELECT * FROM users WHERE id = ?", [targetUserId]);
-		if (!user) {
-			const msg = await ctx.reply(fmt`User not found in database.`);
+		const jailing = JailService.getActiveJailing(targetUserId);
+		if (!jailing) {
+			const msg = await ctx.reply(fmt`That user has no active jailing to pay.`);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
-
-		const now = Math.floor(Date.now() / 1000);
-		if (!user.muted_until || user.muted_until <= now) {
-			const msg = await ctx.reply(fmt`That user is not currently jailed.`);
-			autoDeleteInGroup(ctx, msg.message_id);
-			return;
-		}
-
-		const bailAmount = JailService.getCurrentBailAmount(targetUserId);
+		const bailAmount = jailing.bailAmount;
 
 		// Cover the bail from the system reserve, never a game/escrow account.
 		const adjustment = await LedgerService.processAdjustment(
 			SYSTEM_USER_IDS.SYSTEM_RESERVE,
 			-bailAmount,
-			`Bail paid for user ${targetUserId} by admin ${adminId}`,
+			`Bail paid for jailing ${jailing.jailingId} (user ${targetUserId}) by admin ${adminId}`,
 		);
 		if (!adjustment.success) {
 			const msg = await ctx.reply("Failed to debit the system reserve.");
@@ -708,11 +700,10 @@ The bot verifies a successful JUNO transfer to the treasury for the required amo
 			return;
 		}
 
-		const payment = JailService.recordBailPayment(
-			targetUserId,
+		const payment = JailService.payJailing(
+			jailing.jailingId,
 			adminId,
-			bailAmount,
-			`reserve_${targetUserId}_${Date.now()}`,
+			`reserve_${jailing.jailingId}_${Date.now()}`,
 		);
 		if (!payment.success) {
 			// Compensate: the reserve was already debited in its own transaction.
@@ -780,29 +771,20 @@ The user has been released.`,
 		if (!payerId) return;
 
 		const args = (ctx.message as any)?.text.split(" ").slice(1) || [];
-		const hasReply = Boolean(
-			ctx.message &&
-				"reply_to_message" in ctx.message &&
-				ctx.message.reply_to_message,
-		);
-		const target =
-			resolveTargetUser(ctx, args) ||
-			(hasReply ? resolveTargetUser(ctx, []) : null);
-		const userId =
-			target?.userId || (!hasReply && args.length <= 1 ? payerId : undefined);
-		const txHash = target ? getRemainingArgs(args, target)[0] : args[0];
-		if (!userId || !txHash) {
+		// The tx memo carries the jailing id, so only the hash is needed.
+		const txHash = args[args.length - 1];
+		if (!txHash) {
 			const msg = await ctx.reply(
-				"Usage: /verifybail <txhash>, /verifybail <@username|userId> <txhash>, or reply /verifybail <txhash> to a user's message.",
+				"Usage: /verifybail <txhash>, or reply /verifybail <txhash> to a message.",
 			);
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
 
-		await verifyBailPayment(ctx, userId, payerId, txHash);
+		await verifyBailPayment(ctx, payerId, txHash);
 	});
 
-	// Legacy fine verification alias: /verifypayment <violationId> <txhash>.
+	// Legacy fine verification alias: /verifypayment <txhash>.
 	bot.command("verifypayment", async (ctx) => {
 		const payerId = ctx.from?.id;
 		if (!payerId) return;
@@ -813,6 +795,6 @@ The user has been released.`,
 			autoDeleteInGroup(ctx, msg.message_id);
 			return;
 		}
-		await verifyBailPayment(ctx, payerId, payerId, txHash);
+		await verifyBailPayment(ctx, payerId, txHash);
 	});
 }

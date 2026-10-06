@@ -260,4 +260,13 @@ describe("UnifiedWalletService.findTransferTo", () => {
 		);
 		expect(result).toBeNull();
 	});
+
+	it("does not treat an alphanumeric jailing-id memo as a user id", () => {
+		const parse = (UnifiedWalletService as any).parseUserId.bind(
+			UnifiedWalletService,
+		);
+		expect(parse("JAIL12AB")).toBeNull();
+		expect(parse("user:123")).toBeNull();
+		expect(parse("123456")).toBe(123456);
+	});
 });

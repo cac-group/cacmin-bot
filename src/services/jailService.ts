@@ -16,10 +16,16 @@ import type { Context, Telegraf } from "telegraf";
 import { config } from "../config";
 import { execute, query, transaction } from "../database";
 import type { JailEvent, User } from "../types";
+import { generateJailingId, normalizeJailingId } from "../utils/jailingId";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { CHAT_RESTORE_PERMISSIONS } from "../utils/telegramPermissions";
-import { hasStoredBinding, muteMember, releaseMute } from "./chatMuteService";
+import {
+	hasStoredBinding,
+	muteMember,
+	releaseMember,
+	releaseMute,
+} from "./chatMuteService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
 export const DEFAULT_JAIL_BAIL_AMOUNT = config.defaultJailBailAmount;
@@ -38,6 +44,25 @@ export interface JailUserRequest {
 	paidByUserId?: number;
 	paymentTx?: string;
 	metadata?: Record<string, any>;
+}
+
+/** A canonical jailing row (`jailings`), amounts in JUNO. */
+export interface Jailing {
+	id: number;
+	jailingId: string;
+	userId: number;
+	bailAmount: number;
+	paid: boolean;
+	mutedUntil: number;
+}
+
+interface JailingRow {
+	id: number;
+	jailingId: string;
+	userId: number;
+	bailAmount: number;
+	paid: number;
+	mutedUntil: number;
 }
 
 /**
@@ -64,6 +89,7 @@ export class JailService {
 	 * @returns The expiry timestamp and recorded bail amount
 	 */
 	static jailUser(request: JailUserRequest): {
+		jailingId: string;
 		mutedUntil: number;
 		bailAmount: number;
 	} {
@@ -76,6 +102,16 @@ export class JailService {
 			now,
 			request.userId,
 		]);
+
+		const jailingId = JailService.insertJailing({
+			userId: request.userId,
+			bailAmount,
+			mutedUntil,
+			adminId: request.adminId,
+			reason: request.metadata?.reason,
+			createdAt: now,
+		});
+
 		JailService.logJailEvent(
 			request.userId,
 			"jailed",
@@ -87,7 +123,82 @@ export class JailService {
 			request.metadata,
 		);
 
-		return { mutedUntil, bailAmount };
+		return { jailingId, mutedUntil, bailAmount };
+	}
+
+	/** Insert a jailing row with a fresh unique id, retrying on the (rare) collision. */
+	private static insertJailing(input: {
+		userId: number;
+		bailAmount: number;
+		mutedUntil: number;
+		adminId?: number;
+		reason?: string;
+		createdAt: number;
+	}): string {
+		for (let attempt = 0; ; attempt++) {
+			const jailingId = generateJailingId();
+			try {
+				execute(
+					`INSERT INTO jailings (jailing_id, user_id, bail_amount, muted_until, admin_id, reason, created_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					[
+						jailingId,
+						input.userId,
+						AmountPrecision.toDbMicro(input.bailAmount),
+						input.mutedUntil,
+						input.adminId || null,
+						input.reason || null,
+						input.createdAt,
+					],
+				);
+				return jailingId;
+			} catch (error) {
+				const collision =
+					error instanceof Error &&
+					error.message.includes("UNIQUE constraint failed") &&
+					error.message.includes("jailing_id");
+				if (collision && attempt < 4) continue;
+				throw error;
+			}
+		}
+	}
+
+	/** Map a raw `jailings` row to the public shape (JUNO amount, boolean paid). */
+	private static toJailing(row: JailingRow | undefined): Jailing | null {
+		return row
+			? {
+					...row,
+					paid: Boolean(row.paid),
+					bailAmount: AmountPrecision.fromDbMicro(row.bailAmount),
+				}
+			: null;
+	}
+
+	/** The user's current unpaid jailing, if any. */
+	static getActiveJailing(userId: number): Jailing | null {
+		const now = Math.floor(Date.now() / 1000);
+		return JailService.toJailing(
+			query<JailingRow>(
+				`SELECT id, jailing_id AS jailingId, user_id AS userId,
+				        bail_amount AS bailAmount, paid, muted_until AS mutedUntil
+				 FROM jailings WHERE user_id = ? AND paid = 0 AND muted_until > ?
+				 ORDER BY id DESC LIMIT 1`,
+				[userId, now],
+			)[0],
+		);
+	}
+
+	/** Look up an open, unexpired jailing by its user-facing (case-insensitive) id. */
+	static getJailingByPublicId(jailingId: string): Jailing | null {
+		const now = Math.floor(Date.now() / 1000);
+		return JailService.toJailing(
+			query<JailingRow>(
+				`SELECT id, jailing_id AS jailingId, user_id AS userId,
+				        bail_amount AS bailAmount, paid, muted_until AS mutedUntil
+				 FROM jailings WHERE jailing_id = ? AND paid = 0 AND muted_until > ? LIMIT 1`,
+				[normalizeJailingId(jailingId), now],
+			)[0],
+		);
 	}
 
 	/**
@@ -201,6 +312,10 @@ export class JailService {
 	 * @returns The recorded bail amount, or the canonical default
 	 */
 	static getCurrentBailAmount(userId: number): number {
+		const active = JailService.getActiveJailing(userId);
+		if (active) return active.bailAmount;
+
+		// Legacy fallback for jails predating the `jailings` table.
 		const event = query<{ bailAmount: number }>(
 			`SELECT bail_amount AS bailAmount
 			 FROM jail_events
@@ -214,42 +329,106 @@ export class JailService {
 	}
 
 	/**
-	 * Records a bail payment and releases the jailed user atomically.
+	 * Mark a jailing paid and release its user atomically. The unique payment-tx
+	 * index rejects reuse of a hash.
 	 *
-	 * @param userId - Jailed user being released
+	 * @param jailingId - The user-facing jailing id (from the tx memo)
 	 * @param paidByUserId - Telegram user who submitted the payment
-	 * @param bailAmount - Verified payment amount in JUNO
-	 * @param paymentTx - Verified blockchain transaction hash
-	 * @returns Whether the payment was recorded, and whether a duplicate caused failure
+	 * @param paymentTx - Verified transaction hash
+	 * @returns Whether it was recorded, whether a duplicate tx caused failure, and the user
 	 */
-	static recordBailPayment(
-		userId: number,
-		paidByUserId: number,
-		bailAmount: number,
+	static payJailing(
+		jailingId: string,
+		paidByUserId: number | undefined,
 		paymentTx: string,
-	): { success: boolean; duplicate: boolean } {
+	): {
+		success: boolean;
+		duplicate: boolean;
+		userId?: number;
+		notFound?: boolean;
+		alreadyPaid?: boolean;
+	} {
+		const normalized = normalizeJailingId(jailingId);
 		try {
+			let userId: number | undefined;
+			let outcome = "not_found";
 			transaction(() => {
+				const row = query<{
+					id: number;
+					userId: number;
+					bailAmount: number;
+					paid: number;
+					mutedUntil: number;
+				}>(
+					`SELECT id, user_id AS userId, bail_amount AS bailAmount, paid, muted_until AS mutedUntil
+					 FROM jailings WHERE jailing_id = ?`,
+					[normalized],
+				)[0];
+				if (!row) return;
+				userId = row.userId;
+				if (row.paid) {
+					outcome = "already_paid";
+					return;
+				}
+
+				const now = Math.floor(Date.now() / 1000);
+				if (row.mutedUntil <= now) return; // expired: no longer payable
+
+				execute(
+					`UPDATE jailings SET paid = 1, payment_tx = ?, paid_by_user_id = ?, paid_at = ?
+					 WHERE id = ?`,
+					[paymentTx, paidByUserId ?? null, now, row.id],
+				);
 				JailService.logJailEvent(
-					userId,
+					row.userId,
 					"bail_paid",
 					undefined,
 					undefined,
-					bailAmount,
+					AmountPrecision.fromDbMicro(row.bailAmount),
 					paidByUserId,
 					paymentTx,
 				);
 				execute(
 					"UPDATE users SET muted_until = NULL, updated_at = ? WHERE id = ?",
-					[Math.floor(Date.now() / 1000), userId],
+					[now, row.userId],
 				);
+				outcome = "paid";
 			});
-			return { success: true, duplicate: false };
+
+			if (outcome !== "paid") {
+				return {
+					success: false,
+					duplicate: false,
+					userId,
+					notFound: outcome === "not_found",
+					alreadyPaid: outcome === "already_paid",
+				};
+			}
+			return { success: true, duplicate: false, userId };
 		} catch (error) {
 			const duplicate =
 				error instanceof Error &&
-				error.message.includes("UNIQUE constraint failed");
+				error.message.includes("UNIQUE constraint failed") &&
+				(error.message.includes("payment_tx") ||
+					error.message.includes("idx_jailings_payment_tx"));
 			return { success: false, duplicate };
+		}
+	}
+
+	/** Release a jailed user's Telegram restriction (used by the deposit listener). */
+	static async releaseJailingTelegram(userId: number): Promise<void> {
+		if (!config.groupChatId || !JailService.bot) return;
+		try {
+			await releaseMember({
+				telegram: JailService.bot.telegram,
+				chatId: config.groupChatId,
+				userId,
+			});
+		} catch (error) {
+			StructuredLogger.logError(error as Error, {
+				userId,
+				operation: "release_jailing_telegram",
+			});
 		}
 	}
 
@@ -262,9 +441,13 @@ export class JailService {
 	static isBailPaymentUsed(paymentTx: string): boolean {
 		return Boolean(
 			query<{ id: number }>(
-				"SELECT id FROM jail_events WHERE event_type = 'bail_paid' AND payment_tx = ? LIMIT 1",
+				"SELECT id FROM jailings WHERE payment_tx = ? LIMIT 1",
 				[paymentTx],
-			)[0],
+			)[0] ||
+				query<{ id: number }>(
+					"SELECT id FROM jail_events WHERE event_type = 'bail_paid' AND payment_tx = ? LIMIT 1",
+					[paymentTx],
+				)[0],
 		);
 	}
 

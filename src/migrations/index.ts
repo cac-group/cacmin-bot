@@ -59,6 +59,10 @@ import {
 	isMigrationApplied as check013,
 	runMigration as run013,
 } from "./013_drop_fine_config";
+import {
+	isMigrationApplied as check014,
+	runMigration as run014,
+} from "./014_jailings";
 
 interface Migration {
 	id: string;
@@ -145,6 +149,12 @@ const migrations: Migration[] = [
 		name: "drop_fine_config",
 		check: check013,
 		run: run013,
+	},
+	{
+		id: "014",
+		name: "jailings",
+		check: check014,
+		run: run014,
 	},
 ];
 

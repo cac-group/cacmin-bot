@@ -17,10 +17,12 @@ vi.mock("../../src/database", () => ({
 vi.mock("../../src/services/jailService", () => ({
 	JailService: {
 		getActiveJails: vi.fn(() => []),
+		getActiveJailing: vi.fn(() => null),
 		getCurrentBailAmount: vi.fn(),
+		getJailingByPublicId: vi.fn(() => null),
 		getUserJailEvents: vi.fn(() => []),
 		isBailPaymentUsed: vi.fn(() => false),
-		recordBailPayment: vi.fn(() => ({ success: true })),
+		payJailing: vi.fn(() => ({ success: true, duplicate: false })),
 	},
 }));
 
@@ -87,6 +89,14 @@ describe("paybail", () => {
 			muted_until: now + 3600,
 		} as never);
 		vi.mocked(JailService.getCurrentBailAmount).mockReturnValue(69.42);
+		vi.mocked(JailService.getActiveJailing).mockReturnValue({
+			id: 1,
+			jailingId: "JAIL1234",
+			userId: 42,
+			bailAmount: 69.42,
+			paid: false,
+			mutedUntil: now + 3600,
+		});
 
 		const ctx = createMockContext({
 			userId: 42,
@@ -99,6 +109,8 @@ describe("paybail", () => {
 		const text = getReplyText(ctx);
 		expect(text).toContain("juno1testaddress");
 		expect(text).toContain("69.420 JUNO");
+		expect(text).toContain("JAIL1234");
+		expect(text).toContain("MEMO");
 		expect(text).not.toContain("[object Object]");
 	});
 });
@@ -110,11 +122,18 @@ describe("payallfines (admin reserve bail)", () => {
 
 	it("debits SYSTEM_RESERVE (never BOT_TREASURY) and releases the user", async () => {
 		vi.mocked(resolveTargetUser).mockReturnValue({ userId: 7 } as never);
-		vi.mocked(get).mockReturnValue({ id: 7, muted_until: now + 3600 } as never);
-		vi.mocked(JailService.getCurrentBailAmount).mockReturnValue(69.42);
-		vi.mocked(JailService.recordBailPayment).mockReturnValue({
+		vi.mocked(JailService.getActiveJailing).mockReturnValue({
+			id: 1,
+			jailingId: "JAIL7ABC",
+			userId: 7,
+			bailAmount: 69.42,
+			paid: false,
+			mutedUntil: now + 3600,
+		});
+		vi.mocked(JailService.payJailing).mockReturnValue({
 			success: true,
 			duplicate: false,
+			userId: 7,
 		});
 
 		const ctx = createMockContext({
@@ -136,9 +155,9 @@ describe("payallfines (admin reserve bail)", () => {
 		expect(getReplyText(ctx)).toContain("Bail Paid from Reserve");
 	});
 
-	it("does not debit the reserve when the target is not jailed", async () => {
+	it("does not debit the reserve when the target has no active jailing", async () => {
 		vi.mocked(resolveTargetUser).mockReturnValue({ userId: 7 } as never);
-		vi.mocked(get).mockReturnValue({ id: 7, muted_until: 0 } as never);
+		vi.mocked(JailService.getActiveJailing).mockReturnValue(null);
 
 		const ctx = createMockContext({
 			userId: 999,
@@ -152,9 +171,15 @@ describe("payallfines (admin reserve bail)", () => {
 
 	it("refunds the reserve when recording the bail fails", async () => {
 		vi.mocked(resolveTargetUser).mockReturnValue({ userId: 7 } as never);
-		vi.mocked(get).mockReturnValue({ id: 7, muted_until: now + 3600 } as never);
-		vi.mocked(JailService.getCurrentBailAmount).mockReturnValue(69.42);
-		vi.mocked(JailService.recordBailPayment).mockReturnValue({
+		vi.mocked(JailService.getActiveJailing).mockReturnValue({
+			id: 1,
+			jailingId: "JAIL7ABC",
+			userId: 7,
+			bailAmount: 69.42,
+			paid: false,
+			mutedUntil: now + 3600,
+		});
+		vi.mocked(JailService.payJailing).mockReturnValue({
 			success: false,
 			duplicate: false,
 		});

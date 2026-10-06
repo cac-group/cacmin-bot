@@ -151,6 +151,8 @@ interface Config {
 		identityCrawlMs: number;
 		/** Expired jail cleanup */
 		jailCleanupMs: number;
+		/** Deposit/bail listener poll */
+		depositCheckMs: number;
 		/** Expired transaction-lock cleanup */
 		transactionLockCleanupMs: number;
 		/** Expired duel cleanup */
@@ -401,8 +403,8 @@ const DEFAULT_REACTION_JAIL_MESSAGES = [
 export const config: Config = {
 	botToken: process.env.BOT_TOKEN || "",
 	...telegramEndpoints,
-	junoRpcUrl: process.env.JUNO_RPC_URL || "https://rpc.juno.basementnodes.ca",
-	junoApiUrl: process.env.JUNO_API_URL || "https://api.juno.basementnodes.ca",
+	junoRpcUrl: process.env.JUNO_RPC_URL || "https://rpc-archive.junonetwork.io",
+	junoApiUrl: process.env.JUNO_API_URL || "https://lcd-archive.junonetwork.io",
 	adminChatId: parseInt(process.env.ADMIN_CHAT_ID || "0", 10),
 	groupChatId: process.env.GROUP_CHAT_ID
 		? parseInt(process.env.GROUP_CHAT_ID, 10)
@@ -484,6 +486,7 @@ export const config: Config = {
 		muteCleanupMs: envInt("MUTE_CLEANUP_INTERVAL_MS", 60 * 1000),
 		identityCrawlMs: envInt("IDENTITY_CRAWL_INTERVAL_MS", 5 * 60 * 1000),
 		jailCleanupMs: envInt("JAIL_CLEANUP_INTERVAL_MS", 5 * 60 * 1000),
+		depositCheckMs: envInt("DEPOSIT_CHECK_INTERVAL_MS", 90 * 1000),
 		transactionLockCleanupMs: envInt("TX_LOCK_CLEANUP_INTERVAL_MS", 60 * 1000),
 		duelCleanupMs: envInt("DUEL_CLEANUP_INTERVAL_MS", 60 * 1000),
 		reconciliationMs: envInt("RECONCILIATION_INTERVAL_MS", 60 * 60 * 1000),

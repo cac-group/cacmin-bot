@@ -3,11 +3,13 @@ import { GasPrice, SigningStargateClient } from "@cosmjs/stargate";
 import type { FmtString } from "telegraf/format";
 import { config } from "../config";
 import { execute, get, query } from "../database";
+import { looksLikeJailingId } from "../utils/jailingId";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { decodeMemo } from "../utils/txMemo";
 import { CosmosRestService } from "./cosmosRestService";
 import { DepositInstructionService } from "./depositInstructions";
+import { JailService } from "./jailService";
 import { LedgerService } from "./ledgerService";
 import { TransactionLockService } from "./transactionLock";
 
@@ -297,12 +299,12 @@ export class UnifiedWalletService {
 			return;
 		}
 
-		// Check for deposits every 30 seconds
+		// Poll at a conservative cadence to avoid hammering the archive node.
 		UnifiedWalletService.depositCheckInterval = setInterval(() => {
 			UnifiedWalletService.checkForDeposits().catch((error) => {
 				logger.error("Error checking for deposits", error);
 			});
-		}, 30000);
+		}, config.intervals.depositCheckMs);
 
 		// Do initial check
 		UnifiedWalletService.checkForDeposits().catch((error) => {
@@ -389,9 +391,10 @@ export class UnifiedWalletService {
 	 */
 	private static async fetchRecentDeposits(): Promise<DepositCheck[]> {
 		try {
-			// Use RPC tx_search instead of REST API
+			// Targeted query: newest transfers to our wallet first, then stop at the
+			// last height we already processed (no re-scanning old history).
 			const query = `transfer.recipient='${UnifiedWalletService.walletAddress}'`;
-			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=20`;
+			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=20&order_by=desc`;
 
 			const response = await fetch(url);
 
@@ -405,9 +408,9 @@ export class UnifiedWalletService {
 			for (const tx of data.result?.txs || []) {
 				const height = parseInt(tx.height, 10);
 
-				// Skip if already processed
+				// Descending order: once we reach already-processed history, stop.
 				if (height <= UnifiedWalletService.lastCheckedHeight) {
-					continue;
+					break;
 				}
 
 				// Skip failed transactions
@@ -540,22 +543,101 @@ export class UnifiedWalletService {
 			return;
 		}
 
+		// Bail payment: the memo carries a jailing id (alphanumeric, leading letter),
+		// which is not a user id. Allocate to that jailing and release the user.
+		const memoText = deposit.memo ?? "";
+		if (looksLikeJailingId(memoText)) {
+			// Bail memo: this tx is a bail payment, never a deposit. Allocate it or
+			// record it as unallocated, but never fall through to deposit crediting.
+			const jailing = JailService.getJailingByPublicId(memoText);
+			let error = "bail memo did not match an open jailing";
+			if (jailing) {
+				if (deposit.amount !== jailing.bailAmount) {
+					error = "bail amount mismatch";
+					logger.warn("Bail memo found but amount mismatch", {
+						txHash: deposit.txHash,
+						jailingId: jailing.jailingId,
+						expected: jailing.bailAmount,
+						got: deposit.amount,
+					});
+				} else {
+					const payment = JailService.payJailing(
+						jailing.jailingId,
+						undefined,
+						deposit.txHash,
+					);
+					if (payment.success) {
+						error = "";
+						await JailService.releaseJailingTelegram(jailing.userId);
+						logger.info("Bail payment detected by listener", {
+							txHash: deposit.txHash,
+							jailingId: jailing.jailingId,
+							userId: jailing.userId,
+							amount: deposit.amount,
+						});
+					} else {
+						error = payment.duplicate
+							? "bail tx hash already used"
+							: "bail allocation failed";
+					}
+				}
+			}
+
+			execute(
+				`INSERT OR IGNORE INTO processed_deposits (
+					tx_hash, user_id, amount, from_address, memo, height, processed, created_at, error
+				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+				[
+					deposit.txHash,
+					jailing?.userId ?? SYSTEM_USER_IDS.UNCLAIMED,
+					deposit.amount,
+					deposit.fromAddress,
+					memoText,
+					deposit.height,
+					Math.floor(Date.now() / 1000),
+					error || "bail payment",
+				],
+			);
+			return;
+		}
+
 		// Determine target user FIRST (before inserting into processed_deposits)
 		// This ensures the user exists before we reference them with a foreign key
 		let targetUserId = deposit.userId;
 
 		if (!targetUserId) {
-			// No valid userId in memo - send to unclaimed account
-			targetUserId = SYSTEM_USER_IDS.UNCLAIMED;
-			logger.info(
-				"Deposit without valid userId in memo, sending to unclaimed",
-				{
+			// No memo: attribute to the sender only when this address maps to exactly
+			// one user (a prior memo'd deposit or a withdrawal to it). Shared/CEX
+			// addresses fall through to UNCLAIMED.
+			const depositUsers = query<{ user_id: number }>(
+				`SELECT DISTINCT user_id FROM processed_deposits
+				 WHERE from_address = ? AND user_id > 0`,
+				[deposit.fromAddress],
+			).map((r) => r.user_id);
+			const withdrawalUsers = query<{ from_user_id: number }>(
+				`SELECT DISTINCT from_user_id FROM transactions
+				 WHERE external_address = ? AND from_user_id > 0`,
+				[deposit.fromAddress],
+			).map((r) => r.from_user_id);
+			const candidates = new Set([...depositUsers, ...withdrawalUsers]);
+			targetUserId = candidates.size === 1 ? [...candidates][0] : undefined;
+
+			if (!targetUserId) {
+				targetUserId = SYSTEM_USER_IDS.UNCLAIMED;
+				logger.info("Deposit without a usable memo, sending to unclaimed", {
 					txHash: deposit.txHash,
 					memo: deposit.memo,
 					amount: deposit.amount,
 					fromAddress: deposit.fromAddress,
-				},
-			);
+				});
+			} else {
+				logger.info("Deposit without memo attributed to known sender", {
+					txHash: deposit.txHash,
+					fromAddress: deposit.fromAddress,
+					userId: targetUserId,
+					amount: deposit.amount,
+				});
+			}
 		} else {
 			// Check if user exists, create pre-funded account if not
 			if (!userExists(targetUserId)) {
@@ -647,25 +729,12 @@ export class UnifiedWalletService {
 	/**
 	 * Parse userId from memo
 	 */
+	/** A memo designates a user only when it is exactly a positive integer. */
 	private static parseUserId(memo: string): number | null {
-		if (!memo) return null;
-
-		// Try direct number parsing
-		const parsed = parseInt(memo.trim(), 10);
-		if (!Number.isNaN(parsed) && parsed > 0) {
-			return parsed;
-		}
-
-		// Try extracting from patterns like "userId:123" or "user 123"
-		const match = memo.match(/(?:user[Id]*[:\s]+)?(\d+)/i);
-		if (match?.[1]) {
-			const id = parseInt(match[1], 10);
-			if (!Number.isNaN(id) && id > 0) {
-				return id;
-			}
-		}
-
-		return null;
+		const trimmed = memo.trim();
+		if (!/^\d+$/.test(trimmed)) return null;
+		const parsed = Number.parseInt(trimmed, 10);
+		return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 	}
 
 	/**
