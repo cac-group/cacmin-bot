@@ -113,4 +113,34 @@ describe("chatMuteService", () => {
 			]),
 		).toEqual([{ kind: "jail" }]);
 	});
+
+	it("restores standard rights when a jail is applied while the member is already restricted", async () => {
+		const userId = 88006;
+		seedUser(userId, "restricted_target");
+		const restricts: Array<Record<string, boolean>> = [];
+		const telegram = {
+			// Telegram's restricted member has no `permissions` object, so the
+			// captured binding must fall back to standard member rights.
+			getChatMember: async () => ({
+				status: "restricted",
+				can_send_messages: false,
+			}),
+			restrictChatMember: async (
+				_chatId: number,
+				_userId: number,
+				params: { permissions: Record<string, boolean> },
+			) => {
+				restricts.push(params.permissions);
+			},
+			sendMessage: async () => ({}),
+		} as unknown as Telegram;
+		const member = { telegram, chatId: -1001, userId };
+		await muteMember(member, "jail", Math.floor(Date.now() / 1000) + 600);
+		execute(
+			"UPDATE user_rate_limit_mutes SET muted_until = 0 WHERE user_id = ? AND kind = 'jail'",
+			[userId],
+		);
+		await releaseMute(member, "jail");
+		expect(restricts[restricts.length - 1]?.can_send_messages).toBe(true);
+	});
 });

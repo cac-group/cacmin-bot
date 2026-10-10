@@ -126,6 +126,12 @@ interface Config {
 	/** Minutes a reaction-spam offender is jailed (never banned/kicked) */
 	reactionSpamJailMinutes: number;
 
+	/**
+	 * Seconds added to a user's rejoin cooldown on each leave/rejoin, and the
+	 * size of the first mute. The mute pauses while the user is away. 0 disables.
+	 */
+	rejoinCooldownSeconds: number;
+
 	/** Group flood limiter settings (delete recent burst and jail the sender) */
 	spamLimit: {
 		/** Messages allowed within the window before enforcement (0 disables) */
@@ -469,6 +475,7 @@ export const config: Config = {
 		process.env.REACTION_SPAM_JAIL_MINUTES,
 		1440,
 	),
+	rejoinCooldownSeconds: envInt("REJOIN_COOLDOWN_SECONDS", 60 * 60),
 	spamLimit: {
 		maxMessages: parseNonNegativeInteger(
 			process.env.SPAM_LIMIT_MAX_MESSAGES,

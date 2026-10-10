@@ -52,6 +52,15 @@ Appended/updated by `src/services/chatInteractionIndexerService.ts`:
 `src/services/identityCrawlService.ts` records crawl progress in the bot's own
 `system_state` but writes identities into the explorer's user tables above.
 
+## Membership statistics (bot-owned, consumers read only)
+
+`user_membership_events` (append-only join/leave log, migration 016) lives in
+the bot's own database, not the explorer dataset. The bot is the sole writer;
+telegram-chat-explorer and the CAC museum mini-app read it and never write to
+it. The museum reads it by opening the bot DB read-only via
+`CACMIN_BOT_DB_PATH` and surfaces the counts on its per-user view (see
+`telegram-chat-explorer/src/db/membershipStats.ts`). See `rejoin-cooldown.md`.
+
 ## Mirrored logic
 
 The bot deliberately mirrors the explorer's embedding context builder

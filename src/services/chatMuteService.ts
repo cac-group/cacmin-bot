@@ -34,7 +34,8 @@ export type MuteKind =
 	| "reaction_spam"
 	| "identity_block"
 	| "duel"
-	| "restriction";
+	| "restriction"
+	| "cooldown";
 
 /** A member's permissions prior to a mute, stored so it can be restored. */
 export interface PermissionBinding {

@@ -15,6 +15,8 @@ that has no home beside the code.
 - `identity-blocks.md` — name/username block matching and its temporary jail.
 - `restrictions.md` — violation-response dedupe, restriction labels, and
   `/bangif`.
+- `rejoin-cooldown.md` — leave/rejoin mute pause semantics, bail-flow buy-out,
+  and the read-only membership event log for chat explorer / CAC museum.
 - `user-identity.md` — userId-as-sole-key policy, persistence guarantees, and
   the remaining display-name-keyed surfaces.
 - `interactive-menus.md` — the one-message rule, callback answering, entry
@@ -36,3 +38,5 @@ that has no home beside the code.
   and error-metadata logging.
 - `logs/2026-10-05.md` — `/help` cleanup; fines consolidated into a fixed
   69.420 JUNO bail; admin/owner reserve-funded bail; fine config dropped.
+- `logs/2026-10-09.md` — leave/rejoin cooldown (pause + bail-flow buy-out) and
+  membership join/leave event log.

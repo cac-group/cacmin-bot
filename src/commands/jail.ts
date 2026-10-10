@@ -17,6 +17,7 @@ import { CosmosRestService } from "../services/cosmosRestService";
 import { JailService } from "../services/jailService";
 import { JunoService } from "../services/junoService";
 import { LedgerService } from "../services/ledgerService";
+import { getActiveCooldown } from "../services/rejoinCooldownService";
 import { SYSTEM_USER_IDS } from "../services/unifiedWalletService";
 import type { User } from "../types";
 import { formatActiveTime } from "../utils/activeTime";
@@ -72,7 +73,8 @@ async function sendBailInstructions(
 	}
 
 	const now = Math.floor(Date.now() / 1000);
-	if (!user.muted_until || user.muted_until <= now) {
+	const jailing = JailService.getActiveJailing(targetUserId);
+	if ((!user.muted_until || user.muted_until <= now) && !jailing) {
 		const msg = await ctx.reply(
 			fmt`You are not currently jailed. No bail required!`,
 		);
@@ -80,8 +82,9 @@ async function sendBailInstructions(
 		return;
 	}
 
-	const timeRemaining = user.muted_until - now;
-	const jailing = JailService.getActiveJailing(targetUserId);
+	const timeRemaining = jailing
+		? Math.max(0, jailing.mutedUntil - now)
+		: (user.muted_until ?? now) - now;
 	const bailAmount =
 		jailing?.bailAmount ?? JailService.getCurrentBailAmount(targetUserId);
 	const jailingLine = jailing
@@ -501,6 +504,10 @@ The bot confirms the transaction succeeded, the amount matches, the payment went
 		parts.push(`Warnings: ${user.warning_count}\n\n`);
 
 		// Check if jailed
+		const cooldown =
+			user.muted_until && user.muted_until > now
+				? null
+				: getActiveCooldown(userId, now);
 		if (user.muted_until && user.muted_until > now) {
 			const timeRemaining = user.muted_until - now;
 			const bailAmount = JailService.getCurrentBailAmount(userId);
@@ -510,6 +517,16 @@ The bot confirms the transaction succeeded, the amount matches, the payment went
 			parts.push(`Time remaining: ${formatTimeRemaining(timeRemaining)}\n`);
 			parts.push(`Bail amount: ${bailAmount.toFixed(3)} JUNO\n\n`);
 			parts.push("To pay bail: /paybail\n\n");
+		} else if (cooldown) {
+			parts.push(bold("Currently Muted (rejoin cooldown)"));
+			parts.push("\n");
+			parts.push(
+				`Time remaining: ${formatTimeRemaining(cooldown.mutedUntil - now)}\n`,
+			);
+			parts.push(
+				`Buy-out: ${config.defaultJailBailAmount.toFixed(3)} JUNO\n\n`,
+			);
+			parts.push("To pay: /paybail\n\n");
 		} else {
 			parts.push("Not currently jailed\n\n");
 		}

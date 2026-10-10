@@ -1,12 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runMigration as run009 } from "../../src/migrations/009_null_placeholder_usernames";
 import { runMigration as run010 } from "../../src/migrations/010_normalize_bail_units";
 import { runMigration as run011 } from "../../src/migrations/011_reconcile_user_balances";
 import { runMigration as run012 } from "../../src/migrations/012_mute_kinds";
 import { runMigration as run013 } from "../../src/migrations/013_drop_fine_config";
 import { runMigration as run014 } from "../../src/migrations/014_jailings";
+import { runMigration as run015 } from "../../src/migrations/015_rejoin_cooldowns";
+import { runMigration as run016 } from "../../src/migrations/016_membership_events";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -365,6 +367,58 @@ describe("migration 014 jailings", () => {
 		expect(
 			num(
 				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_014_jailings'",
+			),
+		).toBe(1);
+	});
+});
+
+describe("migration 015 rejoin cooldowns", () => {
+	it("creates the cooldown table and marker, and is idempotent", () => {
+		const first = run015(db);
+		expect(first.errors).toEqual([]);
+		db.prepare("INSERT INTO users (id, username) VALUES (1, 'u1')").run();
+		db.prepare(
+			"INSERT INTO user_rejoin_cooldowns (user_id, pending, remaining_seconds) VALUES (1, 1, 300)",
+		).run();
+		const row = db
+			.prepare(
+				"SELECT pending, remaining_seconds FROM user_rejoin_cooldowns WHERE user_id = 1",
+			)
+			.get() as { pending: number; remaining_seconds: number };
+		expect(row).toEqual({ pending: 1, remaining_seconds: 300 });
+
+		const second = run015(db);
+		expect(second.errors).toEqual([]);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_015_rejoin_cooldowns'",
+			),
+		).toBe(1);
+	});
+});
+
+describe("migration 016 membership events", () => {
+	it("creates an append-only log that survives unknown users, and is idempotent", () => {
+		const first = run016(db);
+		expect(first.errors).toEqual([]);
+		// No FK: history is durable even for a user never recorded in `users`.
+		db.prepare(
+			"INSERT INTO user_membership_events (user_id, chat_id, event_type, source, occurred_at) VALUES (999, -1, 'join', 'test', 1000)",
+		).run();
+		expect(num("SELECT COUNT(*) AS v FROM user_membership_events")).toBe(1);
+		expect(() =>
+			db
+				.prepare(
+					"INSERT INTO user_membership_events (user_id, event_type, occurred_at) VALUES (1, 'bogus', 1)",
+				)
+				.run(),
+		).toThrow();
+
+		const second = run016(db);
+		expect(second.errors).toEqual([]);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_016_membership_events'",
 			),
 		).toBe(1);
 	});

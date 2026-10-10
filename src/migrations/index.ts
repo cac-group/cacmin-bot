@@ -63,6 +63,14 @@ import {
 	isMigrationApplied as check014,
 	runMigration as run014,
 } from "./014_jailings";
+import {
+	isMigrationApplied as check015,
+	runMigration as run015,
+} from "./015_rejoin_cooldowns";
+import {
+	isMigrationApplied as check016,
+	runMigration as run016,
+} from "./016_membership_events";
 
 interface Migration {
 	id: string;
@@ -155,6 +163,18 @@ const migrations: Migration[] = [
 		name: "jailings",
 		check: check014,
 		run: run014,
+	},
+	{
+		id: "015",
+		name: "rejoin_cooldowns",
+		check: check015,
+		run: run015,
+	},
+	{
+		id: "016",
+		name: "membership_events",
+		check: check016,
+		run: run016,
 	},
 ];
 

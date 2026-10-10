@@ -247,15 +247,16 @@ export function registerIdentityBlockModeration(bot: Telegraf<Context>): void {
 		return next();
 	});
 
-	bot.on("chat_member", async (ctx) => {
+	bot.on("chat_member", async (ctx, next) => {
 		const update = ctx.chatMember;
-		if (!update || update.chat.type === "private") return;
+		if (!update || update.chat.type === "private") return next();
 
 		await jailIfBlockedIdentity(
 			update.chat.id,
 			update.new_chat_member.user,
 			"chat_member",
 		);
+		return next();
 	});
 
 	logger.info("Identity block moderation registered");

@@ -26,6 +26,11 @@ import {
 	releaseMember,
 	releaseMute,
 } from "./chatMuteService";
+import {
+	cancelOpenCooldown,
+	clearOnBuyout,
+	REJOIN_COOLDOWN_REASON,
+} from "./rejoinCooldownService";
 
 /** Canonical bail amount for jails without an explicitly configured amount. */
 export const DEFAULT_JAIL_BAIL_AMOUNT = config.defaultJailBailAmount;
@@ -111,6 +116,10 @@ export class JailService {
 			reason: request.metadata?.reason,
 			createdAt: now,
 		});
+
+		// A cooldown's payable jailing must not coexist with a real jail: its
+		// memo could otherwise be paid to lift the jail via releaseMember.
+		cancelOpenCooldown(request.userId, now);
 
 		JailService.logJailEvent(
 			request.userId,
@@ -359,8 +368,10 @@ export class JailService {
 					bailAmount: number;
 					paid: number;
 					mutedUntil: number;
+					reason: string | null;
 				}>(
-					`SELECT id, user_id AS userId, bail_amount AS bailAmount, paid, muted_until AS mutedUntil
+					`SELECT id, user_id AS userId, bail_amount AS bailAmount, paid,
+					        muted_until AS mutedUntil, reason
 					 FROM jailings WHERE jailing_id = ?`,
 					[normalized],
 				)[0];
@@ -392,6 +403,10 @@ export class JailService {
 					"UPDATE users SET muted_until = NULL, updated_at = ? WHERE id = ?",
 					[now, row.userId],
 				);
+				// A bought-out cooldown must not survive as accrued debt.
+				if (row.reason === REJOIN_COOLDOWN_REASON) {
+					clearOnBuyout(row.userId);
+				}
 				outcome = "paid";
 			});
 
