@@ -17,7 +17,7 @@ const CHAT_ID = -100999;
 const T0 = 1_800_000_000;
 const TEST_USER_IDS = [
 	990010, 990011, 990012, 990013, 990014, 990015, 990016, 990017, 990018,
-	990019, 990020,
+	990019, 990020, 990021,
 ];
 
 /** Minimal Telegram double that satisfies muteMember and records restores. */
@@ -68,8 +68,8 @@ function resetTestUsers(): void {
 }
 
 function cooldownRow(userId: number) {
-	return get<{ pending: number; remaining_seconds: number }>(
-		"SELECT pending, remaining_seconds FROM user_rejoin_cooldowns WHERE user_id = ?",
+	return get<{ remaining_seconds: number; last_join_at: number }>(
+		"SELECT remaining_seconds, last_join_at FROM user_rejoin_cooldowns WHERE user_id = ?",
 		[userId],
 	);
 }
@@ -86,30 +86,33 @@ describe("rejoin cooldown", () => {
 		resetTestUsers();
 	});
 
-	it("does nothing on a first-ever join (no prior leave)", async () => {
+	it("does nothing on a first-ever join (not a rejoin)", async () => {
 		const userId = 990010;
 		seedUser(userId);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(
+			telegramDouble(),
+			CHAT_ID,
+			userId,
+			T0,
+			false,
+		);
 		expect(muteRow(userId)).toBeUndefined();
-		expect(cooldownRow(userId)).toBeUndefined();
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(0);
 	});
 
-	it("mutes for one interval on leave/rejoin and opens a payable jailing", async () => {
+	it("mutes a known member on rejoin and opens a payable jailing", async () => {
 		const userId = 990011;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
-		expect(cooldownRow(userId)).toMatchObject({
-			pending: 1,
-			remaining_seconds: 0,
-		});
-
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0 + 5);
-		expect(cooldownRow(userId)).toMatchObject({
-			pending: 0,
-			remaining_seconds: 0,
-		});
+		await recordMemberRejoin(
+			telegramDouble(),
+			CHAT_ID,
+			userId,
+			T0 + 5,
+			true,
+		);
 		const mute = muteRow(userId);
 		expect(mute?.muted_until).toBe(T0 + 5 + config.rejoinCooldownSeconds);
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(0);
 
 		const jailing = get<{ bail_amount: number; reason: string; paid: number }>(
 			"SELECT bail_amount, reason, paid FROM jailings WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -123,36 +126,56 @@ describe("rejoin cooldown", () => {
 		);
 	});
 
+	it("collapses the same join delivered twice (message + chat_member)", async () => {
+		const userId = 990021;
+		seedUser(userId);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
+		// Second delivery of the same join (same second).
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
+		expect(muteRow(userId)?.muted_until).toBe(T0 + config.rejoinCooldownSeconds);
+		const jailings = query<{ n: number }>(
+			"SELECT COUNT(*) AS n FROM jailings WHERE user_id = ? AND reason = ?",
+			[userId, REJOIN_COOLDOWN_REASON],
+		);
+		expect(jailings[0]?.n).toBe(1);
+	});
+
 	it("pauses while away and adds an hour on the next rejoin", async () => {
 		const userId = 990012;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 		// 10 minutes of the 1h mute elapse, then they leave.
 		recordMemberLeave(userId, T0 + 600);
-		expect(cooldownRow(userId)).toMatchObject({
-			pending: 1,
-			remaining_seconds: config.rejoinCooldownSeconds - 600,
-		});
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(
+			config.rejoinCooldownSeconds - 600,
+		);
 		// They rejoin 1 hour later: remaining (3000) + 3600 = 6600.
 		const rejoinAt = T0 + 600 + 3600;
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, rejoinAt);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, rejoinAt, true);
 		expect(muteRow(userId)?.muted_until).toBe(
 			rejoinAt +
 				(config.rejoinCooldownSeconds - 600) +
 				config.rejoinCooldownSeconds,
 		);
-		expect(cooldownRow(userId)).toMatchObject({
-			pending: 0,
-			remaining_seconds: 0,
-		});
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(0);
+	});
+
+	it("uses the still-running mute when the leave was never observed", async () => {
+		const userId = 990021;
+		seedUser(userId);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
+		// No leave event: they rejoin 10 minutes later. 3000s still owed + 3600.
+		const rejoinAt = T0 + 600;
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, rejoinAt, true);
+		expect(muteRow(userId)?.muted_until).toBe(
+			rejoinAt + (config.rejoinCooldownSeconds - 600) + config.rejoinCooldownSeconds,
+		);
 	});
 
 	it("reports the active cooldown for /mystatus", async () => {
 		const userId = 990013;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 		expect(getActiveCooldown(userId, T0 + 10)?.mutedUntil).toBe(
 			T0 + config.rejoinCooldownSeconds,
 		);
@@ -164,8 +187,7 @@ describe("rejoin cooldown", () => {
 	it("clears the accrued cooldown when the jailing is bought out", async () => {
 		const userId = 990014;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 
 		const jailing = get<{ jailing_id: string }>(
 			"SELECT jailing_id FROM jailings WHERE user_id = ? AND paid = 0 ORDER BY id DESC LIMIT 1",
@@ -198,20 +220,15 @@ describe("rejoin cooldown", () => {
 			"INSERT INTO jailings (jailing_id, user_id, bail_amount, muted_until, reason) VALUES ('JAILTEST', ?, 1, ?, NULL)",
 			[userId, T0 + 3600],
 		);
-		recordMemberLeave(userId, T0);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 		expect(muteRow(userId)).toBeUndefined();
-		expect(cooldownRow(userId)).toMatchObject({
-			pending: 0,
-			remaining_seconds: 0,
-		});
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(0);
 	});
 
 	it("cancels an open cooldown when a real jail starts, so its memo cannot lift the jail", async () => {
 		const userId = 990019;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 
 		const cooldownJailing = get<{ jailing_id: string }>(
 			"SELECT jailing_id FROM jailings WHERE user_id = ? AND reason = ? AND paid = 0",
@@ -243,7 +260,6 @@ describe("rejoin cooldown", () => {
 	it("abandons the cooldown if a jail starts during the mute apply", async () => {
 		const userId = 990020;
 		seedUser(userId);
-		recordMemberLeave(userId, T0);
 		let injected = false;
 		const telegram = {
 			getChatMember: async () => ({ status: "member" }),
@@ -259,7 +275,7 @@ describe("rejoin cooldown", () => {
 			sendMessage: async () => ({}),
 		} as unknown as Telegram;
 
-		await recordMemberRejoin(telegram, CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegram, CHAT_ID, userId, T0, true);
 
 		// No payable cooldown jailing was opened, and no cooldown state remains.
 		expect(
@@ -268,7 +284,7 @@ describe("rejoin cooldown", () => {
 				[userId, REJOIN_COOLDOWN_REASON],
 			),
 		).toBeUndefined();
-		expect(cooldownRow(userId)).toBeUndefined();
+		expect(cooldownRow(userId)?.remaining_seconds).toBe(0);
 	});
 
 	it("does nothing when the cooldown is disabled", async () => {
@@ -279,7 +295,7 @@ describe("rejoin cooldown", () => {
 		try {
 			recordMemberLeave(userId, T0);
 			expect(cooldownRow(userId)).toBeUndefined();
-			await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+			await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 			expect(muteRow(userId)).toBeUndefined();
 		} finally {
 			config.rejoinCooldownSeconds = previous;
@@ -291,11 +307,11 @@ describe("rejoin cooldown", () => {
 		seedUser(userId, "admin");
 		recordMemberLeave(userId, T0);
 		expect(cooldownRow(userId)).toBeUndefined();
-		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0);
+		await recordMemberRejoin(telegramDouble(), CHAT_ID, userId, T0, true);
 		expect(muteRow(userId)).toBeUndefined();
 	});
 
-	it("clearOnBuyout removes the pending record", () => {
+	it("clearOnBuyout removes the stored record", () => {
 		const userId = 990016;
 		seedUser(userId);
 		recordMemberLeave(userId, T0);

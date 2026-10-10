@@ -20,8 +20,8 @@ Example (`rejoinCooldownSeconds = 3600`):
 
 State is split so the existing mute machinery is reused unchanged:
 
-- `user_rejoin_cooldowns` (`user_id` PK) holds `pending` (a leave is waiting to
-  be re-enforced) and `remaining_seconds` (the frozen remainder).
+- `user_rejoin_cooldowns` (`user_id` PK) holds `remaining_seconds` (the frozen
+  remainder) and `last_join_at` (join dedupe marker).
 - The live Telegram restriction is written with
   `muteMember(..., "cooldown")` into `user_rate_limit_mutes`, so the message
   filter (which reads `MAX(muted_until)` across kinds) and the periodic mute
@@ -39,13 +39,16 @@ cooldown's own previous jailing is excluded from that check. A jail that starts
 during the `muteMember` await is caught by a second check before the jailing is
 opened, so two open jailings cannot coexist even under interleaving.
 
-Both delivery paths drive this: the service messages (`new_chat_members` /
-`left_chat_member`) and the `chat_member` update. Telegram may send only one of
-them (or both), so neither is trusted alone. Duplicates are harmless: the event
-log collapses a same-type event within 10s, and `recordMemberRejoin` /
-`recordMemberLeave` are idempotent on the `pending` flag. A leave from
-`restricted` (already muted) counts. The member tag is applied once, on the
-service-message path.
+The rejoin is detected from the **join**, not from a leave: a join for a user we
+already know (a `users` row exists before this join) is necessarily a rejoin.
+Telegram does not reliably deliver leave updates, so `recordMemberLeave` is only
+best-effort — it freezes the remainder earlier, but if it is missed the
+still-running cooldown mute supplies the remainder at the next rejoin.
+
+Both join delivery paths are handled (the `new_chat_members` service message and
+the `chat_member` update); `user_rejoin_cooldowns.last_join_at` collapses the
+same join delivered twice within 5s. The member tag is applied once, on the
+service-message path; the event log collapses a same-type event within 10s.
 
 A pre-existing bug made the `chat_member` path dead: the `chat_member` handler in
 `registerIdentityBlockModeration` did not call `next()`, so it stopped the

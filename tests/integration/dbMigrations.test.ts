@@ -9,6 +9,7 @@ import { runMigration as run013 } from "../../src/migrations/013_drop_fine_confi
 import { runMigration as run014 } from "../../src/migrations/014_jailings";
 import { runMigration as run015 } from "../../src/migrations/015_rejoin_cooldowns";
 import { runMigration as run016 } from "../../src/migrations/016_membership_events";
+import { runMigration as run017 } from "../../src/migrations/017_rejoin_last_join";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -419,6 +420,32 @@ describe("migration 016 membership events", () => {
 		expect(
 			num(
 				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_016_membership_events'",
+			),
+		).toBe(1);
+	});
+});
+
+describe("migration 017 rejoin last join", () => {
+	it("adds last_join_at and is idempotent", () => {
+		run015(db);
+		const first = run017(db);
+		expect(first.errors).toEqual([]);
+		db.prepare("INSERT INTO users (id, username) VALUES (1, 'u1')").run();
+		db.prepare(
+			"INSERT INTO user_rejoin_cooldowns (user_id, remaining_seconds, last_join_at) VALUES (1, 300, 12345)",
+		).run();
+		const row = db
+			.prepare(
+				"SELECT remaining_seconds, last_join_at FROM user_rejoin_cooldowns WHERE user_id = 1",
+			)
+			.get() as { remaining_seconds: number; last_join_at: number };
+		expect(row).toEqual({ remaining_seconds: 300, last_join_at: 12345 });
+
+		const second = run017(db);
+		expect(second.errors).toEqual([]);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_017_rejoin_last_join'",
 			),
 		).toBe(1);
 	});

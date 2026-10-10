@@ -6,9 +6,16 @@
  * the seconds still owed are frozen and one more interval is added on the next
  * rejoin, so evading a mute by leaving only extends it.
  *
+ * The rejoin is detected from the **join** itself: a join for a user we already
+ * know is necessarily a rejoin, so we never depend on receiving a leave update
+ * (Telegram does not deliver those reliably). `recordMemberLeave` is best-effort
+ * and only freezes the remainder earlier; if it is missed, the still-running
+ * mute supplies the remainder at the next rejoin.
+ *
  * State split:
- * - `user_rejoin_cooldowns` keeps the paused remainder and the `pending` flag
- *   that remembers a leave is waiting to be re-enforced.
+ * - `user_rejoin_cooldowns` keeps the paused remainder and `last_join_at` (which
+ *   collapses the same join delivered as both a service message and a
+ *   `chat_member` update).
  * - The live Telegram restriction is written through `muteMember(..., "cooldown")`
  *   into `user_rate_limit_mutes`, so the existing message filter and mute
  *   cleanup enforce and release it with no extra wiring.
@@ -18,10 +25,6 @@
  * existing bail pipeline — `/paybail`, `/verifybail`, and the deposit listener —
  * verify and release it unchanged; `JailService.payJailing` calls
  * {@link clearOnBuyout} so the accrued cooldown does not survive the payment.
- *
- * Only the `chat_member` update path calls this: it is the single source of
- * join/leave transitions, which avoids double-counting a join that arrives both
- * as a message and a chat_member update.
  *
  * @module services/rejoinCooldownService
  */
@@ -37,9 +40,12 @@ import { muteMember, releaseMute } from "./chatMuteService";
 /** `jailings.reason` value marking a payable rejoin cooldown. */
 export const REJOIN_COOLDOWN_REASON = "rejoin_cooldown";
 
+/** A join delivered twice within this window is the same join. */
+const JOIN_DEDUPE_SECONDS = 5;
+
 interface CooldownRow {
-	pending: number;
 	remaining_seconds: number;
+	last_join_at: number;
 }
 
 /** Current time in whole unix seconds. */
@@ -56,6 +62,15 @@ function isExempt(userId: number): boolean {
 	return (
 		Boolean(user?.whitelist) || user?.role === "owner" || user?.role === "admin"
 	);
+}
+
+/** Remaining seconds left on an active cooldown mute, or 0. */
+function activeCooldownRemaining(userId: number, now: number): number {
+	const active = get<{ muted_until: number }>(
+		"SELECT muted_until FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'cooldown'",
+		[userId],
+	);
+	return active && active.muted_until > now ? active.muted_until - now : 0;
 }
 
 /**
@@ -128,41 +143,55 @@ function hasConflictingMute(userId: number, now: number): boolean {
 	);
 }
 
+/** Record that a join has been processed (dedupe marker, and clears owed time). */
+function markJoinSeen(
+	userId: number,
+	now: number,
+	remainingSeconds: number,
+): void {
+	execute(
+		`INSERT INTO user_rejoin_cooldowns (user_id, remaining_seconds, last_join_at, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		 remaining_seconds=excluded.remaining_seconds,
+		 last_join_at=excluded.last_join_at,
+		 updated_at=excluded.updated_at`,
+		[userId, remainingSeconds, now, now],
+	);
+}
+
+/** Store the frozen remainder without disturbing the join dedupe marker. */
+function markLeavePaused(
+	userId: number,
+	now: number,
+	remainingSeconds: number,
+): void {
+	execute(
+		`INSERT INTO user_rejoin_cooldowns (user_id, remaining_seconds, last_join_at, updated_at)
+		 VALUES (?, ?, 0, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		 remaining_seconds=excluded.remaining_seconds,
+		 updated_at=excluded.updated_at`,
+		[userId, remainingSeconds, now],
+	);
+}
+
 /**
- * Record that a member left. Freezes whatever cooldown time is still owed and
- * marks them pending so the next rejoin re-applies (and extends) the mute.
- * Idempotent: a duplicate leave signal is ignored.
+ * Best-effort pause: freeze whatever cooldown time is still owed and drop the
+ * live mute so it does not keep ticking while the user is away. If Telegram
+ * never delivers the leave, the next rejoin falls back to the still-running
+ * mute's remaining time.
  */
 export function recordMemberLeave(userId: number, now = nowSeconds()): void {
 	if (!(config.rejoinCooldownSeconds > 0)) return;
 	if (isExempt(userId)) return;
 
-	const existing = get<Pick<CooldownRow, "pending">>(
-		"SELECT pending FROM user_rejoin_cooldowns WHERE user_id = ?",
-		[userId],
-	);
-	if (existing?.pending) return; // already away
-
-	const active = get<{ muted_until: number }>(
-		"SELECT muted_until FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'cooldown'",
-		[userId],
-	);
-	const remaining =
-		active && active.muted_until > now ? active.muted_until - now : 0;
-
-	// Drop the live mute row: the user is gone, so there is nothing to restore,
-	// and the frozen remainder supersedes it.
+	const remaining = activeCooldownRemaining(userId, now);
 	execute(
 		"DELETE FROM user_rate_limit_mutes WHERE user_id = ? AND kind = 'cooldown'",
 		[userId],
 	);
-	execute(
-		`INSERT INTO user_rejoin_cooldowns (user_id, pending, remaining_seconds, updated_at)
-		 VALUES (?, 1, ?, ?)
-		 ON CONFLICT(user_id) DO UPDATE SET
-		 pending=1, remaining_seconds=excluded.remaining_seconds, updated_at=excluded.updated_at`,
-		[userId, remaining, now],
-	);
+	markLeavePaused(userId, now, remaining);
 	logger.info("Rejoin cooldown paused", {
 		tag: "moderation",
 		subtag: "cooldown_paused",
@@ -172,33 +201,34 @@ export function recordMemberLeave(userId: number, now = nowSeconds()): void {
 }
 
 /**
- * Apply or extend the cooldown mute when a pending member rejoins. The owed
- * time is the frozen remainder plus one cooldown interval.
+ * Apply or extend the cooldown mute when a member joins. `isRejoin` is false
+ * only for a first-ever join (a user we did not already know); any other join is
+ * a rejoin and adds one interval to whatever is still owed.
  */
 export async function recordMemberRejoin(
 	telegram: Telegram,
 	chatId: number,
 	userId: number,
 	now = nowSeconds(),
+	isRejoin = true,
 ): Promise<void> {
 	if (!(config.rejoinCooldownSeconds > 0)) return;
+	if (isExempt(userId)) return;
 
 	const row = get<CooldownRow>(
-		"SELECT pending, remaining_seconds FROM user_rejoin_cooldowns WHERE user_id = ?",
+		"SELECT remaining_seconds, last_join_at FROM user_rejoin_cooldowns WHERE user_id = ?",
 		[userId],
 	);
-	if (!row?.pending) return; // first-ever join, or already handled
+	// The same join can arrive as a service message and a chat_member update.
+	if (row && Math.abs(now - row.last_join_at) <= JOIN_DEDUPE_SECONDS) return;
 
-	if (isExempt(userId)) {
-		execute("DELETE FROM user_rejoin_cooldowns WHERE user_id = ?", [userId]);
+	if (!isRejoin) {
+		markJoinSeen(userId, now, row?.remaining_seconds ?? 0);
 		return;
 	}
 
 	if (hasConflictingMute(userId, now)) {
-		execute(
-			"UPDATE user_rejoin_cooldowns SET pending = 0, remaining_seconds = 0, updated_at = ? WHERE user_id = ?",
-			[now, userId],
-		);
+		markJoinSeen(userId, now, 0);
 		logger.info("Rejoin cooldown skipped; another mute is active", {
 			tag: "moderation",
 			subtag: "cooldown_skipped",
@@ -207,10 +237,15 @@ export async function recordMemberRejoin(
 		return;
 	}
 
-	const owed = row.remaining_seconds + config.rejoinCooldownSeconds;
+	// Paused remainder (leave seen) or the still-running mute's remainder.
+	const owed =
+		Math.max(
+			row?.remaining_seconds ?? 0,
+			activeCooldownRemaining(userId, now),
+		) + config.rejoinCooldownSeconds;
 	const until = now + owed;
 	// Mute first so a failed Telegram call cannot leave a payable jailing with
-	// no enforced restriction. `pending` is only cleared after both succeed.
+	// no enforced restriction. The join is only marked seen after both succeed.
 	await muteMember({ telegram, chatId, userId }, "cooldown", until);
 
 	// A jail can start during the await above (admin or auto-jail). Re-check
@@ -223,7 +258,7 @@ export async function recordMemberRejoin(
 			[userId],
 		);
 		await releaseMute({ telegram, chatId, userId }, "cooldown").catch(() => {});
-		execute("DELETE FROM user_rejoin_cooldowns WHERE user_id = ?", [userId]);
+		markJoinSeen(userId, now, 0);
 		logger.info("Rejoin cooldown abandoned; another mute started", {
 			tag: "moderation",
 			subtag: "cooldown_abandoned",
@@ -233,10 +268,7 @@ export async function recordMemberRejoin(
 	}
 
 	upsertCooldownJailing(userId, until);
-	execute(
-		"UPDATE user_rejoin_cooldowns SET pending = 0, remaining_seconds = 0, updated_at = ? WHERE user_id = ?",
-		[now, userId],
-	);
+	markJoinSeen(userId, now, 0);
 	logger.warn("Rejoin cooldown mute applied", {
 		tag: "moderation",
 		subtag: "cooldown_muted",

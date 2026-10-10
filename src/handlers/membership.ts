@@ -154,6 +154,10 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 		if ("new_chat_members" in msg && msg.new_chat_members) {
 			for (const member of msg.new_chat_members) {
 				if (member.is_bot) continue;
+				// A join for a user we already know is necessarily a rejoin.
+				const known = Boolean(
+					get("SELECT 1 FROM users WHERE id = ?", [member.id]),
+				);
 				ensureUserExists(member.id, member.username || `user_${member.id}`);
 				recordJoin(member.id, ctx.chat?.id, msg.date, "new_chat_members");
 				recordMembershipEvent(
@@ -166,9 +170,10 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 				await applyMemberTag(ctx.telegram, ctx.chat?.id, member.id);
 				await recordMemberRejoin(
 					ctx.telegram,
-					ctx.chat?.id,
+					ctx.chat?.id as number,
 					member.id,
 					msg.date,
+					known,
 				);
 			}
 			return next();
@@ -205,6 +210,9 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 		if (isJoinTransition(previous, nextStatus)) {
 			const user = update.new_chat_member.user;
 			if (!user.is_bot) {
+				const known = Boolean(
+					get("SELECT 1 FROM users WHERE id = ?", [user.id]),
+				);
 				ensureUserExists(user.id, user.username || `user_${user.id}`);
 				recordJoin(user.id, update.chat.id, update.date, source);
 				recordMembershipEvent(
@@ -219,6 +227,7 @@ export function registerMembershipHandlers(bot: Telegraf<Context>): void {
 					update.chat.id,
 					user.id,
 					update.date,
+					known,
 				);
 			}
 		} else if (isLeaveTransition(previous, nextStatus)) {
