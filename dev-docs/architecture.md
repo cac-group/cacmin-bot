@@ -61,6 +61,35 @@ appends. The contract is
 [chat-explorer-integration.md](chat-explorer-integration.md) — read it before
 touching any shared table or the embedding hand-off.
 
+## Financial core
+
+A **single shared on-chain JUNO wallet** backs every internal balance; the SQLite
+ledger is the source of truth for ownership. The account model, ID ranges, fund
+flows, and access matrix are canonical in [`LEDGER.md`](../LEDGER.md) — link to
+it, do not restate it here. Engineering invariants:
+
+- **Exact money.** All amounts are integer microJUNO (1 JUNO = 1e6) via
+  `AmountPrecision` (`src/utils/precision.ts`); use `toDbMicro`/`fromDbMicro` at
+  the DB boundary. Never use floating point for amounts.
+- **Locks.** Every balance-changing operation acquires a DB transaction lock
+  (`src/services/transactionLock.ts`) and releases it in a `finally` block; locks
+  expire and are cleaned on startup.
+- **Ledger.** Every operation writes double-entry records; `LedgerService` owns
+  balances and the audit trail.
+- **Deposits.** Detected by RPC polling; the memo is decoded with cosmjs
+  (`decodeTxRaw` in `src/utils/txMemo.ts`), credited idempotently via
+  `processed_deposits`, and a startup reconciliation
+  (`UnifiedWalletService.reconcileStartupDeposits`) catches deposits missed
+  during downtime.
+
+## Roles
+
+Four tiers, `owner > admin > elevated > pleb`, enforced by middleware guards
+`ownerOnly`, `adminOrHigher`, and `elevatedOrHigher`
+(`src/middleware/index.ts`; `elevatedAdminOnly` is a deprecated alias). Separation
+of powers is deliberate: admins moderate but have no treasury, config, or wallet
+access, and the promotion hierarchy is owner → admin/elevated, admin → elevated.
+
 ## Relationships
 
 - Bot DB ← all services; migrations own its shape.
