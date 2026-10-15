@@ -74,6 +74,15 @@ above) and `cleanExpiredMutes` restores through it. Both restore paths skip the
 Telegram restore while a separate jail is still active. A failed mute must not
 abort the warning: the call is wrapped in `try/catch` and logged.
 
+## Restriction pattern matching
+
+Restriction patterns are one of three forms, parsed in `src/utils/safeRegex.ts`:
+simple text (case-insensitive substring), wildcard (`*`/`?`), or a full regex
+(`/pattern/flags`). Matching is timeout-protected to prevent ReDoS. Patterns
+apply per-user and globally; see [restrictions.md](restrictions.md) for the
+violation/label side and [identity-blocks.md](identity-blocks.md) for name
+blocks.
+
 ## Response deduplication contract
 
 `src/utils/autoDelete.ts` tracks bot responses per `chat:user:eventKey` for a

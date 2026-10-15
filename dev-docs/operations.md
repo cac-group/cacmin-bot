@@ -52,11 +52,28 @@ The bot also writes the explorer dataset at
 - Telegram Bot API `http://tgbotapi.lxd:8081` (files `:8082`).
 - JUNO RPC/REST and Ollama (`http://192.168.0.170:26886`) per `.env.example`.
 
+## Troubleshooting
+
+- **Database locked.** Only one bot instance may write `bot.db`; stop the other
+  instance (or a zombie `bun`/`node` process). WAL plus `busy_timeout=30000`
+  absorbs brief contention, not a second writer.
+- **Deposit not detected.** Confirm RPC health (`bun run validate`), that the
+  memo is exactly the userId, and whether the tx hash is already in
+  `processed_deposits`; the owner can force a pass with `/reconcile`.
+- **Balance mismatch.** `/reconcile` re-derives balances; inspect the
+  `transactions` audit trail.
+- **RPC failures.** Fallback endpoints are used automatically and errors are
+  logged; see the network dependencies above.
+
+## Admin commands
+
+`/reconcile`, `/walletstats`, `/treasury`, `/botbalance`, and `/processdeposit`
+(see `src/commands/`). The command modules are canonical; this list may drift.
+
 ## Known hazards
 
 - `package.json` references `./rebuild.sh`, which is not in the tree.
 - `scripts/setup-db.ts` seeds a `rules` table that `src/database.ts` no longer
   creates; see [database-audit-2026-09-28.md](database-audit-2026-09-28.md).
-- `AGENTS.md` and `CLAUDE.md` are gitignored local agent state and are partially
-  stale (missing scripts, table lists, test layout); treat this tree as
-  authoritative for project-level knowledge.
+- `AGENTS.md` is gitignored local agent state; treat this tree as authoritative
+  for project-level knowledge.
