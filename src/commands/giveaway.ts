@@ -16,6 +16,7 @@ import {
 	getGiveawayEscrowId,
 	SYSTEM_USER_IDS,
 } from "../services/unifiedWalletService";
+import { JUNO_DENOM } from "../tokens";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { logger, StructuredLogger } from "../utils/logger";
 import { createMenuSession, getActiveMenuSession } from "../utils/menuSession";
@@ -460,7 +461,8 @@ Usage: ${code("/cancelgiveaway <id>")}`,
 
 			// Get internal ledger total (all user balances, stored as micro-units)
 			const internalBalances = query<{ total: number | null }>(
-				"SELECT SUM(balance) as total FROM user_balances",
+				"SELECT SUM(balance) as total FROM user_balances WHERE denom = ?",
+				[JUNO_DENOM],
 			);
 			const totalUserBalances = AmountPrecision.fromDbMicro(
 				internalBalances[0]?.total || 0,

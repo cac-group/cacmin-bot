@@ -105,7 +105,7 @@ if (fs.existsSync('./node_modules')) {
   console.log(' Dependencies: installed');
 
   const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-  const requiredDeps = ['telegraf', 'dotenv'];
+  const requiredDeps = ['telegraf', '@grpc/grpc-js', 'cosmjs-types'];
 
   for (const dep of requiredDeps) {
     const depPath = path.join('./node_modules', dep);
@@ -126,7 +126,8 @@ if (fs.existsSync('./node_modules')) {
 console.log('\n  Configuration Summary:');
 console.log(`   Log Level: ${config.logLevel}`);
 console.log(`   Database Path: ${config.databasePath}`);
-console.log(`   JUNO RPC: ${config.junoRpcUrl}`);
+console.log(`   JUNO gRPC: ${config.juno.grpcUrl}`);
+console.log(`   Osmosis gRPC: ${config.osmosis.grpcUrl}`);
 
 // Final result
 console.log('\n' + '='.repeat(50));

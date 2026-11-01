@@ -1,9 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/config", () => ({
 	config: {
 		botTreasuryAddress: "juno1testtreasuryaddress",
-		junoApiUrl: "https://api.example.com",
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
 	},
 }));
 
@@ -15,133 +19,103 @@ vi.mock("../../src/utils/logger", () => ({
 	},
 }));
 
+vi.mock("../../src/services/junoGrpcService", () => ({
+	JunoGrpcService: {
+		fetchTransaction: vi.fn(),
+		getBalanceMicro: vi.fn(),
+	},
+}));
+
+import { JunoGrpcService } from "../../src/services/junoGrpcService";
 import { JunoService } from "../../src/services/junoService";
 
-const fetchMock = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-
-const msgSend = (from: string, to: string, amountMicro: number) => ({
-	"@type": "/cosmos.bank.v1beta1.MsgSend",
-	from_address: from,
-	to_address: to,
-	amount: [{ denom: "ujuno", amount: String(amountMicro) }],
-});
-
-const txResponse = (
-	messages: unknown[],
+const tx = (
+	transfers: Array<{ from: string; to: string; amountMicro: number }>,
 	{ memo = "", code = 0 }: { memo?: string; code?: number } = {},
 ) => ({
-	ok: true,
-	json: vi.fn().mockResolvedValue({
-		tx_response: { code, tx: { body: { messages, memo } } },
-	}),
+	hash: "abc",
+	code,
+	height: 1,
+	memo,
+	transfers: transfers.map((transfer) => ({
+		denom: "ujuno",
+		...transfer,
+	})),
 });
 
 describe("JunoService.getBalance", () => {
-	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.clearAllMocks();
-	});
+	beforeEach(() => vi.clearAllMocks());
 
-	it("uses the API endpoint to fetch the treasury balance", async () => {
-		fetchMock().mockResolvedValue({
-			ok: true,
-			json: vi.fn().mockResolvedValue({
-				balances: [{ denom: "ujuno", amount: "12345000" }],
-			}),
-		});
-
-		const balance = await JunoService.getBalance();
-
-		expect(fetchMock()).toHaveBeenCalledWith(
-			"https://api.example.com/cosmos/bank/v1beta1/balances/juno1testtreasuryaddress",
+	it("reads the treasury balance through gRPC", async () => {
+		(JunoGrpcService.getBalanceMicro as any).mockResolvedValue(12_345_000);
+		expect(await JunoService.getBalance()).toBe(12.345);
+		expect(JunoGrpcService.getBalanceMicro).toHaveBeenCalledWith(
+			"juno1testtreasuryaddress",
+			"ujuno",
 		);
-		expect(balance).toBe(12.345);
 	});
 
 	it("returns null when the balance query fails", async () => {
-		fetchMock().mockResolvedValue({ ok: false, status: 503, json: vi.fn() });
+		(JunoGrpcService.getBalanceMicro as any).mockResolvedValue(null);
 		expect(await JunoService.getBalance()).toBeNull();
 	});
 });
 
 describe("JunoService.verifyPayment", () => {
-	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.clearAllMocks();
-	});
+	beforeEach(() => vi.clearAllMocks());
 
 	it("accepts an exact micro-unit transfer to the treasury", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse([
-				msgSend("juno1sender", "juno1testtreasuryaddress", 69_420_000),
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			tx([
+				{
+					from: "juno1sender",
+					to: "juno1testtreasuryaddress",
+					amountMicro: 69_420_000,
+				},
 			]),
 		);
 		expect(await JunoService.verifyPayment("ABC", 69.42)).toBe(true);
 	});
 
 	it("rejects an amount mismatch", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse([
-				msgSend("juno1sender", "juno1testtreasuryaddress", 1_000_000),
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			tx([
+				{
+					from: "juno1sender",
+					to: "juno1testtreasuryaddress",
+					amountMicro: 1_000_000,
+				},
 			]),
 		);
 		expect(await JunoService.verifyPayment("ABC", 69.42)).toBe(false);
 	});
 
 	it("rejects a transfer to a different recipient", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse([msgSend("juno1sender", "juno1someoneelse", 69_420_000)]),
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			tx([
+				{
+					from: "juno1sender",
+					to: "juno1someoneelse",
+					amountMicro: 69_420_000,
+				},
+			]),
 		);
 		expect(await JunoService.verifyPayment("ABC", 69.42)).toBe(false);
 	});
 
 	it("rejects a failed transaction", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse(
-				[msgSend("juno1sender", "juno1testtreasuryaddress", 69_420_000)],
-				{
-					code: 5,
-				},
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			tx(
+				[
+					{
+						from: "juno1sender",
+						to: "juno1testtreasuryaddress",
+						amountMicro: 69_420_000,
+					},
+				],
+				{ code: 5 },
 			),
 		);
 		expect(await JunoService.verifyPayment("ABC", 69.42)).toBe(false);
-	});
-});
-
-describe("JunoService.inspectTransaction", () => {
-	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.clearAllMocks();
-	});
-
-	it("returns the transfer details and memo", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse(
-				[msgSend("juno1sender", "juno1testtreasuryaddress", 5_000_000)],
-				{
-					memo: "123456",
-				},
-			),
-		);
-
-		expect(await JunoService.inspectTransaction("ABC")).toEqual({
-			verified: true,
-			amount: 5,
-			from: "juno1sender",
-			to: "juno1testtreasuryaddress",
-			memo: "123456",
-		});
-	});
-
-	it("returns unverified when the transaction failed", async () => {
-		fetchMock().mockResolvedValue(
-			txResponse([msgSend("a", "b", 1_000_000)], { code: 1 }),
-		);
-		expect(await JunoService.inspectTransaction("ABC")).toEqual({
-			verified: false,
-		});
 	});
 });

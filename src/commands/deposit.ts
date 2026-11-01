@@ -16,8 +16,16 @@ import {
 	SYSTEM_USER_IDS,
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
+import {
+	getTokens,
+	JUNO_DENOM,
+	networkForDenom,
+	resolveToken,
+	tokenByDenom,
+} from "../tokens";
 import { logger, StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { normalizeTxHash } from "../utils/txHash";
 import { resolveUserId } from "../utils/userResolver";
 
 interface ProcessedDeposit {
@@ -55,8 +63,12 @@ async function creditDepositFromChain(
 	actorId: number,
 	operation: string,
 	targetUserId?: number,
+	denom: string = JUNO_DENOM,
 ): Promise<DepositCreditResult> {
-	const txResult = await RPCTransactionVerification.fetchTransaction(txHash);
+	const txResult = await RPCTransactionVerification.fetchTokenTransaction(
+		txHash,
+		denom,
+	);
 	if (!txResult.success || !txResult.data) {
 		return {
 			success: false,
@@ -77,8 +89,11 @@ async function creditDepositFromChain(
 
 	const depositAddress = UnifiedWalletService.getDepositInstructions(
 		memoUser ?? SYSTEM_USER_IDS.UNCLAIMED,
+		denom,
 	).address;
-	const transfer = tx.transfers?.find((t) => t.recipient === depositAddress);
+	const transfer = tx.transfers?.find(
+		(t) => t.recipient === depositAddress && (t.denom ?? JUNO_DENOM) === denom,
+	);
 	if (!transfer) {
 		return {
 			success: false,
@@ -108,6 +123,7 @@ async function creditDepositFromChain(
 			recipient,
 			existing.amount,
 			`Allocated unclaimed deposit ${txHash}`,
+			denom,
 		);
 		if (!moved.success) {
 			return {
@@ -160,6 +176,7 @@ async function creditDepositFromChain(
 		txHash,
 		transfer.sender,
 		`Manual deposit processing (${operation})`,
+		denom,
 	);
 	if (!result.success) {
 		return {
@@ -171,16 +188,19 @@ async function creditDepositFromChain(
 	const now = Math.floor(Date.now() / 1000);
 	execute(
 		`INSERT INTO processed_deposits (
-       tx_hash, user_id, amount, from_address, memo, height, processed, processed_at, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+       tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, processed_at, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
      ON CONFLICT(tx_hash) DO UPDATE SET
        user_id = excluded.user_id, amount = excluded.amount,
+       denom = excluded.denom, network = excluded.network,
        from_address = excluded.from_address, memo = excluded.memo,
        processed = 1, processed_at = excluded.processed_at, error = NULL`,
 		[
 			txHash,
 			creditedUserId,
 			transfer.amount,
+			denom,
+			networkForDenom(denom),
 			transfer.sender,
 			tx.memo || null,
 			tx.height || 0,
@@ -251,8 +271,29 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
+		const token = resolveToken(
+			(ctx.message as any)?.text?.split(" ").slice(1)[0],
+		);
+		if (!token) {
+			return ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/deposit [juno|cac]")}`,
+			);
+		}
+
 		try {
-			const instructions = UnifiedWalletService.getDepositInstructions(userId);
+			if (
+				token.chain === "osmosis" &&
+				!UnifiedWalletService.getDepositAddress(token.denom)
+			) {
+				await ctx.reply(
+					`${token.symbol} deposits are not configured yet. Ask an admin to set the Osmosis wallet.`,
+				);
+				return;
+			}
+			const instructions = UnifiedWalletService.getDepositInstructions(
+				userId,
+				token.denom,
+			);
 			await ctx.reply(
 				fmt`${instructions.markdown}\n\n${italic("Experimental software - deposit at your own risk")}`,
 			);
@@ -286,23 +327,40 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(fmt`${bold("Usage")}: /verifydeposit <txhash>`);
+			return ctx.reply(
+				fmt`${bold("Usage")}: /verifydeposit <txhash> [juno|cac]`,
+			);
 		}
 
-		const txHash = args[0].trim();
+		const txHash = normalizeTxHash(args[0]);
+		const token = resolveToken(args[1]);
+		if (!token) {
+			return ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/verifydeposit <txhash> [juno|cac]")}`,
+			);
+		}
+		const denom = token.denom;
+
+		if (!UnifiedWalletService.getDepositAddress(denom)) {
+			await ctx.reply(`${token.symbol} deposits are not configured yet.`);
+			return;
+		}
 
 		await ctx.reply(" Verifying transaction...");
 
 		try {
 			// Get wallet address
-			const walletAddress =
-				UnifiedWalletService.getDepositInstructions(userId).address;
+			const walletAddress = UnifiedWalletService.getDepositInstructions(
+				userId,
+				denom,
+			).address;
 
 			// Verify the deposit
 			const verification = await RPCTransactionVerification.verifyDeposit(
 				txHash,
 				walletAddress,
 				userId,
+				denom,
 			);
 
 			if (!verification.valid) {
@@ -328,7 +386,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 
 			if (existing?.processed) {
 				return ctx.reply(
-					fmt`${bold("Already Processed")}\n\nThis deposit has already been credited.\nAmount: ${code(`${AmountPrecision.format(verifiedAmount)} JUNO`)}\nFrom: ${code(verifiedSender)}`,
+					fmt`${bold("Already Processed")}\n\nThis deposit has already been credited.\nAmount: ${code(`${AmountPrecision.format(verifiedAmount)} ${token.symbol}`)}\nFrom: ${code(verifiedSender)}`,
 				);
 			}
 
@@ -339,6 +397,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				txHash,
 				verifiedSender,
 				`Manual deposit verification from ${verifiedSender}`,
+				denom,
 			);
 
 			if (result.success) {
@@ -347,12 +406,14 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 					// Insert new record if it doesn't exist
 					execute(
 						`INSERT INTO processed_deposits (
-              tx_hash, user_id, amount, from_address, memo, height, processed, processed_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+              tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, processed_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 						[
 							txHash,
 							userId,
 							verifiedAmount,
+							denom,
+							networkForDenom(denom),
 							verifiedSender,
 							verification.memo || null,
 							0, // height unknown for manual verification
@@ -381,6 +442,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 						verifiedAmount,
 						txHash,
 						result.newBalance,
+						token.symbol,
 					),
 				);
 			} else {
@@ -388,12 +450,14 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				if (!existing) {
 					execute(
 						`INSERT INTO processed_deposits (
-              tx_hash, user_id, amount, from_address, memo, height, processed, error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, error, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 						[
 							txHash,
 							userId,
 							verifiedAmount,
+							denom,
+							networkForDenom(denom),
 							verifiedSender,
 							verification.memo || null,
 							0,
@@ -443,12 +507,18 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		if (!userId) return;
 
 		try {
-			// Get unclaimed balance
-			const unclaimedBalance = await LedgerService.getUserBalance(
-				SYSTEM_USER_IDS.UNCLAIMED,
+			// Get unclaimed balances for every supported token.
+			const unclaimedBalances = await Promise.all(
+				getTokens().map(async (token) => ({
+					token,
+					amount: await LedgerService.getUserBalance(
+						SYSTEM_USER_IDS.UNCLAIMED,
+						token.denom,
+					),
+				})),
 			);
-
-			if (unclaimedBalance === 0) {
+			const nonZero = unclaimedBalances.filter((entry) => entry.amount !== 0);
+			if (nonZero.length === 0) {
 				return ctx.reply("No unclaimed deposits");
 			}
 
@@ -464,16 +534,23 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			const messageParts = [
 				bold("Unclaimed Deposits"),
 				"\n\n",
-				`Total: ${code(`${AmountPrecision.format(unclaimedBalance)} JUNO`)}`,
-				"\n\n",
+				...nonZero.map(
+					(entry) =>
+						`${entry.token.symbol}: ${code(
+							`${AmountPrecision.format(entry.amount)} ${entry.token.symbol}`,
+						)}\n`,
+				),
+				"\n",
 			];
 
 			if (unclaimed.length > 0) {
 				messageParts.push(bold("Recent deposits without valid memo:"), "\n");
 				for (const deposit of unclaimed) {
+					const symbol =
+						tokenByDenom(deposit.denom ?? JUNO_DENOM)?.symbol ?? "JUNO";
 					messageParts.push(
 						`• ${code(`${deposit.tx_hash.substring(0, 10)}...`)}\n`,
-						`  Amount: ${AmountPrecision.format(deposit.amount)} JUNO\n`,
+						`  Amount: ${AmountPrecision.format(deposit.amount)} ${symbol}\n`,
 						`  Memo: "${deposit.memo || "none"}"\n\n`,
 					);
 				}
@@ -510,10 +587,18 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(fmt`${bold("Usage")}: /claimdeposit <txhash>`);
+			return ctx.reply(
+				fmt`${bold("Usage")}: /claimdeposit <txhash> [juno|cac]`,
+			);
 		}
 
-		const txHash = args[0].trim();
+		const txHash = normalizeTxHash(args[0]);
+		const token = resolveToken(args[1]);
+		if (!token) {
+			return ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/claimdeposit <txhash> [juno|cac]")}`,
+			);
+		}
 		await ctx.reply(" Looking up transaction...");
 
 		try {
@@ -521,6 +606,8 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				txHash,
 				userId,
 				"claim_deposit",
+				undefined,
+				token.denom,
 			);
 
 			if (!result.success) {
@@ -530,7 +617,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			}
 
 			await ctx.reply(
-				fmt`${bold("Deposit Claimed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} JUNO`)}\nCredited to: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 10)}...`)}`,
+				fmt`${bold("Deposit Claimed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} ${token.symbol}`)}\nCredited to: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 10)}...`)}`,
 			);
 		} catch (error) {
 			logger.error("Failed to claim deposit", { userId, txHash, error });
@@ -563,12 +650,23 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 		const args = ctx.message?.text?.split(" ").slice(1) || [];
 
 		if (args.length < 1) {
-			return ctx.reply(fmt`Usage: /processdeposit <txhash> [userId|@username]`);
+			return ctx.reply(
+				fmt`Usage: /processdeposit <txhash> [userId|@username] [juno|cac]`,
+			);
 		}
 
-		const txHash = args[0].trim();
+		const txHash = normalizeTxHash(args[0]);
+		// The token may appear before or after the optional target user:
+		// /processdeposit <hash> cac and /processdeposit <hash> <user> cac both work.
+		const firstToken = args[1] ? resolveToken(args[1]) : undefined;
+		const token = firstToken ?? resolveToken(args[2]);
+		if (!token) {
+			return ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/processdeposit <txhash> [userId|@username] [juno|cac]")}`,
+			);
+		}
 		let targetUserId: number | undefined;
-		if (args[1]) {
+		if (args[1] && !firstToken) {
 			targetUserId = resolveUserId(args[1]) ?? undefined;
 			if (!targetUserId) {
 				return ctx.reply(
@@ -585,6 +683,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 				adminId,
 				"process_deposit",
 				targetUserId,
+				token.denom,
 			);
 
 			if (!result.success) {
@@ -594,7 +693,7 @@ export const registerDepositCommands = (bot: Telegraf<Context>) => {
 			}
 
 			await ctx.reply(
-				fmt`${bold("Deposit Processed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} JUNO`)}\nFrom: ${code(result.sender || "unknown")}\nCredited to user: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 16)}...`)}`,
+				fmt`${bold("Deposit Processed")}\n\nAmount: ${code(`${AmountPrecision.format(result.amount ?? 0)} ${token.symbol}`)}\nFrom: ${code(result.sender || "unknown")}\nCredited to user: ${code(String(result.creditedUserId))}\nTransaction: ${code(`${txHash.substring(0, 16)}...`)}`,
 			);
 		} catch (error) {
 			logger.error("Failed to process deposit", { adminId, txHash, error });

@@ -1,150 +1,88 @@
-import { TxBody, TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/config", () => ({
-	config: { junoRpcUrl: "https://rpc.example.com" },
+	config: {
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
+		osmosis: {
+			grpcUrl: "osmosis-grpc.example.com:12590",
+			chainId: "osmosis-1",
+			withdrawalGasPrice: "0.025uosmo",
+			withdrawalGasLimit: 200000,
+			confirmTimeoutMs: 1000,
+		},
+		userFundsAddress: "juno1wallet",
+		userFundsMnemonic: undefined,
+	},
 }));
 
+vi.mock("../../src/services/junoGrpcService", () => ({
+	JunoGrpcService: { fetchTransaction: vi.fn() },
+}));
+
+vi.mock("../../src/services/osmosisGrpcService", () => ({
+	OsmosisGrpcService: { fetchTransaction: vi.fn() },
+}));
+
+import { JunoGrpcService } from "../../src/services/junoGrpcService";
+import { OsmosisGrpcService } from "../../src/services/osmosisGrpcService";
 import { RPCTransactionVerification } from "../../src/services/rpcTransactionVerification";
 
-const fetchMock = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-
-const transferEvent = (pairs: Array<[string, string]>) => ({
-	type: "transfer",
-	attributes: pairs.map(([key, value]) => ({ key, value, index: false })),
-});
-
-/** Build a base64 TxRaw carrying `memo`, as the RPC `tx` field does. */
-const memoTx = (memo: string): string => {
-	const bodyBytes = TxBody.encode(TxBody.fromPartial({ memo })).finish();
-	const raw = TxRaw.encode(
-		TxRaw.fromPartial({
-			bodyBytes,
-			authInfoBytes: new Uint8Array(),
-			signatures: [],
-		}),
-	).finish();
-	return Buffer.from(raw).toString("base64");
-};
-
-const rpcResponse = (
-	events: unknown[],
-	{
-		code = 0,
-		tx = Buffer.from("").toString("base64"),
-	}: { code?: number; tx?: string } = {},
-) => ({
-	ok: true,
-	json: vi.fn().mockResolvedValue({
-		result: {
-			hash: "ABC",
-			height: "1",
-			index: 0,
-			tx_result: {
-				code,
-				data: "",
-				log: "",
-				info: "",
-				gas_wanted: "1",
-				gas_used: "1",
-				events,
-				codespace: "",
-			},
-			tx,
-		},
-	}),
-});
+const junoTransfer = (
+	from: string,
+	to: string,
+	amountMicro: number,
+	denom = "ujuno",
+) => ({ denom, amountMicro, from, to });
 
 describe("RPCTransactionVerification.fetchTransaction", () => {
-	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.clearAllMocks();
-	});
+	beforeEach(() => vi.clearAllMocks());
 
-	it("pairs repeating transfer attributes by index, not first-match", async () => {
-		fetchMock().mockResolvedValue(
-			rpcResponse([
-				transferEvent([
-					["sender", "A"],
-					["recipient", "B"],
-					["amount", "1000000ujuno"],
-					["sender", "C"],
-					["recipient", "D"],
-					["amount", "2000000ujuno"],
-				]),
-			]),
-		);
+	it("maps every MsgSend transfer from the gRPC transaction", async () => {
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue({
+			hash: "abc",
+			code: 0,
+			height: 1,
+			memo: "",
+			transfers: [
+				junoTransfer("A", "B", 1_000_000),
+				junoTransfer("C", "D", 2_000_000),
+			],
+		});
 
 		const result = await RPCTransactionVerification.fetchTransaction("ABC");
 
 		expect(result.success).toBe(true);
 		expect(result.data?.transfers).toEqual([
-			{ sender: "A", recipient: "B", amount: 1 },
-			{ sender: "C", recipient: "D", amount: 2 },
+			{ sender: "A", recipient: "B", amount: 1, denom: "ujuno" },
+			{ sender: "C", recipient: "D", amount: 2, denom: "ujuno" },
 		]);
 	});
 
-	it("handles the SDK's recipient-first attribute order", async () => {
-		fetchMock().mockResolvedValue(
-			rpcResponse([
-				transferEvent([
-					["recipient", "B"],
-					["sender", "A"],
-					["amount", "3000000ujuno"],
-				]),
-			]),
-		);
-
-		const result = await RPCTransactionVerification.fetchTransaction("ABC");
-
-		expect(result.data?.transfers).toEqual([
-			{ sender: "A", recipient: "B", amount: 3 },
-		]);
-	});
-
-	it("parses a single transfer unchanged", async () => {
-		fetchMock().mockResolvedValue(
-			rpcResponse([
-				transferEvent([
-					["sender", "A"],
-					["recipient", "B"],
-					["amount", "500000ujuno"],
-				]),
-			]),
-		);
-
-		const result = await RPCTransactionVerification.fetchTransaction("ABC");
-
-		expect(result.data?.transfers).toEqual([
-			{ sender: "A", recipient: "B", amount: 0.5 },
-		]);
-	});
-
-	it("reports failure when the RPC call is not ok", async () => {
-		fetchMock().mockResolvedValue({ ok: false, status: 500, json: vi.fn() });
+	it("reports failure when the tx is not found", async () => {
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(null);
 		const result = await RPCTransactionVerification.fetchTransaction("ABC");
 		expect(result.success).toBe(false);
 	});
 });
 
 describe("RPCTransactionVerification.verifyDeposit", () => {
-	beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.clearAllMocks();
+	beforeEach(() => vi.clearAllMocks());
+
+	const walletTx = (memo: string) => ({
+		hash: "abc",
+		code: 0,
+		height: 1,
+		memo,
+		transfers: [junoTransfer("A", "WALLET", 5_000_000)],
 	});
 
-	const walletTransfer = () =>
-		transferEvent([
-			["sender", "A"],
-			["recipient", "WALLET"],
-			["amount", "5000000ujuno"],
-		]);
-
 	it("accepts a transfer to the wallet with a matching memo", async () => {
-		fetchMock().mockResolvedValue(
-			rpcResponse([walletTransfer()], { tx: memoTx("123456") }),
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			walletTx("123456"),
 		);
 
 		expect(
@@ -153,8 +91,8 @@ describe("RPCTransactionVerification.verifyDeposit", () => {
 	});
 
 	it("rejects a memo mismatch", async () => {
-		fetchMock().mockResolvedValue(
-			rpcResponse([walletTransfer()], { tx: memoTx("999") }),
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(
+			walletTx("999"),
 		);
 		expect(
 			(await RPCTransactionVerification.verifyDeposit("ABC", "WALLET", 123456))
@@ -163,10 +101,30 @@ describe("RPCTransactionVerification.verifyDeposit", () => {
 	});
 
 	it("rejects a transaction with no memo", async () => {
-		fetchMock().mockResolvedValue(rpcResponse([walletTransfer()]));
+		(JunoGrpcService.fetchTransaction as any).mockResolvedValue(walletTx(""));
 		expect(
 			(await RPCTransactionVerification.verifyDeposit("ABC", "WALLET", 123456))
 				.valid,
 		).toBe(false);
+	});
+
+	it("uses the Osmosis client for CAC", async () => {
+		(OsmosisGrpcService.fetchTransaction as any).mockResolvedValue({
+			hash: "abc",
+			code: 0,
+			height: 1,
+			memo: "123456",
+			transfers: [
+				junoTransfer("osmo1a", "osmo1wallet", 5_000_000, "factory/cac"),
+			],
+		});
+
+		expect(
+			await RPCTransactionVerification.fetchTokenTransaction(
+				"ABC",
+				"factory/cac",
+			),
+		).toMatchObject({ success: true });
+		expect(JunoGrpcService.fetchTransaction).not.toHaveBeenCalled();
 	});
 });

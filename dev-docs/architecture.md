@@ -35,7 +35,7 @@ Run modes: `bun run dev` (`bun --watch src/bot.ts`), `bun run build` (tsc to
 | `src/middleware/` | Global message filtering and audit (`messageFilter.ts`, `index.ts`). |
 | `src/commands/` | Slash commands (help, moderation/jail, wallet/deposit, giveaways, gambling, …). |
 | `src/handlers/` | Inline/callback, restriction, role, violation, membership, spam-reaction, and identity-block handlers. |
-| `src/services/` | Business logic as static-method classes over the DB: ledger, unified wallet, transaction locks, jail, restrictions, mutes, rate/spam limits, shared accounts, user, violations, rejoin cooldown, duels, price, JUNO/REST, RPC verification, and the indexers. |
+| `src/services/` | Business logic as static-method classes over the DB: ledger, unified wallet, transaction locks, jail, restrictions, mutes, rate/spam limits, shared accounts, user, violations, rejoin cooldown, duels, price, the per-chain gRPC clients, transaction verification, and the indexers. |
 | `src/utils/` | Logger, precision, safe regex, Telegram helpers, keyboards, user resolver. |
 | `scripts/` | Operator utilities: `setup-db.ts`, `validate.ts`, wallet helpers. |
 
@@ -63,10 +63,12 @@ touching any shared table or the embedding hand-off.
 
 ## Financial core
 
-A **single shared on-chain JUNO wallet** backs every internal balance; the SQLite
-ledger is the source of truth for ownership. The account model, ID ranges, fund
-flows, and access matrix are canonical in [`LEDGER.md`](../LEDGER.md) — link to
-it, do not restate it here. Engineering invariants:
+Internal balances are keyed by `(user_id, denom)`: JUNO (`ujuno`) is backed by
+the shared Juno wallet, and CAC (the Osmosis tokenfactory denom) by an
+`osmo`-prefixed wallet derived from the same mnemonic. The SQLite ledger is the
+source of truth for ownership. The account model, ID ranges, fund flows, and
+access matrix are canonical in [`LEDGER.md`](../LEDGER.md) — link to it, do not
+restate it here. Engineering invariants:
 
 - **Exact money.** All amounts are integer microJUNO (1 JUNO = 1e6) via
   `AmountPrecision` (`src/utils/precision.ts`); use `toDbMicro`/`fromDbMicro` at
@@ -76,11 +78,17 @@ it, do not restate it here. Engineering invariants:
   expire and are cleaned on startup.
 - **Ledger.** Every operation writes double-entry records; `LedgerService` owns
   balances and the audit trail.
-- **Deposits.** Detected by RPC polling; the memo is decoded with cosmjs
-  (`decodeTxRaw` in `src/utils/txMemo.ts`), credited idempotently via
-  `processed_deposits`, and a startup reconciliation
-  (`UnifiedWalletService.reconcileStartupDeposits`) catches deposits missed
-  during downtime.
+- **Deposits.** JUNO and CAC are both detected with `GetTxsEvent` over gRPC.
+  `src/services/cosmosGrpcService.ts` owns the shared transport; `JunoGrpcService`
+  and `OsmosisGrpcService` are per-chain instances. Deposits are credited
+  idempotently via `processed_deposits`; the initial monitor scan catches what
+  was missed during downtime. Deposit watermarks are per network.
+- **Chain transport.** `src/services/cosmosGrpcService.ts` is the only chain
+  client. `JunoGrpcService` uses Polkachu `JUNO_GRPC_URL` (default
+  `juno-grpc.polkachu.com:12690`) and `OsmosisGrpcService` uses Polkachu
+  `OSMOSIS_GRPC_URL` (default `osmosis-grpc.polkachu.com:12590`), both plaintext
+  gRPC over the generated `cosmjs-types` services. Do not add LCD, REST, or
+  Tendermint-RPC paths.
 
 ## Roles
 

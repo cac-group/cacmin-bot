@@ -10,6 +10,7 @@ import { runMigration as run014 } from "../../src/migrations/014_jailings";
 import { runMigration as run015 } from "../../src/migrations/015_rejoin_cooldowns";
 import { runMigration as run016 } from "../../src/migrations/016_membership_events";
 import { runMigration as run017 } from "../../src/migrations/017_rejoin_last_join";
+import { runMigration as run018 } from "../../src/migrations/018_multi_denom";
 import { Database } from "../../src/sqlite";
 
 const DB_PATH = join(__dirname, `../test-data/db-migrations-${process.pid}.db`);
@@ -448,5 +449,55 @@ describe("migration 017 rejoin last join", () => {
 				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_017_rejoin_last_join'",
 			),
 		).toBe(1);
+	});
+
+	it("018 aborts on orphan balances, then rebuilds per denom and normalizes hashes", () => {
+		db.exec(
+			"CREATE TABLE processed_deposits (id INTEGER PRIMARY KEY, tx_hash TEXT)",
+		);
+		db.prepare("INSERT INTO users (id, username) VALUES (1, 'u1')").run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (1, 1230000)",
+		).run();
+		db.prepare(
+			"INSERT INTO user_balances (user_id, balance) VALUES (99, 5000000)",
+		).run();
+		db.prepare(
+			"INSERT INTO processed_deposits (tx_hash) VALUES ('ABCdef')",
+		).run();
+
+		const blocked = run018(db);
+		expect(blocked.success).toBe(false);
+		expect(blocked.errors.join(" ")).toContain("no matching users row");
+
+		// The operator resolves the orphan, then the migration can proceed.
+		db.prepare("DELETE FROM user_balances WHERE user_id = 99").run();
+		const result = run018(db);
+		expect(result.errors).toEqual([]);
+
+		const row = db
+			.prepare(
+				"SELECT denom, balance FROM user_balances WHERE user_id = 1",
+			)
+			.get() as { denom: string; balance: number };
+		expect(row).toEqual({ denom: "ujuno", balance: 1230000 });
+		expect(
+			db
+				.prepare("SELECT tx_hash FROM processed_deposits WHERE id = 1")
+				.get(),
+		).toEqual({ tx_hash: "abcdef" });
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM pragma_table_info('transactions') WHERE name = 'denom'",
+			),
+		).toBe(1);
+		expect(
+			num(
+				"SELECT COUNT(*) AS v FROM system_state WHERE key='migration_018_multi_denom_v2'",
+			),
+		).toBe(1);
+
+		// Idempotent: the marker short-circuits a second run.
+		expect(run018(db).errors).toEqual([]);
 	});
 });

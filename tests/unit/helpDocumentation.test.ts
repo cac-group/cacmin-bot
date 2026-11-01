@@ -174,10 +174,10 @@ describe("help documentation coverage", () => {
 		expect(readmeCommands).toContain(
 			"`/updateaccess <account_name> <@username|user_id> <level> [spend_limit]`",
 		);
-		expect(readmeCommands).toContain("`/verifydeposit <txhash>`");
-		expect(readmeCommands).toContain("`/claimdeposit <txhash>`");
+		expect(readmeCommands).toContain("`/verifydeposit <txhash> [juno|cac]`");
+		expect(readmeCommands).toContain("`/claimdeposit <txhash> [juno|cac]`");
 		expect(readmeCommands).toContain(
-			"`/processdeposit <txhash> [userId|@username]`",
+			"`/processdeposit <txhash> [userId|@username] [juno|cac]`",
 		);
 		expect(readmeCommands).toContain("`/paybail [<@username|userId>]`");
 		expect(readmeCommands).toContain("`/verifybail <txhash>`");
@@ -191,7 +191,7 @@ describe("wallethelp text", () => {
 	it("matches the live wallet and treasury command syntax", () => {
 		const walletHelp = buildWalletHelpText("123456").text;
 
-		expect(walletHelp).toContain("/verifydeposit <txhash>");
+		expect(walletHelp).toContain("/verifydeposit <txhash> [juno|cac]");
 		expect(walletHelp).toContain("/transactions [@user|userId]");
 		expect(walletHelp).toContain("/fundtreasury deposit");
 		expect(walletHelp).toContain(

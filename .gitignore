@@ -26,6 +26,10 @@ logs/
 *.log
 logs/*.log
 
+# Dev-docs work logs are documentation, not runtime logs
+!dev-docs/logs/
+!dev-docs/logs/**
+
 # Database
 *.db
 *.sqlite

@@ -7,7 +7,7 @@
  */
 
 import { bold, code, type FmtString, fmt } from "telegraf/format";
-import { config } from "../config";
+import { DEFAULT_TOKEN, JUNO_DENOM, tokenByDenom } from "../tokens";
 import { logger } from "../utils/logger";
 
 /**
@@ -28,13 +28,18 @@ export class DepositInstructionService {
 	 * await ctx.reply(instructions.markdown, { parse_mode: 'Markdown' });
 	 * ```
 	 */
-	static generateInstructions(userId: number): {
+	static generateInstructions(
+		userId: number,
+		denom: string = JUNO_DENOM,
+		address?: string,
+	): {
 		text: string;
 		markdown: FmtString;
 		walletAddress: string;
 		memo: string;
 	} {
-		const walletAddress = config.userFundsAddress || "NOT_CONFIGURED";
+		const token = tokenByDenom(denom) ?? DEFAULT_TOKEN;
+		const walletAddress = address || "NOT_CONFIGURED";
 		const memo = userId.toString();
 
 		// Plain text version
@@ -42,7 +47,7 @@ export class DepositInstructionService {
 DEPOSIT INSTRUCTIONS
 ====================
 
-Send JUNO to this address:
+Send ${token.symbol} to this address:
 ${walletAddress}
 
  CRITICAL - MEMO REQUIRED
@@ -63,7 +68,7 @@ Deposits without the correct memo will go to an unclaimed pool and require manua
 `;
 
 		// Telegraf Format module version - address and memo in code for click-to-copy
-		const markdown = fmt`Send JUNO to ${code(walletAddress)}
+		const markdown = fmt`Send ${token.symbol} to ${code(walletAddress)}
 ${bold("MEMO:")} ${code(memo)} (required - no memo = no credit)
 /balance to check deposit`;
 
@@ -188,13 +193,14 @@ Always use your user ID as memo to avoid this!
 		amount: number,
 		txHash: string,
 		newBalance: number,
+		symbol = "JUNO",
 	): string {
 		return `
  **Deposit Confirmed!**
 
-• Amount: \`${amount.toFixed(6)} JUNO\`
+• Amount: \`${amount.toFixed(6)} ${symbol}\`
 • From User: \`${userId}\`
-• New Balance: \`${newBalance.toFixed(6)} JUNO\`
+• New Balance: \`${newBalance.toFixed(6)} ${symbol}\`
 • Transaction: \`${txHash.substring(0, 10)}...\`
 `;
 	}

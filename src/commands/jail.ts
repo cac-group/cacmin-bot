@@ -13,8 +13,8 @@ import { get } from "../database";
 import { adminOrHigher, elevatedOrHigher } from "../middleware/index";
 import { ChatIndexerService } from "../services/chatIndexerService";
 import { releaseMember } from "../services/chatMuteService";
-import { CosmosRestService } from "../services/cosmosRestService";
 import { JailService } from "../services/jailService";
+import { JunoGrpcService } from "../services/junoGrpcService";
 import { JunoService } from "../services/junoService";
 import { LedgerService } from "../services/ledgerService";
 import { getActiveCooldown } from "../services/rejoinCooldownService";
@@ -123,10 +123,11 @@ async function verifyBailPayment(
 		autoDeleteInGroup(ctx, msg.message_id);
 	};
 
-	const tx = await CosmosRestService.fetchTransaction(txHash);
+	const tx = await JunoGrpcService.fetchTransaction(txHash);
 	if (!tx || tx.code !== 0) {
 		return fail("Transaction not found or failed on-chain.");
 	}
+	const canonicalHash = tx.hash;
 
 	const jailing = JailService.getJailingByPublicId(tx.memo ?? "");
 	if (!jailing) {
@@ -134,7 +135,7 @@ async function verifyBailPayment(
 			"The transaction memo must contain a valid, open Jailing ID (alphanumeric).",
 		);
 	}
-	if (JailService.isBailPaymentUsed(txHash)) {
+	if (JailService.isBailPaymentUsed(canonicalHash)) {
 		return fail(
 			"This transaction hash has already been used for a bail payment.",
 		);
@@ -142,8 +143,10 @@ async function verifyBailPayment(
 
 	const treasury = config.botTreasuryAddress;
 	const transfer = treasury
-		? CosmosRestService.findMsgSend(tx, treasury)
-		: null;
+		? tx.transfers.find(
+				(candidate) => candidate.denom === "ujuno" && candidate.to === treasury,
+			)
+		: undefined;
 	if (
 		!transfer ||
 		transfer.amountMicro !== AmountPrecision.toDbMicro(jailing.bailAmount)
@@ -156,7 +159,7 @@ async function verifyBailPayment(
 	const payment = JailService.payJailing(
 		jailing.jailingId,
 		paidByUserId,
-		txHash,
+		canonicalHash,
 	);
 	if (!payment.success) {
 		return fail(

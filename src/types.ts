@@ -74,18 +74,3 @@ export interface UserRestriction {
 	customMessage?: string; // Optional custom violation message
 	createdAt: number;
 }
-
-export type RestrictionType =
-	| "no_stickers"
-	| "no_urls"
-	| "regex_block"
-	| "random_delete"
-	| "no_media"
-	| "no_photos"
-	| "no_videos"
-	| "no_documents"
-	| "no_gifs"
-	| "no_specific_gif"
-	| "no_voice"
-	| "no_forwarding"
-	| "muted";

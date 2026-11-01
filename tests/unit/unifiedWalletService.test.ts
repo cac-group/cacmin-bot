@@ -1,23 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sendTokensMock, connectWithSignerMock } = vi.hoisted(() => ({
-	sendTokensMock: vi.fn(),
-	connectWithSignerMock: vi.fn(),
-}));
-
-vi.mock("@cosmjs/proto-signing", () => ({
-	DirectSecp256k1HdWallet: {
-		fromMnemonic: vi.fn(),
-	},
-}));
-
-vi.mock("@cosmjs/stargate", () => ({
-	GasPrice: {
-		fromString: vi.fn((value: string) => value),
-	},
-	SigningStargateClient: {
-		connectWithSigner: connectWithSignerMock,
-	},
+const {
+	junoSendTokensMock,
+	junoWaitForTransactionMock,
+	osmosisSendTokensMock,
+	osmosisWaitForTransactionMock,
+} = vi.hoisted(() => ({
+	junoSendTokensMock: vi.fn(),
+	junoWaitForTransactionMock: vi.fn(),
+	osmosisSendTokensMock: vi.fn(),
+	osmosisWaitForTransactionMock: vi.fn(),
 }));
 
 vi.mock("../../src/database", () => ({
@@ -29,26 +21,48 @@ vi.mock("../../src/database", () => ({
 
 vi.mock("../../src/config", () => ({
 	config: {
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
 		databasePath: ":memory:",
 		botToken: "test-token",
 		groupChatId: "-100123456789",
 		botTreasuryAddress: "juno1testtreasuryaddress",
 		userFundsAddress: "juno1testuserfundsaddress000000000000000",
-		junoRpcUrl: "https://rpc.example.com",
-		junoApiUrl: "https://api.example.com",
 		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
 	},
 }));
 
 vi.mock("../../src/services/ledgerService", () => ({
+	TransactionStatus: {
+		PENDING: "pending",
+		COMPLETED: "completed",
+		FAILED: "failed",
+	},
 	LedgerService: {
 		getUserBalanceMicro: vi.fn(),
 		getUserBalance: vi.fn(),
 		processWithdrawal: vi.fn(),
 		processFee: vi.fn(),
-		processGiveaway: vi.fn(),
+		processRefund: vi.fn(),
 		processAdjustment: vi.fn(),
 		updateTransactionStatus: vi.fn(),
+	},
+}));
+
+vi.mock("../../src/services/junoGrpcService", () => ({
+	JunoGrpcService: {
+		sendTokens: junoSendTokensMock,
+		waitForTransaction: junoWaitForTransactionMock,
+	},
+}));
+
+vi.mock("../../src/services/osmosisGrpcService", () => ({
+	OsmosisGrpcService: {
+		sendTokens: osmosisSendTokensMock,
+		waitForTransaction: osmosisWaitForTransactionMock,
 	},
 }));
 
@@ -70,17 +84,22 @@ import {
 	UnifiedWalletService,
 } from "../../src/services/unifiedWalletService";
 import { TransactionLockService } from "../../src/services/transactionLock";
+import { CAC_DENOM } from "../../src/tokens";
 
 describe("UnifiedWalletService withdrawal accounting", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		connectWithSignerMock.mockResolvedValue({
-			sendTokens: sendTokensMock,
-		});
-		sendTokensMock.mockResolvedValue({
+		junoSendTokensMock.mockResolvedValue({
 			code: 0,
-			transactionHash: "TX-123",
+			txHash: "TX-123",
 			rawLog: "",
+		});
+		junoWaitForTransactionMock.mockResolvedValue({
+			hash: "tx-123",
+			code: 0,
+			height: 1,
+			memo: "",
+			transfers: [],
 		});
 
 		(TransactionLockService.lockWithdrawal as any).mockResolvedValue({
@@ -103,19 +122,13 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 			success: true,
 			newBalance: 4.99025,
 		});
-		(LedgerService.processGiveaway as any).mockResolvedValue({
+		(LedgerService.processRefund as any).mockResolvedValue({
 			success: true,
 			newBalance: 15,
 		});
 		(LedgerService.updateTransactionStatus as any).mockResolvedValue(undefined);
 		(LedgerService.getUserBalance as any).mockResolvedValue(4.99025);
 
-		(UnifiedWalletService as any).wallet = {
-			getAccounts: vi
-				.fn()
-				.mockResolvedValue([{ address: `juno1${"s".repeat(38)}` }]),
-		};
-		(UnifiedWalletService as any).rpcEndpoint = "https://rpc.example.com";
 	});
 
 	it("charges the withdrawing user the fixed network fee instead of treasury", async () => {
@@ -138,20 +151,21 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 			recipientAddress,
 			undefined,
 			`Withdrawal to ${recipientAddress}`,
+			"ujuno",
 		);
 		expect(LedgerService.processFee).toHaveBeenCalledWith(
 			12345,
 			fee,
 			`Network fee for withdrawal to ${recipientAddress}`,
+			"ujuno",
 		);
 		expect(LedgerService.processAdjustment).not.toHaveBeenCalled();
-		expect(sendTokensMock).toHaveBeenCalledOnce();
-
-		const feeArg = sendTokensMock.mock.calls[0][3];
-		expect(feeArg).toEqual({
-			amount: [{ denom: "ujuno", amount: "9750" }],
-			gas: "130000",
-		});
+		expect(junoSendTokensMock).toHaveBeenCalledWith(
+			recipientAddress,
+			10_000_000,
+			"ujuno",
+			"Withdrawal for user 12345",
+		);
 	});
 
 	it("requires enough balance to cover the withdrawal amount plus the network fee", async () => {
@@ -174,18 +188,54 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 		expect(result.error).toContain("network fee");
 		expect(LedgerService.processWithdrawal).not.toHaveBeenCalled();
 		expect(LedgerService.processFee).not.toHaveBeenCalled();
-		expect(sendTokensMock).not.toHaveBeenCalled();
+		expect(junoSendTokensMock).not.toHaveBeenCalled();
 	});
 
-	it("refunds only the transfer amount when the withdrawal tx is rejected on-chain", async () => {
+	it("routes CAC withdrawals through the Osmosis gRPC broadcaster", async () => {
+		const recipientAddress = `osmo1${"r".repeat(38)}`;
+		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(15_000_000);
+		(LedgerService.getUserBalance as any).mockResolvedValue(5);
+		osmosisSendTokensMock.mockResolvedValue({
+			txHash: "CAC-TX",
+			code: 0,
+			rawLog: "",
+		});
+		osmosisWaitForTransactionMock.mockResolvedValue({
+			hash: "CAC-TX",
+			code: 0,
+			height: 1,
+			memo: "",
+			transfers: [],
+		});
+
+		const result = await UnifiedWalletService.processWithdrawal(
+			12345,
+			recipientAddress,
+			10,
+			CAC_DENOM,
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.pending).toBeUndefined();
+		expect(junoSendTokensMock).not.toHaveBeenCalled();
+		expect(osmosisSendTokensMock).toHaveBeenCalledWith(
+			recipientAddress,
+			10_000_000,
+			CAC_DENOM,
+			"Withdrawal for user 12345",
+		);
+		expect(LedgerService.processFee).not.toHaveBeenCalled();
+	});
+
+	it("refunds the transfer and fee when CheckTx rejects the withdrawal", async () => {
 		const fee = getWithdrawalNetworkFee();
 		const recipientAddress = `juno1${"r".repeat(38)}`;
 
 		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(15_000_000);
 		(LedgerService.getUserBalance as any).mockResolvedValue(4.99025);
-		sendTokensMock.mockResolvedValue({
+		junoSendTokensMock.mockResolvedValue({
 			code: 5,
-			transactionHash: "TX-FAILED",
+			txHash: "TX-FAILED",
 			rawLog: "insufficient fee",
 		});
 
@@ -200,67 +250,56 @@ describe("UnifiedWalletService withdrawal accounting", () => {
 			12345,
 			fee,
 			`Network fee for withdrawal to ${recipientAddress}`,
+			"ujuno",
 		);
-		expect(LedgerService.processGiveaway).toHaveBeenCalledWith(
+		expect(LedgerService.processRefund).toHaveBeenCalledWith(
+			12345,
+			10 + fee,
+			"Withdrawal refund - transaction rejected",
+			"ujuno",
+		);
+		expect(junoWaitForTransactionMock).not.toHaveBeenCalled();
+	});
+
+	it("refunds only the transfer amount when an included tx fails", async () => {
+		const recipientAddress = `juno1${"r".repeat(38)}`;
+		(LedgerService.getUserBalanceMicro as any).mockResolvedValue(15_000_000);
+		(LedgerService.getUserBalance as any).mockResolvedValue(4.99025);
+		junoSendTokensMock.mockResolvedValue({
+			code: 0,
+			txHash: "TX-FAILED",
+			rawLog: "",
+		});
+		junoWaitForTransactionMock.mockResolvedValue({
+			hash: "tx-failed",
+			code: 5,
+			height: 1,
+			memo: "",
+			transfers: [],
+		});
+
+		const result = await UnifiedWalletService.processWithdrawal(
+			12345,
+			recipientAddress,
+			10,
+		);
+
+		expect(result.success).toBe(false);
+		expect(LedgerService.processRefund).toHaveBeenCalledWith(
 			12345,
 			10,
 			"Withdrawal refund - transaction rejected",
+			"ujuno",
 		);
 		expect(TransactionLockService.releaseWithdrawalLock).toHaveBeenCalledWith(
 			12345,
-			"TX-FAILED",
+			"tx-failed",
 			true,
 		);
 	});
 });
 
-describe("UnifiedWalletService.findTransferTo", () => {
-	const events = (pairs: Array<[string, string]>) => [
-		{
-			type: "transfer",
-			attributes: pairs.map(([key, value]) => ({ key, value })),
-		},
-	];
-
-	it("pairs repeating transfer attributes by index", () => {
-		const result = (UnifiedWalletService as any).findTransferTo(
-			events([
-				["sender", "A"],
-				["recipient", "B"],
-				["amount", "1000000ujuno"],
-				["sender", "C"],
-				["recipient", "WALLET"],
-				["amount", "2000000ujuno"],
-			]),
-			"WALLET",
-		);
-		expect(result).toEqual({ amount: 2, from: "C" });
-	});
-
-	it("handles the SDK's recipient-first order", () => {
-		const result = (UnifiedWalletService as any).findTransferTo(
-			events([
-				["recipient", "WALLET"],
-				["sender", "A"],
-				["amount", "500000ujuno"],
-			]),
-			"WALLET",
-		);
-		expect(result).toEqual({ amount: 0.5, from: "A" });
-	});
-
-	it("returns null when the wallet is not paid", () => {
-		const result = (UnifiedWalletService as any).findTransferTo(
-			events([
-				["sender", "A"],
-				["recipient", "B"],
-				["amount", "1000000ujuno"],
-			]),
-			"WALLET",
-		);
-		expect(result).toBeNull();
-	});
-
+describe("UnifiedWalletService.parseUserId", () => {
 	it("does not treat an alphanumeric jailing-id memo as a user id", () => {
 		const parse = (UnifiedWalletService as any).parseUserId.bind(
 			UnifiedWalletService,

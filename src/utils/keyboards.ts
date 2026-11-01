@@ -156,27 +156,6 @@ export const listActionKeyboard: InlineKeyboardMarkup = {
 export const noKeyboard: InlineKeyboardMarkup = { inline_keyboard: [] };
 
 /**
- * Main menu keyboard for bot commands
- */
-export const mainMenuKeyboard: InlineKeyboardMarkup = {
-	inline_keyboard: [
-		[
-			{ text: "Wallet", callback_data: "menu_wallet" },
-			{ text: "Shared Accounts", callback_data: "menu_shared" },
-		],
-		[
-			{ text: "Moderation", callback_data: "menu_moderation" },
-			{ text: "Lists", callback_data: "menu_lists" },
-		],
-		[
-			{ text: "Roles", callback_data: "menu_roles" },
-			{ text: "Statistics", callback_data: "menu_stats" },
-		],
-		[{ text: "Help", callback_data: "menu_help" }],
-	],
-};
-
-/**
  * Spam react field selection keyboard.
  * Used in the interactive /addspamreact flow.
  */

@@ -14,6 +14,7 @@ import type { User } from "../types";
 import { noKeyboard, rateLimitResetKeyboard } from "../utils/keyboards";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
+import { normalizeTxHash } from "../utils/txHash";
 import { formatUserIdDisplay, resolveUserId } from "../utils/userResolver";
 
 const windows: RateLimitWindow[] = ["15m", "1h", "24h"];
@@ -273,7 +274,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 			"SELECT id, target_user_id, window, amount_micro FROM rate_limit_reset_payments WHERE payer_user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
 			[payer],
 		)[0];
-		const txHash = args[0];
+		const txHash = normalizeTxHash(args[0]);
 		if (!pending || !txHash)
 			return ctx.reply(
 				"Usage: /verifyratelimitreset <txhash> after /ratelimitreset.",
@@ -347,14 +348,15 @@ If a message would exceed any active window, it is deleted and the user is muted
 			[payer],
 		)[0];
 		if (!pending) return next();
-		if (RateLimitService.isPaymentHashUsed(text)) {
+		const txHash = normalizeTxHash(text);
+		if (RateLimitService.isPaymentHashUsed(txHash)) {
 			await ctx.reply(
 				"This transaction hash has already been used for a payment.",
 			);
 			return;
 		}
 		const verified = await JunoService.verifyPayment(
-			text,
+			txHash,
 			AmountPrecision.fromDbMicro(pending.amount_micro),
 		);
 		if (!verified)
@@ -366,7 +368,7 @@ If a message would exceed any active window, it is deleted and the user is muted
 		try {
 			execute(
 				"UPDATE rate_limit_reset_payments SET status = 'verified', payment_tx = ?, verified_at = ? WHERE id = ? AND status = 'pending'",
-				[text, Math.floor(Date.now() / 1000), pending.id],
+				[txHash, Math.floor(Date.now() / 1000), pending.id],
 			);
 			RateLimitService.resetWindow(pending.target_user_id, pending.window);
 			if (config.groupChatId)

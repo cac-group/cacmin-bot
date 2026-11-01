@@ -60,6 +60,7 @@ export class TransactionLockService {
 					userId,
 					existingLock.txHash,
 					existingLock.amount,
+					existingLock.targetAddress,
 				);
 
 				if (!verification.verified && verification.ledgerUpdated) {
@@ -147,11 +148,14 @@ export class TransactionLockService {
 		userId: number,
 		txHash: string,
 		expectedAmount: number,
+		targetAddress?: string,
 	): Promise<VerificationResult> {
 		try {
 			// 1. Check blockchain transaction
-			const txVerification =
-				await TransactionLockService.verifyTransaction(txHash);
+			const txVerification = await TransactionLockService.verifyTransaction(
+				txHash,
+				targetAddress,
+			);
 
 			if (!txVerification.verified || txVerification.txStatus !== 0) {
 				return {
@@ -218,7 +222,10 @@ export class TransactionLockService {
 	/**
 	 * Verify transaction on blockchain using RPC
 	 */
-	private static async verifyTransaction(txHash: string): Promise<{
+	private static async verifyTransaction(
+		txHash: string,
+		targetAddress?: string,
+	): Promise<{
 		verified: boolean;
 		txStatus?: number;
 		actualAmount?: number;
@@ -242,9 +249,11 @@ export class TransactionLockService {
 				};
 			}
 
-			// Calculate total amount from all transfers
+			// Sum only transfers to the withdrawal target. A fee transfer to the
+			// fee collector would otherwise inflate the amount and block release.
 			let totalAmount = 0;
 			for (const transfer of tx.transfers) {
+				if (targetAddress && transfer.recipient !== targetAddress) continue;
 				totalAmount = AmountPrecision.add(totalAmount, transfer.amount);
 			}
 
@@ -313,6 +322,7 @@ export class TransactionLockService {
 					userId,
 					txHash,
 					lock.amount,
+					lock.targetAddress,
 				);
 
 				if (!verification.verified) {
@@ -544,6 +554,7 @@ export class TransactionLockService {
 					lock.user_id,
 					lock.tx_hash,
 					lock.amount,
+					lock.target_address,
 				);
 
 				if (!verification.verified) {

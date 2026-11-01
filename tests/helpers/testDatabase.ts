@@ -94,10 +94,12 @@ export function initTestDatabase(): Database {
     );
 
     CREATE TABLE IF NOT EXISTS user_balances (
-      user_id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
       balance REAL DEFAULT 0,
       last_updated INTEGER DEFAULT (strftime('%s', 'now')),
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      PRIMARY KEY (user_id, denom),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -107,6 +109,7 @@ export function initTestDatabase(): Database {
       from_user_id INTEGER,
       to_user_id INTEGER,
       amount REAL NOT NULL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
       balance_after REAL,
       description TEXT,
       tx_hash TEXT,
@@ -129,6 +132,8 @@ export function initTestDatabase(): Database {
       tx_hash TEXT PRIMARY KEY,
       user_id INTEGER,
       amount REAL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
+      network TEXT NOT NULL DEFAULT 'juno',
       from_address TEXT,
       memo TEXT,
       height INTEGER,
@@ -329,7 +334,11 @@ export function createTestUsers(): void {
  * Add balance for test user
  * @param amount - Amount in JUNO (will be converted to micro-units for DB storage)
  */
-export function addTestBalance(userId: number, amount: number): void {
+export function addTestBalance(
+  userId: number,
+  amount: number,
+  denom = 'ujuno',
+): void {
   const db = getTestDatabase();
 
   // Convert to micro-units for DB storage
@@ -337,36 +346,36 @@ export function addTestBalance(userId: number, amount: number): void {
 
   // Get current balance (stored as micro-units)
   const result = db.prepare(`
-    SELECT balance FROM user_balances WHERE user_id = ?
-  `).get(userId) as { balance: number } | undefined;
+    SELECT balance FROM user_balances WHERE user_id = ? AND denom = ?
+  `).get(userId, denom) as { balance: number } | undefined;
 
   const currentBalanceMicro = result?.balance || 0;
   const newBalanceMicro = currentBalanceMicro + amountMicro;
 
   // Upsert balance (micro-units)
   db.prepare(`
-    INSERT INTO user_balances (user_id, balance)
-    VALUES (?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET
+    INSERT INTO user_balances (user_id, denom, balance)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id, denom) DO UPDATE SET
       balance = ?,
       last_updated = strftime('%s', 'now')
-  `).run(userId, newBalanceMicro, newBalanceMicro);
+  `).run(userId, denom, newBalanceMicro, newBalanceMicro);
 
   // Add transaction entry (micro-units)
   db.prepare(`
-    INSERT INTO transactions (transaction_type, to_user_id, amount, balance_after, description, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run('giveaway', userId, amountMicro, newBalanceMicro, 'Test balance addition', 'completed');
+    INSERT INTO transactions (transaction_type, to_user_id, amount, denom, balance_after, description, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run('giveaway', userId, amountMicro, denom, newBalanceMicro, 'Test balance addition', 'completed');
 }
 
 /**
  * Get user balance (returns JUNO, converts from micro-units in DB)
  */
-export function getTestBalance(userId: number): number {
+export function getTestBalance(userId: number, denom = 'ujuno'): number {
   const db = getTestDatabase();
   const result = db.prepare(`
-    SELECT balance FROM user_balances WHERE user_id = ?
-  `).get(userId) as { balance: number } | undefined;
+    SELECT balance FROM user_balances WHERE user_id = ? AND denom = ?
+  `).get(userId, denom) as { balance: number } | undefined;
 
   // Convert from micro-units to JUNO
   return AmountPrecision.fromDbMicro(result?.balance || 0);

@@ -9,6 +9,7 @@ import { join } from "path";
 import { existsSync, unlinkSync, mkdirSync } from "fs";
 import { LedgerService, TransactionType } from "../../src/services/ledgerService";
 import { TransactionLockService } from "../../src/services/transactionLock";
+import { CAC_DENOM } from "../../src/tokens";
 
 const INTEGRATION_DB_PATH = join(__dirname, "../test-data/integration-ledger.db");
 let db: Database;
@@ -35,11 +36,14 @@ function initIntegrationDb(): void {
 			whitelist INTEGER DEFAULT 0, blacklist INTEGER DEFAULT 0, warning_count INTEGER DEFAULT 0,
 			muted_until INTEGER, created_at INTEGER DEFAULT (strftime('%s', 'now')),
 			updated_at INTEGER DEFAULT (strftime('%s', 'now')));
-		CREATE TABLE user_balances (user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0,
+		CREATE TABLE user_balances (user_id INTEGER NOT NULL, denom TEXT NOT NULL DEFAULT 'ujuno',
+			balance REAL DEFAULT 0,
 			last_updated INTEGER DEFAULT (strftime('%s', 'now')), created_at INTEGER DEFAULT (strftime('%s', 'now')),
+			PRIMARY KEY (user_id, denom),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE);
 		CREATE TABLE transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, transaction_type TEXT NOT NULL,
-			from_user_id INTEGER, to_user_id INTEGER, amount REAL NOT NULL, balance_after REAL,
+			from_user_id INTEGER, to_user_id INTEGER, amount REAL NOT NULL, denom TEXT NOT NULL DEFAULT 'ujuno',
+			balance_after REAL,
 			description TEXT, tx_hash TEXT, external_address TEXT, status TEXT DEFAULT 'completed',
 			created_at INTEGER DEFAULT (strftime('%s', 'now')), metadata TEXT,
 			FOREIGN KEY (from_user_id) REFERENCES users(id), FOREIGN KEY (to_user_id) REFERENCES users(id));
@@ -87,11 +91,24 @@ vi.mock("../../src/database", () => ({
 
 vi.mock("../../src/config", () => ({
 	config: {
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
 		databasePath: ":memory:",
 		botToken: "test-token",
 		groupChatId: "-100123456789",
 		botTreasuryAddress: "juno1testtreasuryaddress",
 		userFundsAddress: "juno1testuserfundsaddress",
+		osmosis: {
+			grpcUrl: "osmosis-grpc.example.com:12590",
+			chainId: "osmosis-1",
+			withdrawalGasPrice: "0.025uosmo",
+			withdrawalGasLimit: 200000,
+			confirmTimeoutMs: 1000,
+		},
+		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
 	},
 }));
 
@@ -266,5 +283,54 @@ describe("Ledger Integration", () => {
 		);
 
 		expect(verified).toBe(true);
+	});
+
+	it("records refunds under the refund transaction type", async () => {
+		await LedgerService.processDeposit(1001, 10, "TX-REFUND-SOURCE", "juno1addr");
+		await LedgerService.processRefund(1001, 3, "Withdrawal refund");
+
+		expect(await LedgerService.getUserBalance(1001)).toBe(13);
+		const row = dbHelpers.get<{ transaction_type: string }>(
+			"SELECT transaction_type FROM transactions WHERE description = ?",
+			["Withdrawal refund"],
+		);
+		expect(row?.transaction_type).toBe("refund");
+	});
+
+	it("keeps JUNO and CAC balances isolated per denom", async () => {
+		await LedgerService.processDeposit(
+			1001,
+			10,
+			"TX-CAC",
+			"osmo1sender",
+			undefined,
+			CAC_DENOM,
+		);
+
+		expect(await LedgerService.getUserBalance(1001)).toBe(0);
+		expect(await LedgerService.getUserBalance(1001, CAC_DENOM)).toBe(10);
+
+		const moved = await LedgerService.transferBetweenUsers(
+			1001,
+			1002,
+			4,
+			undefined,
+			CAC_DENOM,
+		);
+		expect(moved.success).toBe(true);
+		expect(await LedgerService.getUserBalance(1001, CAC_DENOM)).toBe(6);
+		expect(await LedgerService.getUserBalance(1002, CAC_DENOM)).toBe(4);
+		expect(await LedgerService.getUserBalance(1001)).toBe(0);
+		expect(await LedgerService.getUserBalance(1002)).toBe(0);
+
+		const fee = await LedgerService.processFee(
+			1001,
+			1,
+			"CAC withdrawal fee",
+			CAC_DENOM,
+		);
+		expect(fee.success).toBe(true);
+		expect(await LedgerService.getUserBalance(1001, CAC_DENOM)).toBe(5);
+		expect(await LedgerService.getUserBalance(1001)).toBe(0);
 	});
 });

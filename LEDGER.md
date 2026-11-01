@@ -23,7 +23,7 @@
 │   └───────────────────────┘                                     │
 └─────────────────────────────────────────────────────────────────┘
           │
-          │ Deposits detected via RPC polling
+          │ Deposits detected via gRPC tx index
           │ Withdrawals signed & broadcast
           ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -31,14 +31,20 @@
 │                                                                 │
 │   ┌───────────────┐   ┌────────────────┐   ┌────────────────┐   │
 │   │ user_balances │   │ transactions   │   │     users      │   │
-│   │ (userId, bal) │   │ full audit log │   │ id, role, name │   │
+│   │(userId,denom,│   │ full audit log │   │ id, role, name │   │
+│   │    bal)       │   │  + denom       │   │                │   │
 │   └───────────────┘   └────────────────┘   └────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Core principle:**
-A *single* on-chain wallet backs all internal balances.
-The SQLite ledger is the source of truth for ownership accounting.
+Each supported token has one on-chain wallet: JUNO on Juno and CAC on
+Osmosis. Balances are keyed by `(userId, denom)`, so the same user can hold
+JUNO and CAC without the balances mixing. The SQLite ledger is the source of
+truth for ownership accounting.
+
+Juno and Osmosis reads and writes use only Polkachu gRPC endpoints;
+there is no LCD/REST or Tendermint-RPC fallback.
 
 ---
 
@@ -49,7 +55,7 @@ The SQLite ledger is the source of truth for ownership accounting.
 ```
 External Wallet ──JUNO──▶ BOT_TREASURY_ADDR
           │
-          │ RPC polling detects tx
+          │ gRPC tx index detects tx
           │ Memo parsed for userId
           ▼
       ┌──────────────────────┐

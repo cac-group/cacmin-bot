@@ -36,8 +36,9 @@ Every callback must still terminate in an answer (the finally guarantees it).
 
 ## Entry points
 
-- `/menu` → `mainMenuKeyboard`; `menu_lists` / `menu_roles` open the list and
-  role management keyboards (admin/owner only, with a Back button).
+- `/menu` → role-filtered main menu; only categories the caller may use are
+  rendered. `menu_lists` / `menu_roles` open the list and role management
+  keyboards (admin/owner only, with a Back button).
 - `/help` → role-filtered `helpTree` navigation (edit-based).
 - `/addrestriction` (no args) → type → target → severity → auto-jail.
 - `/jail` (no args) → `jailDurationKeyboard` → target.
@@ -49,7 +50,7 @@ Every callback must still terminate in an answer (the finally guarantees it).
 ## Permission model
 
 Interactive callbacks re-check the same permission as the command that opened
-them: `verifyAdminRole` = owner or admin (not the `elevated` role);
+them, and the menu itself only exposes authorized categories: `verifyAdminRole` = owner or admin (not the `elevated` role);
 `verifyOwner` for owner-only flows such as spam-react patterns. Role and list
 actions additionally gate per action (only owners promote admins). This matches
 the `adminOrHigher` / `ownerOnly` middleware on the commands.

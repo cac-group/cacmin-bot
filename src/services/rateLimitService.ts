@@ -255,9 +255,9 @@ export class RateLimitService {
 	static isPaymentHashUsed(paymentTx: string): boolean {
 		return Boolean(
 			query<{ id: number }>(
-				`SELECT id FROM jail_events WHERE payment_tx = ?
-				 UNION ALL SELECT id FROM violations WHERE payment_tx = ?
-				 UNION ALL SELECT id FROM rate_limit_reset_payments WHERE payment_tx = ? LIMIT 1`,
+				`SELECT id FROM jail_events WHERE LOWER(payment_tx) = ?
+				 UNION ALL SELECT id FROM violations WHERE LOWER(payment_tx) = ?
+				 UNION ALL SELECT id FROM rate_limit_reset_payments WHERE LOWER(payment_tx) = ? LIMIT 1`,
 				[paymentTx, paymentTx, paymentTx],
 			)[0],
 		);

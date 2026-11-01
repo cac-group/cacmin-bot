@@ -50,20 +50,22 @@ The bot also writes the explorer dataset at
 ## Network dependencies
 
 - Telegram Bot API `http://tgbotapi.lxd:8081` (files `:8082`).
-- JUNO RPC/REST and Ollama (`http://192.168.0.170:26886`) per `.env.example`.
+- Outbound plaintext gRPC to Polkachu Juno (`juno-grpc.polkachu.com:12690`)
+  and Osmosis (`osmosis-grpc.polkachu.com:12590`), plus Ollama
+  (`http://192.168.0.170:26886`), per `.env.example`.
 
 ## Troubleshooting
 
 - **Database locked.** Only one bot instance may write `bot.db`; stop the other
   instance (or a zombie `bun`/`node` process). WAL plus `busy_timeout=30000`
   absorbs brief contention, not a second writer.
-- **Deposit not detected.** Confirm RPC health (`bun run validate`), that the
-  memo is exactly the userId, and whether the tx hash is already in
+- **Deposit not detected.** Confirm gRPC reachability for the token`s chain, that
+  the memo is exactly the userId, and whether the tx hash is already in
   `processed_deposits`; the owner can force a pass with `/reconcile`.
 - **Balance mismatch.** `/reconcile` re-derives balances; inspect the
   `transactions` audit trail.
-- **RPC failures.** Fallback endpoints are used automatically and errors are
-  logged; see the network dependencies above.
+- **gRPC failures.** There is no fallback endpoint; check the journal for the
+  Polkachu endpoint errors and the network dependencies above.
 
 ## Admin commands
 

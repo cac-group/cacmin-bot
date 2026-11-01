@@ -5,7 +5,8 @@ Environment variables (documented in `.env.example`) override defaults; tests
 seed `process.env` in `tests/setup.ts`.
 
 **In-house wallet addresses** (`userFundsAddress`, `botTreasuryAddress`) are
-`.env`-only (`USER_FUNDS_ADDRESS`, `BOT_TREASURY_ADDRESS`). No bot command may
+`.env`-only (`USER_FUNDS_ADDRESS`, `BOT_TREASURY_ADDRESS`). The Osmosis wallet
+is derived from the same mnemonic with the `osmo` prefix. No bot command may
 change them, and the runtime properties are defined non-writable in `config.ts`
 so no code path can reassign them; rotate by editing `.env` and restarting.
 
@@ -24,12 +25,14 @@ Migration files are historical snapshots and keep their own frozen constants.
 
 | Group | Purpose |
 | --- | --- |
-| top-level (`botToken`, `junoRpcUrl`, `memberTags`, `spamLimit`, ...) | pre-existing core settings |
+| top-level (`botToken`, `memberTags`, `spamLimit`, ...) | pre-existing core settings |
+| `juno` | Polkachu Juno gRPC endpoint, chain id, confirmation timeout |
 | `intervals` | `setInterval` periods for background tasks in `bot.ts` |
 | `reactionSpam` | new-user exemption, velocity detection, bio patterns, jail messages |
 | `gambling` / `duel` | game economics (bet/wager limits, payout multiplier, timeout) |
 | `defaultJailBailAmount` | fallback bail when none is configured |
-| `chain` | withdrawal gas price/limit; fee is derived from the gas price |
+| `chain` | JUNO withdrawal gas price/limit; fee is derived from the gas price |
+| `osmosis` | Polkachu gRPC endpoint, Osmosis chain id, uosmo gas price/limit, confirmation timeout |
 | `price` | CoinGecko cache, id, rolling-average window, history retention, URL |
 | `timing` | menu expiry, response dedupe, session timeout, pattern cache TTL |
 | `limits` | regex length, random-delete defaults |
@@ -45,8 +48,8 @@ centralized but not env-tunable.
 
 - Tests that `vi.mock("../../src/config", ...)` must include every field the
   module under test reads at import time, or module load throws on `undefined`.
-- `junoApiUrl` and `junoRpcUrl` are always populated by `config`, so services
-  read them directly rather than re-declaring fallback URLs.
+- The per-chain gRPC endpoints are populated by `config`; services read them
+  directly and never re-declare fallback URLs.
 - `restrictionDurations` was removed: it was declared but never read. Restriction
   durations come from command arguments and the database.
 - `BOT_USERNAME` was removed from `.env.example`: it was documented as required

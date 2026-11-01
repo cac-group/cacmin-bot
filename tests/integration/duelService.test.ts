@@ -50,10 +50,12 @@ function initIntegrationDb(): void {
 			updated_at INTEGER DEFAULT (strftime('%s', 'now'))
 		);
 		CREATE TABLE user_balances (
-			user_id INTEGER PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			denom TEXT NOT NULL DEFAULT 'ujuno',
 			balance REAL DEFAULT 0,
 			last_updated INTEGER DEFAULT (strftime('%s', 'now')),
 			created_at INTEGER DEFAULT (strftime('%s', 'now')),
+			PRIMARY KEY (user_id, denom),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE TABLE transactions (
@@ -62,6 +64,7 @@ function initIntegrationDb(): void {
 			from_user_id INTEGER,
 			to_user_id INTEGER,
 			amount REAL NOT NULL,
+			denom TEXT NOT NULL DEFAULT 'ujuno',
 			balance_after REAL,
 			description TEXT,
 			tx_hash TEXT,
@@ -157,6 +160,11 @@ vi.mock("../../src/database", () => ({
 
 vi.mock("../../src/config", () => ({
 	config: {
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
 		databasePath: ":memory:",
 		botToken: "test-token",
 		groupChatId: "-100123456789",
@@ -164,6 +172,13 @@ vi.mock("../../src/config", () => ({
 		userFundsAddress: "juno1testuserfundsaddress",
 		duel: { timeoutSeconds: 300, minWager: 0.1, maxWager: 50 },
 		defaultJailBailAmount: 69.42,
+		osmosis: {
+			grpcUrl: "osmosis-grpc.example.com:12590",
+			chainId: "osmosis-1",
+			withdrawalGasPrice: "0.025uosmo",
+			withdrawalGasLimit: 200000,
+			confirmTimeoutMs: 1000,
+		},
 		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
 		price: {
 			cacheDurationMs: 300000,

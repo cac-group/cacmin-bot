@@ -20,15 +20,18 @@ import { bold, code, fmt } from "telegraf/format";
 import { config } from "../config";
 import { JunoService } from "../services/junoService";
 import { LedgerService } from "../services/ledgerService";
+import { RPCTransactionVerification } from "../services/rpcTransactionVerification";
 import {
 	getWithdrawalNetworkFee,
 	SYSTEM_USER_IDS,
 	UnifiedWalletService,
 } from "../services/unifiedWalletService";
+import { getTokens, JUNO_DENOM, resolveToken } from "../tokens";
 import { autoDeleteInGroup } from "../utils/autoDelete";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
 import { checkIsElevated } from "../utils/roles";
+import { normalizeTxHash } from "../utils/txHash";
 import { resolveUserId } from "../utils/userResolver";
 
 /**
@@ -47,15 +50,23 @@ export async function handleBalance(ctx: Context): Promise<void> {
 		const userId = ctx.from?.id;
 		if (!userId) return;
 
-		const balance = await UnifiedWalletService.getBalance(userId);
+		const balances = new Map(
+			UnifiedWalletService.getAllBalances(userId).map((entry) => [
+				entry.denom,
+				AmountPrecision.fromDbMicro(entry.balanceMicro),
+			]),
+		);
 		const username = ctx.from.username
 			? `@${ctx.from.username}`
 			: `User ${userId}`;
 
-		const msg = await ctx.reply(
-			fmt`${bold(`Balance for ${username}`)}
+		const lines = getTokens().map(
+			(token) =>
+				`${token.symbol}: ${(balances.get(token.denom) ?? 0).toFixed(6)} ${token.symbol}`,
+		);
 
-Current balance: ${code(`${balance.toFixed(6)} JUNO`)}`,
+		const msg = await ctx.reply(
+			`Balance for ${username}\n\n${lines.join("\n")}`,
 		);
 		autoDeleteInGroup(ctx, msg.message_id);
 
@@ -63,7 +74,7 @@ Current balance: ${code(`${balance.toFixed(6)} JUNO`)}`,
 			userId,
 			username: ctx.from.username,
 			operation: "check_balance",
-			amount: balance.toFixed(6),
+			amount: (balances.get(JUNO_DENOM) ?? 0).toFixed(6),
 		});
 	} catch (error) {
 		StructuredLogger.logError(error as Error, {
@@ -95,16 +106,24 @@ export async function handleWithdraw(ctx: Context): Promise<void> {
 
 		const text = (ctx.message as any)?.text || "";
 		const args = text.split(" ").slice(1);
-		const networkFee = getWithdrawalNetworkFee();
+		const token = resolveToken(args[2]);
+		if (!token) {
+			await ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/withdraw <amount> <address> [juno|cac]")}`,
+			);
+			return;
+		}
+		const denom = token.denom;
+		const networkFee = denom === JUNO_DENOM ? getWithdrawalNetworkFee() : 0;
 
 		if (args.length < 2) {
 			await ctx.reply(
 				fmt`${bold("Invalid format")}
 
-Usage: ${code("/withdraw <amount> <juno_address>")}
+Usage: ${code("/withdraw <amount> <address> [juno|cac]")}
 Example: ${code("/withdraw 10 juno1xxxxx...")}
 
-Current network fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}`,
+${networkFee > 0 ? `Current network fee: ${code(`${AmountPrecision.format(networkFee)} ${token.symbol}`)}` : "No internal network fee for this token."}`,
 			);
 			return;
 		}
@@ -118,24 +137,24 @@ Current network fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}`,
 		}
 		const address = args[1];
 
-		if (!address.startsWith("juno1")) {
+		if (!address.startsWith(`${token.addressPrefix}1`)) {
 			await ctx.reply(
-				' Invalid Juno address. Address must start with "juno1".',
+				fmt`Invalid ${token.symbol} address. Address must start with ${code(`${token.addressPrefix}1`)}.`,
 			);
 			return;
 		}
 
 		// Check balance first
-		const balance = await UnifiedWalletService.getBalance(userId);
+		const balance = await UnifiedWalletService.getBalance(userId, denom);
 		const totalRequired = AmountPrecision.add(amount, networkFee);
 		if (!AmountPrecision.isGreaterOrEqual(balance, totalRequired)) {
 			await ctx.reply(
 				fmt`${bold("Oh no, looks like you're broke!")}
 
-Requested: ${code(`${AmountPrecision.format(amount)} JUNO`)}
-Network fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
-Total required: ${code(`${AmountPrecision.format(totalRequired)} JUNO`)}
-Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
+Requested: ${code(`${AmountPrecision.format(amount)} ${token.symbol}`)}
+Network fee: ${code(`${AmountPrecision.format(networkFee)} ${token.symbol}`)}
+Total required: ${code(`${AmountPrecision.format(totalRequired)} ${token.symbol}`)}
+Available: ${code(`${balance.toFixed(6)} ${token.symbol}`)}`,
 			);
 			return;
 		}
@@ -147,6 +166,7 @@ Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 			userId,
 			address,
 			amount,
+			denom,
 		);
 
 		if (result.success) {
@@ -159,22 +179,25 @@ Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 				toAddress: address,
 			});
 
+			const pendingNote = result.pending
+				? "\n\nBroadcast accepted; waiting for on-chain confirmation."
+				: "";
 			await ctx.reply(
 				result.txHash
 					? fmt`${bold("Withdrawal Successful")}
 
-Amount: ${code(`${amount} JUNO`)}
-Network Fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
+Amount: ${code(`${amount} ${token.symbol}`)}
+Network Fee: ${code(`${AmountPrecision.format(networkFee)} ${token.symbol}`)}
 To: ${code(address)}
-New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} ${token.symbol}`)}
 
-Transaction: ${code(result.txHash)}`
+Transaction: ${code(result.txHash)}${pendingNote}`
 					: fmt`${bold("Withdrawal Successful")}
 
-Amount: ${code(`${amount} JUNO`)}
-Network Fee: ${code(`${AmountPrecision.format(networkFee)} JUNO`)}
+Amount: ${code(`${amount} ${token.symbol}`)}
+Network Fee: ${code(`${AmountPrecision.format(networkFee)} ${token.symbol}`)}
 To: ${code(address)}
-New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} ${token.symbol}`)}${pendingNote}`,
 			);
 		} else {
 			StructuredLogger.logError(`Withdrawal failed: ${result.error}`, {
@@ -188,7 +211,7 @@ New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
 				fmt`${bold("Withdrawal Failed")}
 
 Error: ${result.error || "Unknown error"}
-Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}`,
+Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} ${token.symbol}`)}`,
 			);
 		}
 	} catch (error) {
@@ -223,21 +246,30 @@ export async function handleSend(ctx: Context): Promise<void> {
 
 		const text = (ctx.message as any)?.text || "";
 		const args = text.split(" ").slice(1);
+		const token = resolveToken(args[2]);
+		if (!token) {
+			await ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/send <amount> <recipient> [juno|cac]")}`,
+			);
+			return;
+		}
+		const denom = token.denom;
 
 		if (args.length < 2) {
 			await ctx.reply(
 				fmt`${bold("Invalid format")}
 
-Usage: ${code("/send <amount> <recipient>")}
+Usage: ${code("/send <amount> <recipient> [juno|cac]")}
 Recipient can be:
 - @username (internal transfer)
 - User ID (internal transfer)
-- juno1xxx... (external transfer)
+- ${token.addressPrefix}1xxx... (external transfer)
 
 Examples:
 ${code("/send 5 @alice")}
 ${code("/send 10 123456789")}
-${code("/send 2.5 juno1xxxxx...")}`,
+${code("/send 2.5 juno1xxxxx...")}
+${code("/send 2.5 osmo1xxxxx... cac")}`,
 			);
 			return;
 		}
@@ -251,21 +283,21 @@ ${code("/send 2.5 juno1xxxxx...")}`,
 		}
 
 		// Check sender's balance
-		const balance = await UnifiedWalletService.getBalance(userId);
+		const balance = await UnifiedWalletService.getBalance(userId, denom);
 		if (balance < amount) {
 			await ctx.reply(
 				fmt`${bold("Sorry, you're too poor for that.")}
 
 Please remain at your location, the authorities are on their way.
 
-Requested: ${code(`${amount} JUNO`)}
-Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
+Requested: ${code(`${amount} ${token.symbol}`)}
+Available: ${code(`${balance.toFixed(6)} ${token.symbol}`)}`,
 			);
 			return;
 		}
 
 		// Determine recipient type and process
-		if (recipient.startsWith("juno1")) {
+		if (recipient.startsWith(`${token.addressPrefix}1`)) {
 			// External transfer
 			await ctx.reply(" Processing external transfer...");
 
@@ -273,6 +305,7 @@ Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 				userId,
 				recipient,
 				amount,
+				denom,
 			);
 
 			if (result.success) {
@@ -288,9 +321,9 @@ Available: ${code(`${balance.toFixed(6)} JUNO`)}`,
 				await ctx.reply(
 					fmt`${bold("External Transfer Successful")}
 
-Amount: ${code(`${amount} JUNO`)}
+Amount: ${code(`${amount} ${token.symbol}`)}
 To: ${code(recipient)}
-New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} JUNO`)}${result.txHash ? `\n\nTransaction: ${code(result.txHash)}` : ""}`,
+New Balance: ${code(`${result.newBalance?.toFixed(6) || "0"} ${token.symbol}`)}${result.txHash ? `\n\nTransaction: ${code(result.txHash)}` : ""}${result.pending ? "\n\nBroadcast accepted; waiting for on-chain confirmation." : ""}`,
 				);
 			} else {
 				StructuredLogger.logError(`External transfer failed: ${result.error}`, {
@@ -316,6 +349,7 @@ Error: ${result.error || "Unknown error"}`,
 				amount,
 				undefined,
 				ctx, // Pass context for username resolution
+				denom,
 			);
 
 			if (result.success) {
@@ -333,9 +367,9 @@ Error: ${result.error || "Unknown error"}`,
 				await ctx.reply(
 					fmt`${bold("Transfer Successful")}
 
-Amount: ${code(`${amount} JUNO`)}
+Amount: ${code(`${amount} ${token.symbol}`)}
 To: @${result.recipient || "unknown"}
-Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} JUNO`)}`,
+Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} ${token.symbol}`)}`,
 				);
 			} else {
 				StructuredLogger.logError(`Internal transfer failed: ${result.error}`, {
@@ -366,6 +400,8 @@ Error: ${result.error || "Unknown error"}`,
 				userId,
 				recipientId,
 				amount,
+				undefined,
+				denom,
 			);
 
 			if (result.success) {
@@ -383,9 +419,9 @@ Error: ${result.error || "Unknown error"}`,
 				await ctx.reply(
 					fmt`${bold("Transfer Successful")}
 
-Amount: ${code(`${amount} JUNO`)}
+Amount: ${code(`${amount} ${token.symbol}`)}
 To: User ${recipientId}
-Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} JUNO`)}`,
+Your New Balance: ${code(`${result.fromBalance?.toFixed(6) || "0"} ${token.symbol}`)}`,
 				);
 			} else {
 				StructuredLogger.logError(`Internal transfer failed: ${result.error}`, {
@@ -403,7 +439,7 @@ Error: ${result.error || "Unknown error"}`,
 			}
 		} else {
 			await ctx.reply(
-				"Invalid recipient format. Use @username, user ID, or juno1xxx... address.",
+				`Invalid recipient format. Use @username, user ID, or ${token.addressPrefix}1xxx... address.`,
 			);
 		}
 	} catch (error) {
@@ -482,37 +518,40 @@ export async function handleTransactions(ctx: Context): Promise<void> {
 		const txLines = transactions.map((tx) => {
 			const date = new Date((tx.created_at || 0) * 1000).toLocaleString();
 			const type = tx.transaction_type.toUpperCase();
-			const amount = tx.amount.toFixed(6);
+			const symbol =
+				getTokens().find((token) => token.denom === (tx.denom ?? JUNO_DENOM))
+					?.symbol ?? "JUNO";
+			const amount = `${tx.amount.toFixed(6)} ${symbol}`;
 
 			let description = "";
 			switch (tx.transaction_type) {
 				case "deposit":
-					description = `+${amount} JUNO (Deposit)`;
+					description = `+${amount} (Deposit)`;
 					break;
 				case "withdrawal":
-					description = `-${amount} JUNO (Withdrawal)`;
+					description = `-${amount} (Withdrawal)`;
 					break;
 				case "fee":
-					description = `-${amount} JUNO (Fee)`;
+					description = `-${amount} (Fee)`;
 					break;
 				case "transfer":
 					if (tx.from_user_id === targetUserId) {
-						description = `-${amount} JUNO (Sent)`;
+						description = `-${amount} (Sent)`;
 					} else {
-						description = `+${amount} JUNO (Received)`;
+						description = `+${amount} (Received)`;
 					}
 					break;
 				case "fine":
-					description = `-${amount} JUNO (Fine)`;
+					description = `-${amount} (Fine)`;
 					break;
 				case "bail":
-					description = `-${amount} JUNO (Bail)`;
+					description = `-${amount} (Bail)`;
 					break;
 				case "giveaway":
-					description = `+${amount} JUNO (Giveaway)`;
+					description = `+${amount} (Giveaway)`;
 					break;
 				default:
-					description = `${amount} JUNO (${type})`;
+					description = `${amount} (${type})`;
 			}
 
 			let txInfo = `[${date}]\nType: ${type}\nAmount: ${description}`;
@@ -663,23 +702,50 @@ export async function handleCheckDeposit(ctx: Context): Promise<void> {
 			await ctx.reply(
 				fmt`${bold("Invalid format")}
 
-Usage: ${code("/checkdeposit <tx_hash>")}
+Usage: ${code("/checkdeposit <tx_hash> [juno|cac]")}
 Example: ${code("/checkdeposit ABCD1234...")}`,
 			);
 			return;
 		}
 
-		const txHash = args[0];
+		const txHash = normalizeTxHash(args[0]);
+		const token = resolveToken(args[1]);
+		if (!token) {
+			await ctx.reply(
+				fmt`${bold("Unknown token")}\n\nUsage: ${code("/checkdeposit <tx_hash> [juno|cac]")}`,
+			);
+			return;
+		}
 
 		await ctx.reply(" Checking transaction...");
 
-		// Use the shared REST verifier (explicit-hash backup path)
-		const result = await JunoService.inspectTransaction(txHash);
-
-		if (!result.verified) {
+		const verified = await RPCTransactionVerification.fetchTokenTransaction(
+			txHash,
+			token.denom,
+		);
+		if (!verified.success || !verified.data) {
 			await ctx.reply(" Transaction not found on-chain or invalid.");
 			return;
 		}
+
+		const transfer = verified.data.transfers.find(
+			(candidate) =>
+				(candidate.denom ?? JUNO_DENOM) === token.denom &&
+				candidate.recipient ===
+					UnifiedWalletService.getDepositAddress(token.denom),
+		);
+		if (!transfer) {
+			await ctx.reply(
+				`No ${token.symbol} transfer to the bot's deposit address was found in that transaction.`,
+			);
+			return;
+		}
+
+		const result = {
+			from: transfer.sender,
+			amount: transfer.amount,
+			memo: verified.data.memo,
+		};
 
 		// Check if transaction was already processed
 		const { get } = await import("../database");
@@ -695,7 +761,7 @@ Example: ${code("/checkdeposit ABCD1234...")}`,
 				fmt`${bold("Transaction Already Processed")}
 
 From: ${code(result.from || "unknown")}
-Amount: ${code(`${result.amount || 0} JUNO`)}${recipientUserId ? `\nUser ID: ${recipientUserId}` : ""}${result.memo ? `\nMemo: ${result.memo}` : ""}
+Amount: ${code(`${result.amount || 0} ${token.symbol}`)}${recipientUserId ? `\nUser ID: ${recipientUserId}` : ""}${result.memo ? `\nMemo: ${result.memo}` : ""}
 Processed: Yes`,
 			);
 		} else {
@@ -703,7 +769,7 @@ Processed: Yes`,
 				fmt`${bold("Transaction Found")}
 
 From: ${code(result.from || "unknown")}
-Amount: ${code(`${result.amount || 0} JUNO`)}
+Amount: ${code(`${result.amount || 0} ${token.symbol}`)}
 ${recipientUserId ? `Recipient User ID: ${recipientUserId}` : "No valid user ID in memo"}${result.memo ? `\nMemo: ${result.memo}` : "\nNo memo"}
 Status: Pending processing`,
 			);

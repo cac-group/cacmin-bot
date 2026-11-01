@@ -75,6 +75,10 @@ import {
 	isMigrationApplied as check017,
 	runMigration as run017,
 } from "./017_rejoin_last_join";
+import {
+	isMigrationApplied as check018,
+	runMigration as run018,
+} from "./018_multi_denom";
 
 interface Migration {
 	id: string;
@@ -185,6 +189,12 @@ const migrations: Migration[] = [
 		name: "rejoin_last_join",
 		check: check017,
 		run: run017,
+	},
+	{
+		id: "018",
+		name: "multi_denom",
+		check: check018,
+		run: run018,
 	},
 ];
 

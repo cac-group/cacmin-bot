@@ -1,16 +1,14 @@
 /**
- * JUNO payment verification and treasury balance reads, on top of the shared
- * Cosmos REST client. Used by the explicit-hash backup paths (`/verifybail`,
- * `/verifyratelimitreset`, `/checkdeposit`); the automated deposit listener is
- * separate.
+ * JUNO payment verification and treasury balance reads over gRPC.
  *
  * @module services/junoService
  */
 
 import { config } from "../config";
+import { JUNO_DENOM } from "../tokens";
 import { StructuredLogger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { CosmosRestService } from "./cosmosRestService";
+import { JunoGrpcService } from "./junoGrpcService";
 
 export class JunoService {
 	/** Configured bot treasury address for display, or a placeholder. */
@@ -32,7 +30,7 @@ export class JunoService {
 			operation: "verify_payment",
 		});
 
-		const tx = await CosmosRestService.fetchTransaction(txHash);
+		const tx = await JunoGrpcService.fetchTransaction(txHash);
 		if (!tx || tx.code !== 0) {
 			StructuredLogger.logTransaction("Transaction failed or not found", {
 				txHash,
@@ -44,8 +42,13 @@ export class JunoService {
 		const treasury = config.botTreasuryAddress;
 		const expectedMicro = AmountPrecision.toDbMicro(expectedAmount);
 		const transfer = treasury
-			? CosmosRestService.findMsgSend(tx, treasury, expectedMicro)
-			: null;
+			? tx.transfers.find(
+					(candidate) =>
+						candidate.denom === JUNO_DENOM &&
+						candidate.to === treasury &&
+						candidate.amountMicro === expectedMicro,
+				)
+			: undefined;
 		if (!transfer) {
 			StructuredLogger.logTransaction("No valid payment found", {
 				txHash,
@@ -62,38 +65,13 @@ export class JunoService {
 		return true;
 	}
 
-	/**
-	 * Inspect a transaction for its first `ujuno` `MsgSend` and memo. Explicit-hash
-	 * backup for `/checkdeposit`; does not assert an amount or recipient.
-	 */
-	static async inspectTransaction(txHash: string): Promise<{
-		verified: boolean;
-		amount?: number;
-		from?: string;
-		to?: string;
-		memo?: string;
-	}> {
-		const tx = await CosmosRestService.fetchTransaction(txHash);
-		if (!tx || tx.code !== 0) return { verified: false };
-
-		const transfer = CosmosRestService.findMsgSend(tx);
-		if (!transfer) return { verified: false };
-
-		return {
-			verified: true,
-			amount: AmountPrecision.fromDbMicro(transfer.amountMicro),
-			from: transfer.from,
-			to: transfer.to,
-			memo: tx.memo ?? "",
-		};
-	}
-
 	/** On-chain treasury balance in JUNO, or `null` when unavailable. */
 	static async getBalance(): Promise<number | null> {
 		if (!config.botTreasuryAddress) return null;
 
-		const micro = await CosmosRestService.fetchBalanceMicro(
+		const micro = await JunoGrpcService.getBalanceMicro(
 			config.botTreasuryAddress,
+			JUNO_DENOM,
 		);
 		return micro === null ? null : AmountPrecision.fromDbMicro(micro);
 	}

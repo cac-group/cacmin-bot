@@ -206,10 +206,12 @@ export const initDb = (): void => {
 	// User balances table - Internal ledger system
 	db.exec(`
     CREATE TABLE IF NOT EXISTS user_balances (
-      user_id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
       balance REAL DEFAULT 0,
       last_updated INTEGER DEFAULT (strftime('%s', 'now')),
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      PRIMARY KEY (user_id, denom),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
@@ -222,6 +224,7 @@ export const initDb = (): void => {
       from_user_id INTEGER,
       to_user_id INTEGER,
       amount REAL NOT NULL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
       balance_after REAL,
       description TEXT,
       tx_hash TEXT,
@@ -368,6 +371,8 @@ export const initDb = (): void => {
       tx_hash TEXT NOT NULL UNIQUE,
       user_id INTEGER,
       amount REAL NOT NULL,
+      denom TEXT NOT NULL DEFAULT 'ujuno',
+      network TEXT NOT NULL DEFAULT 'juno',
       from_address TEXT NOT NULL,
       memo TEXT,
       height INTEGER NOT NULL,

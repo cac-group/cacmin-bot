@@ -12,11 +12,12 @@ Cosmos Airdrops Chat administration bot built with [Telegraf](https://telegraf.j
 - **Pleb**: Default role for all users
 
 ### Unified Wallet System
-- Single JUNO wallet with internal ledger for all users
-- Automatic deposit detection via RPC monitoring with memo-based routing
-- Instant, fee-free internal transfers between users
+- One internal ledger, keyed by `(user, denom)`: JUNO on Juno and CAC on Osmosis
+- Automatic deposit detection with memo-based routing over gRPC
+- Instant, fee-free internal transfers between users in either token
 - Secure withdrawal flow with transaction locking
 - Complete audit trail of all financial operations
+- All chain traffic uses only Polkachu gRPC endpoints (Juno + Osmosis); no LCD/REST fallback
 - See [LEDGER.md](LEDGER.md) for technical details
 - See [ADMIN_MANUAL.md](ADMIN_MANUAL.md) for operational documentation
 
@@ -57,7 +58,7 @@ bun run dev           # Development
 - `OWNER_ID`: Primary owner Telegram user ID
 - `BOT_TREASURY_ADDRESS`: Juno wallet address
 - `BOT_TREASURY_MNEMONIC`: Wallet seed phrase (24 words)
-- `JUNO_RPC_URL`: Primary Juno RPC endpoint
+- `JUNO_GRPC_URL`: Polkachu Juno gRPC endpoint (gRPC only, no RPC/REST)
 
 Telegram uses `https://api.telegram.org` by default. A deployment using the
 local Telegram Bot API and its media gateway can set:
@@ -198,19 +199,18 @@ Use `/help` in a DM with the bot for the interactive, role-based reference. The 
 
 ### Core Help
 - `/help` - Open the DM help menu
-- `/menu` - Open the DM button menu (Wallet, Shared Accounts, Moderation, Lists, Roles, Statistics, Help)
+- `/menu` - Open the role-filtered DM button menu (only categories you may use)
 - `/wallethelp` - Show detailed wallet and treasury help
 
 ### Wallet and Deposits (All Users unless noted)
-- `/balance` or `/bal` - View your internal JUNO balance
-- `/deposit` - Get your deposit address and required memo
-- `/verifydeposit <txhash>` - Verify and credit a deposit by transaction hash
-- `/withdraw <amount> <junoAddress>` - Withdraw JUNO to an external wallet
-- `/send <amount> <recipient>` or `/transfer <amount> <recipient>` - Send to `@username`, user ID, or `juno1...` address
+- `/balance` or `/bal` - View your internal JUNO and CAC balances
+- `/deposit [juno|cac]` - Get your deposit address and required memo
+- `/verifydeposit <txhash> [juno|cac]` - Verify and credit a deposit by transaction hash
+- `/withdraw <amount> <address> [juno|cac]` - Withdraw JUNO to a Juno address or CAC to an Osmosis address
+- `/send <amount> <recipient> [juno|cac]` or `/transfer ...` - Send to `@username`, user ID, or `juno1...`/`osmo1...` address
 - `/transactions [@user|userId]` or `/history [@user|userId]` - View your recent transactions; owners can target another user
-- `/verifydeposit <txhash>` - Verify and credit your own deposit by transaction hash
-- `/claimdeposit <txhash>` - If a deposit was missed, verify it on-chain and credit the user id in the memo
-- `/checkdeposit <txhash>` or `/checktx <txhash>` - Check whether a deposit was already processed
+- `/claimdeposit <txhash> [juno|cac]` - If a deposit was missed, verify it on-chain and credit the user id in the memo
+- `/checkdeposit <txhash> [juno|cac]` or `/checktx ...` - Check whether a deposit was already processed
 - `/unclaimeddeposits` - View the current UNCLAIMED deposit pool and recent invalid-memo deposits
 - `/fundtreasury <amount>` - Move funds from your balance into the game treasury
 - `/fundtreasury deposit` - Get external deposit instructions for the game treasury
@@ -311,7 +311,7 @@ the selected window.
 - `/addwhitelist <@username|userId>` and `/removewhitelist <@username|userId>` - Manage whitelist entries (`admin+`)
 
 ### Deposit Recovery and Treasury Ops
-- `/processdeposit <txhash> [userId|@username]` - Recover or allocate any deposit: the memo user by default, or a target user for an unclaimed deposit (`admin+`)
+- `/processdeposit <txhash> [userId|@username] [juno|cac]` - Recover or allocate any deposit: the memo user by default, or a target user for an unclaimed deposit (`admin+`)
 - `/botbalance` - View the bot's on-chain wallet balance (`owner`)
 - `/treasury` - View treasury and ledger status (`owner`)
 - `/walletstats` - View wallet and reconciliation stats (`owner`)

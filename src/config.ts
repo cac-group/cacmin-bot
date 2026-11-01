@@ -33,11 +33,15 @@ interface Config {
 	/** Optional HTTP(S) origin for serving local Telegram files */
 	telegramFileRoot?: string;
 
-	/** Juno blockchain RPC endpoint URL */
-	junoRpcUrl: string;
-
-	/** Juno blockchain REST API endpoint URL */
-	junoApiUrl: string;
+	/** Juno chain settings. All Juno traffic uses gRPC only. */
+	juno: {
+		/** Polkachu Juno gRPC endpoint (plaintext, no fallback) */
+		grpcUrl: string;
+		/** Juno chain id */
+		chainId: string;
+		/** How long to wait for a broadcast tx to appear on chain */
+		confirmTimeoutMs: number;
+	};
 
 	/** Telegram chat ID for admin notifications */
 	adminChatId: number;
@@ -59,6 +63,20 @@ interface Config {
 
 	/** Bot treasury Juno wallet address (optional, defaults to userFundsAddress) */
 	botTreasuryAddress?: string;
+
+	/** Osmosis chain settings. All Osmosis traffic uses gRPC only. */
+	osmosis: {
+		/** Polkachu Osmosis gRPC endpoint (plaintext, no fallback) */
+		grpcUrl: string;
+		/** Osmosis chain id */
+		chainId: string;
+		/** Gas price for CAC withdrawals, paid in uosmo */
+		withdrawalGasPrice: string;
+		/** Gas limit for CAC withdrawals */
+		withdrawalGasLimit: number;
+		/** How long to wait for a broadcast tx to appear on chain */
+		confirmTimeoutMs: number;
+	};
 
 	/** File path to SQLite database */
 	databasePath: string;
@@ -409,8 +427,13 @@ const DEFAULT_REACTION_JAIL_MESSAGES = [
 export const config: Config = {
 	botToken: process.env.BOT_TOKEN || "",
 	...telegramEndpoints,
-	junoRpcUrl: process.env.JUNO_RPC_URL || "https://rpc-archive.junonetwork.io",
-	junoApiUrl: process.env.JUNO_API_URL || "https://lcd-archive.junonetwork.io",
+	juno: {
+		// Polkachu is the only Juno endpoint: it is the explicitly chosen,
+		// non-rate-limited gRPC source. No RPC/REST fallback exists.
+		grpcUrl: envString("JUNO_GRPC_URL", "juno-grpc.polkachu.com:12690"),
+		chainId: envString("JUNO_CHAIN_ID", "juno-1"),
+		confirmTimeoutMs: envInt("JUNO_CONFIRM_TIMEOUT_MS", 30_000),
+	},
 	adminChatId: parseInt(process.env.ADMIN_CHAT_ID || "0", 10),
 	groupChatId: process.env.GROUP_CHAT_ID
 		? parseInt(process.env.GROUP_CHAT_ID, 10)
@@ -430,6 +453,15 @@ export const config: Config = {
 	userFundsMnemonic: process.env.USER_FUNDS_MNEMONIC,
 	botTreasuryAddress:
 		process.env.BOT_TREASURY_ADDRESS || process.env.USER_FUNDS_ADDRESS,
+	osmosis: {
+		// Polkachu is the only Osmosis endpoint: it is the explicitly chosen,
+		// non-rate-limited gRPC source. No RPC/REST fallback exists.
+		grpcUrl: envString("OSMOSIS_GRPC_URL", "osmosis-grpc.polkachu.com:12590"),
+		chainId: envString("OSMOSIS_CHAIN_ID", "osmosis-1"),
+		withdrawalGasPrice: envString("OSMOSIS_WITHDRAWAL_GAS_PRICE", "0.025uosmo"),
+		withdrawalGasLimit: envInt("OSMOSIS_WITHDRAWAL_GAS_LIMIT", 200000),
+		confirmTimeoutMs: envInt("OSMOSIS_CONFIRM_TIMEOUT_MS", 30_000),
+	},
 	databasePath: process.env.DATABASE_PATH || "./data/bot.db",
 	logLevel: process.env.LOG_LEVEL || "info",
 

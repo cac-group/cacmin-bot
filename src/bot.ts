@@ -249,6 +249,7 @@ async function main() {
 		intervals.push(
 			setInterval(async () => {
 				await TransactionLockService.cleanExpiredLocks();
+				await UnifiedWalletService.reconcilePendingWithdrawals();
 			}, config.intervals.transactionLockCleanupMs),
 		);
 
@@ -330,18 +331,8 @@ async function main() {
 				allowedUpdates: [
 					"message",
 					"edited_message",
-					"channel_post",
-					"edited_channel_post",
 					"callback_query",
-					"inline_query",
-					"chosen_inline_result",
-					"shipping_query",
-					"pre_checkout_query",
-					"poll",
-					"poll_answer",
-					"my_chat_member",
 					"chat_member",
-					"chat_join_request",
 					"message_reaction", // Required for reaction spam detection
 				],
 			});

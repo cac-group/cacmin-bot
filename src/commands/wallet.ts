@@ -33,11 +33,11 @@ export function buildWalletHelpText(userId: string) {
 	return fmt`${bold("Wallet Commands")}
 
 ${bold("Basic Commands:")}
-/balance (or /bal) - Check your internal wallet balance
-/deposit - Get deposit instructions with your required memo
-/verifydeposit <txhash> - Verify and credit a deposit by hash
-/withdraw <amount> <address> - Withdraw to an external wallet
-/send <amount> <recipient> (or /transfer) - Send to @username, user ID, or juno1... address
+/balance (or /bal) - Check your internal JUNO and CAC balances
+/deposit [juno|cac] - Get deposit instructions with your required memo
+/verifydeposit <txhash> [juno|cac] - Verify and credit a deposit by hash
+/withdraw <amount> <address> [juno|cac] - Withdraw to an external wallet
+/send <amount> <recipient> [juno|cac] (or /transfer) - Send to @username, user ID, or an address
 /transactions [@user|userId] (or /history) - View your recent transactions; owners can target another user
 /checkdeposit <txhash> (or /checktx) - Check whether a deposit was already processed
 /unclaimeddeposits - View deposits that arrived with a missing or invalid memo

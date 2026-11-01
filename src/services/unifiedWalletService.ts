@@ -1,16 +1,16 @@
-import { DirectSecp256k1HdWallet } from "@cosmjs/proto-signing";
-import { GasPrice, SigningStargateClient } from "@cosmjs/stargate";
 import type { FmtString } from "telegraf/format";
 import { config } from "../config";
 import { execute, get, query } from "../database";
+import { CAC_DENOM, DEFAULT_TOKEN, JUNO_DENOM, tokenByDenom } from "../tokens";
 import { looksLikeJailingId } from "../utils/jailingId";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { decodeMemo } from "../utils/txMemo";
-import { CosmosRestService } from "./cosmosRestService";
+import { normalizeTxHash } from "../utils/txHash";
 import { DepositInstructionService } from "./depositInstructions";
 import { JailService } from "./jailService";
-import { LedgerService } from "./ledgerService";
+import { JunoGrpcService } from "./junoGrpcService";
+import { LedgerService, TransactionStatus } from "./ledgerService";
+import { OsmosisGrpcService } from "./osmosisGrpcService";
 import { TransactionLockService } from "./transactionLock";
 
 // Special user IDs for system accounts
@@ -47,15 +47,12 @@ export function getWithdrawalNetworkFee(): number {
 	return WITHDRAWAL_NETWORK_FEE;
 }
 
-interface User {
-	id: number;
-	username?: string;
-}
-
 interface DepositCheck {
 	txHash: string;
 	userId?: number | null;
 	amount: number;
+	denom: string;
+	network: "juno" | "osmosis";
 	fromAddress: string;
 	memo: string;
 	height: number;
@@ -67,67 +64,111 @@ interface DepositCheck {
  * Single wallet system with bot as internal ledger user
  */
 export class UnifiedWalletService {
-	private static wallet: DirectSecp256k1HdWallet | null = null;
 	private static walletAddress: string;
-	private static rpcEndpoint: string;
+	private static osmosisAddress: string;
 	private static depositCheckInterval: NodeJS.Timeout | null = null;
+	private static depositCheckRunning = false;
 	private static lastCheckedHeight: number = 0;
+	private static osmosisLastCheckedHeight: number = 0;
 
 	/**
 	 * Initialize the unified wallet service
 	 */
 	static async initialize(): Promise<void> {
-		UnifiedWalletService.rpcEndpoint = config.junoRpcUrl;
+		// Both chains are gRPC-only. The configured address is authoritative;
+		// the mnemonic-derived signer is checked inside each client.
+		await JunoGrpcService.initialize();
+		await OsmosisGrpcService.initialize();
 
-		// Get wallet address from config (single wallet for all users)
-		UnifiedWalletService.walletAddress = config.userFundsAddress || "";
+		UnifiedWalletService.walletAddress =
+			JunoGrpcService.getAddress() || config.userFundsAddress || "";
+		UnifiedWalletService.osmosisAddress = OsmosisGrpcService.getAddress();
 
 		if (!UnifiedWalletService.walletAddress) {
 			logger.error("Wallet address not configured");
 			return;
 		}
 
-		// Initialize wallet signer if mnemonic is provided
-		if (config.userFundsMnemonic) {
-			try {
-				UnifiedWalletService.wallet =
-					await DirectSecp256k1HdWallet.fromMnemonic(config.userFundsMnemonic, {
-						prefix: "juno",
-					});
-
-				const [account] = await UnifiedWalletService.wallet.getAccounts();
-
-				if (account.address !== UnifiedWalletService.walletAddress) {
-					logger.warn("Wallet address mismatch", {
-						configured: UnifiedWalletService.walletAddress,
-						derived: account.address,
-					});
-				}
-			} catch (error) {
-				logger.error("Failed to initialize wallet from mnemonic", error);
-			}
-		}
-
 		// Initialize system users in the ledger
 		await UnifiedWalletService.initSysUsers();
 
-		// Get last checked height for deposits
-		const lastProcessed = get<{ height: number }>(
-			"SELECT MAX(height) as height FROM processed_deposits",
+		// Last checked height is per network: Juno and Osmosis heights are
+		// unrelated, so they must never share a watermark.
+		const lastJuno = get<{ height: number }>(
+			"SELECT MAX(height) as height FROM processed_deposits WHERE network = 'juno'",
 		);
-		UnifiedWalletService.lastCheckedHeight = lastProcessed?.height || 0;
+		const lastOsmosis = get<{ height: number }>(
+			"SELECT MAX(height) as height FROM processed_deposits WHERE network = 'osmosis'",
+		);
+		UnifiedWalletService.lastCheckedHeight = lastJuno?.height || 0;
+		UnifiedWalletService.osmosisLastCheckedHeight = lastOsmosis?.height || 0;
+
+		await UnifiedWalletService.ensureWatermarksSeeded();
 
 		logger.info("Unified wallet service initialized", {
 			address: UnifiedWalletService.walletAddress,
-			hasSigningCapability: !!UnifiedWalletService.wallet,
+			osmosisAddress: UnifiedWalletService.osmosisAddress || "(unset)",
 			lastCheckedHeight: UnifiedWalletService.lastCheckedHeight,
+			osmosisLastCheckedHeight: UnifiedWalletService.osmosisLastCheckedHeight,
 		});
 
-		// Run startup reconciliation to catch any missed deposits
-		await UnifiedWalletService.reconcileStartupDeposits();
+		// Resolve withdrawals left pending by an earlier process exit.
+		await UnifiedWalletService.reconcilePendingWithdrawals();
 
-		// Start deposit monitoring
+		// Start deposit monitoring (the initial scan catches deposits missed
+		// while the bot was down).
 		UnifiedWalletService.startDepositMonitoring();
+	}
+
+	/** Seed an empty deposit watermark to the chain tip, once per chain. */
+	private static async ensureWatermarksSeeded(): Promise<void> {
+		if (UnifiedWalletService.lastCheckedHeight === 0) {
+			const stored = get<{ value: string }>(
+				"SELECT value FROM system_state WHERE key = 'juno_deposit_start_height'",
+			);
+			const storedHeight = stored ? Number.parseInt(stored.value, 10) : 0;
+			if (storedHeight > 0) {
+				UnifiedWalletService.lastCheckedHeight = storedHeight;
+			} else {
+				const tip = await JunoGrpcService.getLatestHeight();
+				if (tip) {
+					UnifiedWalletService.lastCheckedHeight = tip;
+					execute(
+						`INSERT OR REPLACE INTO system_state (key, value, updated_at)
+						 VALUES ('juno_deposit_start_height', ?, strftime('%s', 'now'))`,
+						[tip.toString()],
+					);
+					logger.warn(
+						"Seeded JUNO deposit watermark to chain tip; earlier deposits require /processdeposit",
+						{ height: tip },
+					);
+				}
+			}
+		}
+
+		if (UnifiedWalletService.osmosisLastCheckedHeight === 0) {
+			const stored = get<{ value: string }>(
+				"SELECT value FROM system_state WHERE key = 'osmosis_deposit_start_height'",
+			);
+			const storedHeight = stored ? Number.parseInt(stored.value, 10) : 0;
+			if (storedHeight > 0) {
+				UnifiedWalletService.osmosisLastCheckedHeight = storedHeight;
+			} else {
+				const tip = await OsmosisGrpcService.getLatestHeight();
+				if (tip) {
+					UnifiedWalletService.osmosisLastCheckedHeight = tip;
+					execute(
+						`INSERT OR REPLACE INTO system_state (key, value, updated_at)
+						 VALUES ('osmosis_deposit_start_height', ?, strftime('%s', 'now'))`,
+						[tip.toString()],
+					);
+					logger.warn(
+						"Seeded CAC deposit watermark to chain tip; earlier deposits require /processdeposit",
+						{ height: tip },
+					);
+				}
+			}
+		}
 	}
 
 	/** Initialize system users in ledger */
@@ -213,85 +254,6 @@ export class UnifiedWalletService {
 	}
 
 	/**
-	 * Reconcile deposits on startup - catch any that were missed
-	 */
-	private static async reconcileStartupDeposits(): Promise<void> {
-		try {
-			logger.info("Running startup deposit reconciliation...");
-
-			// Fetch all deposits from blockchain
-			const query = `transfer.recipient='${UnifiedWalletService.walletAddress}'`;
-			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=100&order_by=%22desc%22`;
-
-			const response = await fetch(url);
-			if (!response.ok) {
-				throw new Error(`RPC request failed: ${response.status}`);
-			}
-
-			const data = (await response.json()) as any;
-			const txs = data.result?.txs || [];
-
-			let processedCount = 0;
-			let skippedCount = 0;
-
-			for (const tx of txs) {
-				// Skip failed transactions
-				if (tx.tx_result.code !== 0) continue;
-
-				// Check if already in database
-				const existing = get<any>(
-					"SELECT * FROM processed_deposits WHERE tx_hash = ?",
-					[tx.hash],
-				);
-				if (existing) {
-					skippedCount++;
-					continue;
-				}
-
-				// Extract the first transfer paying our wallet (attributes paired by index)
-				const transfer = UnifiedWalletService.findTransferTo(
-					tx.tx_result.events,
-					UnifiedWalletService.walletAddress,
-				);
-				if (!transfer) continue;
-				const { amount, from: fromAddress } = transfer;
-
-				// Extract memo
-				const memo = decodeMemo(tx.tx) ?? "";
-				const userId = UnifiedWalletService.parseUserId(memo);
-
-				// Process this missed deposit
-				await UnifiedWalletService.processDeposit({
-					txHash: tx.hash,
-					userId,
-					amount,
-					fromAddress,
-					memo,
-					height: parseInt(tx.height, 10),
-					timestamp: Math.floor(Date.now() / 1000),
-				});
-
-				processedCount++;
-
-				logger.info("Processed missed deposit during reconciliation", {
-					txHash: tx.hash,
-					amount,
-					userId: userId || "unclaimed",
-					memo,
-				});
-			}
-
-			logger.info("Startup reconciliation complete", {
-				totalScanned: txs.length,
-				alreadyProcessed: skippedCount,
-				newlyProcessed: processedCount,
-			});
-		} catch (error) {
-			logger.error("Startup deposit reconciliation failed", error);
-		}
-	}
-
-	/**
 	 * Start monitoring for deposits
 	 */
 	private static startDepositMonitoring(): void {
@@ -318,148 +280,176 @@ export class UnifiedWalletService {
 	 * Check for new deposits
 	 */
 	private static async checkForDeposits(): Promise<void> {
-		try {
-			const deposits = await UnifiedWalletService.fetchRecentDeposits();
+		if (UnifiedWalletService.depositCheckRunning) {
+			logger.debug("Skipping deposit check: previous scan still running");
+			return;
+		}
+		UnifiedWalletService.depositCheckRunning = true;
 
-			for (const deposit of deposits) {
+		try {
+			await UnifiedWalletService.ensureWatermarksSeeded();
+			const junoScan = await UnifiedWalletService.fetchRecentDeposits();
+			for (const deposit of junoScan.deposits) {
 				await UnifiedWalletService.processDeposit(deposit);
 			}
+			UnifiedWalletService.lastCheckedHeight = junoScan.nextHeight;
+
+			const osmosisScan =
+				await UnifiedWalletService.fetchRecentOsmosisDeposits();
+			for (const deposit of osmosisScan.deposits) {
+				await UnifiedWalletService.processDeposit(deposit);
+			}
+			// Advance only to the scan's safe resume height, never to the newest
+			// credited row: a page-capped scan must leave older rows rescanable.
+			UnifiedWalletService.osmosisLastCheckedHeight = osmosisScan.nextHeight;
 		} catch (error) {
 			logger.error("Failed to check deposits", error);
+		} finally {
+			UnifiedWalletService.depositCheckRunning = false;
 		}
 	}
 
-	/**
-	 * First `transfer` event entry paying `recipient`, with repeating
-	 * sender/recipient/amount attributes paired by index (Cosmos merges same-type
-	 * events into one event with repeated attributes).
-	 */
-	private static findTransferTo(
-		events: Array<{
-			type: string;
-			attributes: Array<{ key: string; value: string }>;
-		}>,
-		recipient: string,
-	): { amount: number; from: string } | null {
-		for (const event of events) {
-			if (event.type !== "transfer") continue;
+	/** Complete or refund withdrawals whose broadcast never got a final status. */
+	static async reconcilePendingWithdrawals(): Promise<void> {
+		const pending = query<{
+			id: number;
+			from_user_id: number | null;
+			amount: number;
+			denom: string;
+			tx_hash: string | null;
+			created_at: number;
+		}>(
+			`SELECT id, from_user_id, amount, denom, tx_hash, created_at
+			 FROM transactions
+			 WHERE transaction_type = 'withdrawal' AND status = 'pending' AND tx_hash IS NOT NULL`,
+		);
 
-			const senders: string[] = [];
-			const recipients: string[] = [];
-			const amounts: string[] = [];
-			for (const attr of event.attributes) {
-				if (attr.key === "sender") senders.push(attr.value);
-				else if (attr.key === "recipient") recipients.push(attr.value);
-				else if (attr.key === "amount") amounts.push(attr.value);
-			}
+		for (const row of pending) {
+			if (!row.from_user_id || !row.tx_hash) continue;
+			const chain =
+				row.denom === JUNO_DENOM ? JunoGrpcService : OsmosisGrpcService;
+			const tx = await chain.fetchTransaction(row.tx_hash);
 
-			for (let i = 0; i < amounts.length; i++) {
-				if (recipients[i] !== recipient) continue;
-				const match = amounts[i].match(/^(\d+)ujuno$/);
-				if (!match) continue;
-				return {
-					amount: parseFloat(match[1]) / 1_000_000,
-					from: senders[i] ?? "",
-				};
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Fetch recent deposits from blockchain via Cosmos REST API.
-	 *
-	 * This function queries the blockchain for transactions sent to the bot's wallet address,
-	 * verifies they are valid JUNO transfers, and extracts the userId from the memo field.
-	 *
-	 * **Critical:** Only processes transactions with:
-	 * 1. Successful status (code === 0)
-	 * 2. Denomination === 'ujuno' (base denom for JUNO)
-	 * 3. Valid memo containing a numeric userId
-	 *
-	 * **Amount Conversion:** JUNO uses 6 decimals, so:
-	 * - 1 JUNO = 1,000,000 ujuno
-	 * - Amount in ujuno is divided by 1,000,000 to get JUNO
-	 *
-	 * @returns Array of deposits to process
-	 *
-	 * @example
-	 * On-chain transaction:
-	 * - Amount: 100000000 ujuno
-	 * - Memo: "123456"
-	 * - Converted: 100.000000 JUNO credited to user 123456
-	 */
-	private static async fetchRecentDeposits(): Promise<DepositCheck[]> {
-		try {
-			// Targeted query: newest transfers to our wallet first, then stop at the
-			// last height we already processed (no re-scanning old history).
-			const query = `transfer.recipient='${UnifiedWalletService.walletAddress}'`;
-			const url = `${UnifiedWalletService.rpcEndpoint}/tx_search?query="${encodeURIComponent(query)}"&prove=false&per_page=20&order_by=%22desc%22`;
-
-			const response = await fetch(url);
-
-			if (!response.ok) {
-				throw new Error(`RPC request failed: ${response.status}`);
-			}
-
-			const data = (await response.json()) as any;
-			const deposits: DepositCheck[] = [];
-
-			for (const tx of data.result?.txs || []) {
-				const height = parseInt(tx.height, 10);
-
-				// Descending order: once we reach already-processed history, stop.
-				if (height <= UnifiedWalletService.lastCheckedHeight) {
-					break;
-				}
-
-				// Skip failed transactions
-				if (tx.tx_result.code !== 0) {
-					logger.debug("Skipping failed transaction", {
-						txHash: tx.hash,
-						code: tx.tx_result.code,
-					});
-					continue;
-				}
-
-				// Extract the first transfer paying our wallet (attributes paired by index)
-				const transfer = UnifiedWalletService.findTransferTo(
-					tx.tx_result.events,
-					UnifiedWalletService.walletAddress,
+			if (tx && tx.code === 0) {
+				await LedgerService.updateTransactionStatus(
+					row.id,
+					TransactionStatus.COMPLETED,
+					row.tx_hash,
 				);
-				if (!transfer) {
-					continue; // No valid transfer to our address
-				}
-				const { amount, from: fromAddress } = transfer;
-
-				// Decode the signed memo (the deposit allocation key)
-				const memo = decodeMemo(tx.tx) ?? "";
-				const userId = UnifiedWalletService.parseUserId(memo);
-
-				deposits.push({
-					txHash: tx.hash,
-					userId,
-					amount,
-					fromAddress,
-					memo,
-					height,
-					timestamp: Math.floor(Date.now() / 1000), // RPC doesn't provide timestamp
+				await TransactionLockService.releaseWithdrawalLock(
+					row.from_user_id,
+					row.tx_hash,
+					true,
+				);
+				logger.info("Pending withdrawal confirmed", {
+					userId: row.from_user_id,
+					txHash: row.tx_hash,
+					denom: row.denom,
 				});
-
-				logger.debug("Deposit detected", {
-					txHash: tx.hash,
-					amount: `${amount} JUNO`,
-					memo,
-					userId: userId || "invalid",
-					fromAddress,
-				});
+				continue;
 			}
 
-			return deposits;
-		} catch (error) {
-			logger.error("Failed to fetch deposits", error);
-			return [];
+			if (tx && tx.code !== 0) {
+				await LedgerService.processRefund(
+					row.from_user_id,
+					AmountPrecision.fromDbMicro(row.amount),
+					`Withdrawal refund - reconciled failed transaction ${row.tx_hash}`,
+					row.denom,
+				);
+				await LedgerService.updateTransactionStatus(
+					row.id,
+					TransactionStatus.FAILED,
+					row.tx_hash,
+				);
+				await TransactionLockService.releaseWithdrawalLock(
+					row.from_user_id,
+					row.tx_hash,
+					true,
+				);
+				logger.warn("Pending withdrawal failed on chain and was refunded", {
+					userId: row.from_user_id,
+					txHash: row.tx_hash,
+					denom: row.denom,
+				});
+				continue;
+			}
+
+			const ageMinutes = Math.floor((Date.now() / 1000 - row.created_at) / 60);
+			if (ageMinutes >= 30) {
+				logger.warn("Withdrawal still pending and unindexed", {
+					userId: row.from_user_id,
+					txHash: row.tx_hash,
+					denom: row.denom,
+					ageMinutes,
+				});
+			}
 		}
+	}
+
+	/** CAC deposits on Osmosis, read through the Polkachu gRPC index. */
+	private static async fetchRecentOsmosisDeposits(): Promise<{
+		deposits: DepositCheck[];
+		nextHeight: number;
+	}> {
+		const address = UnifiedWalletService.osmosisAddress;
+		const currentHeight = UnifiedWalletService.osmosisLastCheckedHeight;
+		if (!address || currentHeight === 0) {
+			return { deposits: [], nextHeight: currentHeight };
+		}
+
+		const scan = await OsmosisGrpcService.fetchRecentDeposits(
+			address,
+			CAC_DENOM,
+			currentHeight,
+		);
+
+		return {
+			nextHeight: scan.nextHeight,
+			deposits: scan.deposits.map((deposit) => ({
+				txHash: deposit.txHash,
+				userId: UnifiedWalletService.parseUserId(deposit.memo),
+				amount: AmountPrecision.fromDbMicro(deposit.amountMicro),
+				denom: CAC_DENOM,
+				network: "osmosis" as const,
+				fromAddress: deposit.fromAddress,
+				memo: deposit.memo,
+				height: deposit.height,
+				timestamp: Math.floor(Date.now() / 1000),
+			})),
+		};
+	}
+
+	/** JUNO deposits read through the Polkachu gRPC index. */
+	private static async fetchRecentDeposits(): Promise<{
+		deposits: DepositCheck[];
+		nextHeight: number;
+	}> {
+		const address = UnifiedWalletService.walletAddress;
+		const currentHeight = UnifiedWalletService.lastCheckedHeight;
+		if (!address || currentHeight === 0) {
+			return { deposits: [], nextHeight: currentHeight };
+		}
+
+		const scan = await JunoGrpcService.fetchRecentDeposits(
+			address,
+			JUNO_DENOM,
+			currentHeight,
+		);
+
+		return {
+			nextHeight: scan.nextHeight,
+			deposits: scan.deposits.map((deposit) => ({
+				txHash: deposit.txHash,
+				userId: UnifiedWalletService.parseUserId(deposit.memo),
+				amount: AmountPrecision.fromDbMicro(deposit.amountMicro),
+				denom: JUNO_DENOM,
+				network: "juno" as const,
+				fromAddress: deposit.fromAddress,
+				memo: deposit.memo,
+				height: deposit.height,
+				timestamp: Math.floor(Date.now() / 1000),
+			})),
+		};
 	}
 
 	/**
@@ -527,12 +517,14 @@ export class UnifiedWalletService {
 			// Add to processed_deposits to prevent future attempts
 			execute(
 				`INSERT OR IGNORE INTO processed_deposits (
-					tx_hash, user_id, amount, from_address, memo, height, processed, created_at, error
-				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+					tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, created_at, error
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 				[
 					deposit.txHash,
 					existingTx.to_user_id,
 					existingTx.amount,
+					existingTx.denom ?? deposit.denom,
+					deposit.network,
 					deposit.fromAddress,
 					deposit.memo,
 					deposit.height,
@@ -546,7 +538,7 @@ export class UnifiedWalletService {
 		// Bail payment: the memo carries a jailing id (alphanumeric, leading letter),
 		// which is not a user id. Allocate to that jailing and release the user.
 		const memoText = deposit.memo ?? "";
-		if (looksLikeJailingId(memoText)) {
+		if (deposit.denom === JUNO_DENOM && looksLikeJailingId(memoText)) {
 			// Bail memo: this tx is a bail payment, never a deposit. Allocate it or
 			// record it as unallocated, but never fall through to deposit crediting.
 			const jailing = JailService.getJailingByPublicId(memoText);
@@ -585,12 +577,14 @@ export class UnifiedWalletService {
 
 			execute(
 				`INSERT OR IGNORE INTO processed_deposits (
-					tx_hash, user_id, amount, from_address, memo, height, processed, created_at, error
-				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+					tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, created_at, error
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 				[
 					deposit.txHash,
 					jailing?.userId ?? SYSTEM_USER_IDS.UNCLAIMED,
 					deposit.amount,
+					deposit.denom,
+					deposit.network,
 					deposit.fromAddress,
 					memoText,
 					deposit.height,
@@ -650,7 +644,7 @@ export class UnifiedWalletService {
 				);
 
 				// Initialize balance
-				await LedgerService.ensureUserBalance(targetUserId);
+				await LedgerService.ensureUserBalance(targetUserId, deposit.denom);
 
 				logger.info("Created pre-funded account for deposit", {
 					txHash: deposit.txHash,
@@ -665,12 +659,14 @@ export class UnifiedWalletService {
 		// Record deposit as processing (user now guaranteed to exist)
 		execute(
 			`INSERT INTO processed_deposits (
-        tx_hash, user_id, amount, from_address, memo, height, processed, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+        tx_hash, user_id, amount, denom, network, from_address, memo, height, processed, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
 			[
 				deposit.txHash,
 				targetUserId, // Use resolved targetUserId, not deposit.userId
 				deposit.amount,
+				deposit.denom,
+				deposit.network,
 				deposit.fromAddress,
 				deposit.memo,
 				deposit.height,
@@ -678,10 +674,7 @@ export class UnifiedWalletService {
 			],
 		);
 
-		// Update last checked height
-		if (deposit.height > UnifiedWalletService.lastCheckedHeight) {
-			UnifiedWalletService.lastCheckedHeight = deposit.height;
-		}
+		// Watermarks are advanced from the scan result in checkForDeposits.
 
 		// Process deposit in ledger
 		const result = await LedgerService.processDeposit(
@@ -690,6 +683,7 @@ export class UnifiedWalletService {
 			deposit.txHash,
 			deposit.fromAddress,
 			`Deposit from ${deposit.fromAddress}${deposit.memo ? ` (memo: ${deposit.memo})` : ""}`,
+			deposit.denom,
 		);
 
 		// Update processed status - only mark as processed=1 if successful
@@ -740,13 +734,20 @@ export class UnifiedWalletService {
 	/**
 	 * Get deposit instructions for a user with clear warnings
 	 */
-	static getDepositInstructions(userId: number): {
+	static getDepositInstructions(
+		userId: number,
+		denom: string = JUNO_DENOM,
+	): {
 		address: string;
 		memo: string;
 		instructions: string;
 		markdown: FmtString;
 	} {
-		const instructions = DepositInstructionService.generateInstructions(userId);
+		const instructions = DepositInstructionService.generateInstructions(
+			userId,
+			denom,
+			UnifiedWalletService.getDepositAddress(denom),
+		);
 
 		return {
 			address: instructions.walletAddress,
@@ -756,6 +757,13 @@ export class UnifiedWalletService {
 		};
 	}
 
+	/** Token-aware deposit address (JUNO or Osmosis/CAC). */
+	static getDepositAddress(denom: string = JUNO_DENOM): string {
+		return denom === JUNO_DENOM
+			? UnifiedWalletService.walletAddress
+			: UnifiedWalletService.osmosisAddress;
+	}
+
 	/**
 	 * Process user withdrawal to external wallet with secure locking
 	 */
@@ -763,17 +771,25 @@ export class UnifiedWalletService {
 		userId: number,
 		toAddress: string,
 		amount: number,
+		denom: string = JUNO_DENOM,
 	): Promise<{
 		success: boolean;
 		txHash?: string;
 		error?: string;
 		newBalance?: number;
+		pending?: boolean;
 	}> {
-		// Validate address
-		if (!toAddress.startsWith("juno1") || toAddress.length !== 43) {
+		const token = tokenByDenom(denom) ?? DEFAULT_TOKEN;
+		const symbol = token.symbol;
+
+		// Validate address against the token's chain prefix.
+		if (
+			!toAddress.startsWith(`${token.addressPrefix}1`) ||
+			toAddress.length !== 43
+		) {
 			return {
 				success: false,
-				error: "Invalid Juno address format",
+				error: `Invalid ${symbol} address format`,
 			};
 		}
 
@@ -789,12 +805,15 @@ export class UnifiedWalletService {
 			};
 		}
 
-		const balanceMicro = await LedgerService.getUserBalanceMicro(userId);
+		const balanceMicro = await LedgerService.getUserBalanceMicro(userId, denom);
 		const validatedAmountMicro = AmountPrecision.toDbMicro(validatedAmount);
-		const withdrawalFee = getWithdrawalNetworkFee();
+		// JUNO withdrawals charge the configured JUNO network fee. CAC withdrawals
+		// are charged no internal fee; the bot pays Osmosis gas in uosmo.
+		const withdrawalFee = denom === JUNO_DENOM ? getWithdrawalNetworkFee() : 0;
+		const feeMicro = AmountPrecision.toDbMicro(withdrawalFee);
 		const requiredBalanceMicro = AmountPrecision.addMicro(
 			validatedAmountMicro,
-			WITHDRAWAL_FEE_UJUNO,
+			feeMicro,
 		);
 
 		// Check balance before acquiring lock
@@ -803,7 +822,10 @@ export class UnifiedWalletService {
 			const requiredBalance = AmountPrecision.fromDbMicro(requiredBalanceMicro);
 			return {
 				success: false,
-				error: `Insufficient balance. You need ${AmountPrecision.format(requiredBalance)} JUNO including the ${AmountPrecision.format(withdrawalFee)} JUNO network fee.`,
+				error:
+					withdrawalFee > 0
+						? `Insufficient balance. You need ${AmountPrecision.format(requiredBalance)} ${symbol} including the ${AmountPrecision.format(withdrawalFee)} ${symbol} network fee.`
+						: `Insufficient balance. You need ${AmountPrecision.format(requiredBalance)} ${symbol}.`,
 				newBalance: balance,
 			};
 		}
@@ -835,6 +857,7 @@ export class UnifiedWalletService {
 				toAddress,
 				undefined,
 				`Withdrawal to ${toAddress}`,
+				denom,
 			);
 
 			if (!withdrawalResult.success) {
@@ -848,78 +871,61 @@ export class UnifiedWalletService {
 				};
 			}
 
-			const feeResult = await LedgerService.processFee(
-				userId,
-				withdrawalFee,
-				`Network fee for withdrawal to ${toAddress}`,
-			);
-
-			if (!feeResult.success) {
-				await LedgerService.processGiveaway(
+			let newBalance = withdrawalResult.newBalance;
+			if (withdrawalFee > 0) {
+				const feeResult = await LedgerService.processFee(
 					userId,
-					validatedAmount,
-					"Withdrawal refund - fee charge failed",
+					withdrawalFee,
+					`Network fee for withdrawal to ${toAddress}`,
+					denom,
 				);
-				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
 
-				return {
-					success: false,
-					error: feeResult.error || "Failed to charge withdrawal fee",
-					newBalance: await LedgerService.getUserBalance(userId),
-				};
+				if (!feeResult.success) {
+					await LedgerService.processRefund(
+						userId,
+						validatedAmount,
+						"Withdrawal refund - fee charge failed",
+						denom,
+					);
+					await TransactionLockService.releaseWithdrawalLock(userId, "", true);
+
+					return {
+						success: false,
+						error: feeResult.error || "Failed to charge withdrawal fee",
+						newBalance: await LedgerService.getUserBalance(userId, denom),
+					};
+				}
+				newBalance = feeResult.newBalance;
 			}
 
-			// Execute on-chain transaction
-			if (!UnifiedWalletService.wallet) {
-				// Refund if we can't sign
-				await LedgerService.processGiveaway(
-					userId,
-					totalDebit,
-					"Withdrawal refund - signing unavailable",
-				);
-				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
-
-				return {
-					success: false,
-					error: "Withdrawal service temporarily unavailable",
-					newBalance: await LedgerService.getUserBalance(userId),
-				};
-			}
-
-			const client = await SigningStargateClient.connectWithSigner(
-				UnifiedWalletService.rpcEndpoint,
-				UnifiedWalletService.wallet,
-				{ gasPrice: GasPrice.fromString(WITHDRAWAL_GAS_PRICE) },
-			);
-
-			const [account] = await UnifiedWalletService.wallet.getAccounts();
-			const amountInUjuno = AmountPrecision.toMicroJuno(validatedAmount);
-
-			let result: Awaited<ReturnType<typeof client.sendTokens>>;
+			// Execute the on-chain transaction.
+			const chain = denom === JUNO_DENOM ? JunoGrpcService : OsmosisGrpcService;
+			let txHash = "";
+			let code = 0;
+			let rawLog = "";
 			try {
-				result = await client.sendTokens(
-					account.address,
+				const result = await chain.sendTokens(
 					toAddress,
-					[{ denom: "ujuno", amount: amountInUjuno.toString() }],
-					{
-						amount: [
-							{
-								denom: "ujuno",
-								amount: WITHDRAWAL_FEE_UJUNO.toString(),
-							},
-						],
-						gas: WITHDRAWAL_GAS_LIMIT.toString(),
-					},
+					validatedAmountMicro,
+					denom,
 					`Withdrawal for user ${userId}`,
 				);
+				txHash = result.txHash;
+				code = result.code;
+				rawLog = result.rawLog;
 			} catch (txError) {
 				// Transaction failed - refund and release lock
-				logger.error("On-chain transaction failed", { userId, error: txError });
+				logger.error("On-chain transaction failed", {
+					userId,
+					denom,
+					error: txError,
+				});
 
-				await LedgerService.processGiveaway(
+				await LedgerService.processRefund(
 					userId,
 					totalDebit,
 					"Withdrawal refund - transaction failed",
+					denom,
 				);
 				await TransactionLockService.releaseWithdrawalLock(userId, "", true);
 
@@ -927,35 +933,78 @@ export class UnifiedWalletService {
 					success: false,
 					error:
 						txError instanceof Error ? txError.message : "Transaction failed",
-					newBalance: await LedgerService.getUserBalance(userId),
+					newBalance: await LedgerService.getUserBalance(userId, denom),
 				};
 			}
 
-			// Update lock with transaction hash
-			await TransactionLockService.updateLockWithTxHash(
-				userId,
-				result.transactionHash,
-			);
+			txHash = normalizeTxHash(txHash);
 
-			// Verify transaction status
-			if (result.code !== 0) {
-				// Transaction failed on-chain after broadcast. The network fee is still
-				// consumed, so refund only the transfer amount.
-				await LedgerService.processGiveaway(
+			// Update lock with transaction hash
+			await TransactionLockService.updateLockWithTxHash(userId, txHash);
+
+			// A gRPC SYNC broadcast only reports CheckTx; wait for inclusion and
+			// treat an included non-zero code as a failed transfer.
+			let pending = false;
+			let includedTx: Awaited<ReturnType<typeof chain.waitForTransaction>> =
+				null;
+			if (code === 0) {
+				const included = await chain.waitForTransaction(txHash);
+				includedTx = included;
+				if (included && included.code !== 0) {
+					code = included.code;
+					rawLog = `Transaction failed on chain (code ${included.code})`;
+				}
+				if (!included) {
+					// The tx may still be in the mempool. Keep the lock and report a
+					// pending result instead of assuming success or refunding twice.
+					pending = true;
+					logger.warn("Withdrawal not indexed before timeout", {
+						userId,
+						denom,
+						txHash,
+					});
+				}
+			}
+
+			if (pending) {
+				// Keep the hash durable even though the lock will expire; otherwise
+				// the only record of the broadcast disappears after cleanup.
+				if (withdrawalResult.transactionId) {
+					await LedgerService.updateTransactionStatus(
+						withdrawalResult.transactionId,
+						TransactionStatus.PENDING,
+						normalizeTxHash(txHash),
+					);
+				}
+				return {
+					success: true,
+					pending: true,
+					txHash,
+					newBalance: await LedgerService.getUserBalance(userId, denom),
+				};
+			}
+
+			if (code !== 0) {
+				// A CheckTx rejection never entered a block, so no gas was consumed:
+				// refund the fee too. An included-but-failed tx did consume gas, so
+				// only the transfer amount is refunded in that case.
+				const refundAmount = includedTx ? validatedAmount : totalDebit;
+				await LedgerService.processRefund(
 					userId,
-					validatedAmount,
+					refundAmount,
 					"Withdrawal refund - transaction rejected",
+					denom,
 				);
 				await TransactionLockService.releaseWithdrawalLock(
 					userId,
-					result.transactionHash,
+					txHash,
 					true,
 				);
 
 				return {
 					success: false,
-					error: `Transaction failed: ${result.rawLog || "Unknown error"}`,
-					newBalance: await LedgerService.getUserBalance(userId),
+					error: `Transaction failed: ${rawLog || "Unknown error"}`,
+					newBalance: await LedgerService.getUserBalance(userId, denom),
 				};
 			}
 
@@ -963,23 +1012,25 @@ export class UnifiedWalletService {
 			if (withdrawalResult.transactionId) {
 				await LedgerService.updateTransactionStatus(
 					withdrawalResult.transactionId,
-					"completed" as any,
-					result.transactionHash,
+					TransactionStatus.COMPLETED,
+					txHash,
 				);
 			}
 
 			// Attempt to verify and release lock
 			const releaseResult = await TransactionLockService.releaseWithdrawalLock(
 				userId,
-				result.transactionHash,
-				false, // Don't force - verify first
+				txHash,
+				// CAC was already verified through the Osmosis client above; the
+				// lock verifier is JUNO-only. The hash is reconciled either way.
+				denom !== JUNO_DENOM,
 			);
 
 			if (!releaseResult.released) {
 				// Lock not released - transaction needs manual verification
 				logger.warn("Withdrawal lock not released after transaction", {
 					userId,
-					txHash: result.transactionHash,
+					txHash,
 					error: releaseResult.error,
 				});
 			}
@@ -990,25 +1041,27 @@ export class UnifiedWalletService {
 				userId,
 				toAddress,
 				amount,
+				denom,
 				withdrawalFee,
-				txHash: result.transactionHash,
+				txHash,
 				lockReleased: releaseResult.released,
 			});
 
 			return {
 				success: true,
-				txHash: result.transactionHash,
-				newBalance: feeResult.newBalance,
+				txHash,
+				newBalance,
 			};
 		} catch (error) {
 			// Unexpected error - ensure lock is released and user is refunded
 			logger.error("Unexpected error during withdrawal", { userId, error });
 
 			try {
-				await LedgerService.processGiveaway(
+				await LedgerService.processRefund(
 					userId,
 					AmountPrecision.add(validatedAmount, withdrawalFee),
 					"Withdrawal refund - system error",
+					denom,
 				);
 			} catch (refundError) {
 				logger.error("Failed to refund user after error", {
@@ -1023,7 +1076,7 @@ export class UnifiedWalletService {
 				success: false,
 				error:
 					"System error during withdrawal. Your balance has been restored.",
-				newBalance: await LedgerService.getUserBalance(userId),
+				newBalance: await LedgerService.getUserBalance(userId, denom),
 			};
 		}
 	}
@@ -1036,6 +1089,7 @@ export class UnifiedWalletService {
 		toUserId: number,
 		amount: number,
 		description?: string,
+		denom: string = JUNO_DENOM,
 	): Promise<{
 		success: boolean;
 		error?: string;
@@ -1067,6 +1121,7 @@ export class UnifiedWalletService {
 					toUserId,
 					validatedAmount,
 					description,
+					denom,
 				);
 
 				// Release locks after ledger update
@@ -1117,15 +1172,26 @@ export class UnifiedWalletService {
 	/**
 	 * Get user balance
 	 */
-	static async getBalance(userId: number): Promise<number> {
-		return LedgerService.getUserBalance(userId);
+	static async getBalance(
+		userId: number,
+		denom: string = JUNO_DENOM,
+	): Promise<number> {
+		return LedgerService.getUserBalance(userId, denom);
+	}
+
+	/** All non-zero token balances for a user. */
+	static getAllBalances(userId: number): Array<{
+		denom: string;
+		balanceMicro: number;
+	}> {
+		return LedgerService.getUserBalances(userId);
 	}
 
 	/**
 	 * Get bot treasury balance
 	 */
-	static async getBotBalance(): Promise<number> {
-		return LedgerService.getUserBalance(SYSTEM_USER_IDS.BOT_TREASURY);
+	static async getBotBalance(denom: string = JUNO_DENOM): Promise<number> {
+		return LedgerService.getUserBalance(SYSTEM_USER_IDS.BOT_TREASURY, denom);
 	}
 
 	/**
@@ -1143,8 +1209,9 @@ export class UnifiedWalletService {
 	}> {
 		// Get on-chain balance
 		let onChainBalance = 0;
-		const onChainMicro = await CosmosRestService.fetchBalanceMicro(
+		const onChainMicro = await JunoGrpcService.getBalanceMicro(
 			UnifiedWalletService.walletAddress,
+			JUNO_DENOM,
 		);
 		if (onChainMicro !== null) {
 			onChainBalance = AmountPrecision.fromDbMicro(onChainMicro);
@@ -1160,7 +1227,7 @@ export class UnifiedWalletService {
 		// Get active users count
 		const activeUsers =
 			get<{ count: number }>(
-				"SELECT COUNT(*) as count FROM user_balances WHERE balance > 0 AND user_id > 0",
+				"SELECT COUNT(DISTINCT user_id) as count FROM user_balances WHERE balance > 0 AND user_id > 0",
 			)?.count || 0;
 
 		// Get pending deposits
@@ -1202,6 +1269,7 @@ export class UnifiedWalletService {
 		amount: number,
 		description?: string,
 		botContext?: any,
+		denom: string = JUNO_DENOM,
 	): Promise<{
 		success: boolean;
 		error?: string;
@@ -1228,7 +1296,7 @@ export class UnifiedWalletService {
 						"pleb",
 						"telegram_api_resolution",
 					);
-					await LedgerService.ensureUserBalance(chatInfo.id);
+					await LedgerService.ensureUserBalance(chatInfo.id, denom);
 
 					logger.info(
 						"Created pre-funded account via Telegram username resolution",
@@ -1267,6 +1335,7 @@ export class UnifiedWalletService {
 			recipientId,
 			amount,
 			description || `Transfer to @${recipientUsername}`,
+			denom,
 		);
 
 		return {
@@ -1430,25 +1499,6 @@ export class UnifiedWalletService {
 	}
 
 	/**
-	 * Finds a user by username
-	 *
-	 * @param username - Username to search for (with or without @)
-	 * @returns User object or null
-	 */
-	static async findUserByUsername(username: string): Promise<User | null> {
-		const { getUserIdByUsername } = await import("./userService");
-		const cleanUsername = username.replace(/^@/, "");
-		const userId = getUserIdByUsername(cleanUsername);
-
-		if (!userId) return null;
-
-		const user = get<any>("SELECT id, username FROM users WHERE id = ?", [
-			userId,
-		]);
-		return user ? { id: user.id, username: user.username } : null;
-	}
-
-	/**
 	 * Gets ledger statistics
 	 *
 	 * @returns Statistics object with totalUsers, activeUsers, totalBalance, recentDeposits, recentWithdrawals
@@ -1464,14 +1514,14 @@ export class UnifiedWalletService {
 
 		const totalUsers =
 			get<{ count: number }>(
-				"SELECT COUNT(*) as count FROM user_balances WHERE user_id > 0",
+				"SELECT COUNT(DISTINCT user_id) as count FROM user_balances WHERE user_id > 0",
 				[],
 			)?.count || 0;
 
 		// Active users = users with balance > 0
 		const activeUsers =
 			get<{ count: number }>(
-				"SELECT COUNT(*) as count FROM user_balances WHERE user_id > 0 AND balance > 0",
+				"SELECT COUNT(DISTINCT user_id) as count FROM user_balances WHERE user_id > 0 AND balance > 0",
 				[],
 			)?.count || 0;
 
@@ -1683,51 +1733,5 @@ export class UnifiedWalletService {
 			UnifiedWalletService.depositCheckInterval = null;
 		}
 		logger.info("Unified wallet service stopped");
-	}
-
-	/**
-	 * Send funds to external wallet (alias for processWithdrawal)
-	 * Provided for API consistency with test expectations
-	 *
-	 * @param userId - User initiating the withdrawal
-	 * @param toAddress - External Juno address
-	 * @param amount - Amount in JUNO
-	 * @param description - Optional transaction description
-	 * @returns Transaction result
-	 */
-	static async sendToExternalWallet(
-		userId: number,
-		toAddress: string,
-		amount: number,
-		_description?: string,
-	): Promise<{
-		success: boolean;
-		txHash?: string;
-		error?: string;
-		newBalance?: number;
-	}> {
-		return UnifiedWalletService.processWithdrawal(userId, toAddress, amount);
-	}
-
-	/**
-	 * Alias for transferToUser - send funds to another user
-	 */
-	static async sendToUser(
-		fromUserId: number,
-		toUserId: number,
-		amount: number,
-		description?: string,
-	): Promise<{
-		success: boolean;
-		error?: string;
-		fromBalance?: number;
-		toBalance?: number;
-	}> {
-		return UnifiedWalletService.transferToUser(
-			fromUserId,
-			toUserId,
-			amount,
-			description,
-		);
 	}
 }

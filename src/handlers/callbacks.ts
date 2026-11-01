@@ -7,7 +7,12 @@
 
 import type { Context, Telegraf } from "telegraf";
 import { bold, code, type FmtString, fmt } from "telegraf/format";
-import type { CallbackQuery, InlineKeyboardMarkup } from "telegraf/types";
+import type {
+	CallbackQuery,
+	InlineKeyboardButton,
+	InlineKeyboardMarkup,
+} from "telegraf/types";
+import type { HelpRole } from "../commands/helpTree";
 import { config } from "../config";
 import { execute, get } from "../database";
 import { DEFAULT_JAIL_BAIL_AMOUNT, JailService } from "../services/jailService";
@@ -24,8 +29,8 @@ import {
 import {
 	autoJailKeyboard,
 	giveawayClaimKeyboard,
+	giveawayCompletedKeyboard,
 	listActionKeyboard,
-	mainMenuKeyboard,
 	noKeyboard,
 	roleKeyboard,
 	severityKeyboard,
@@ -199,9 +204,12 @@ export function registerCallbackHandlers(bot: Telegraf<Context>): void {
 		if (ctx.chat?.type !== "private") {
 			return ctx.reply("Use /menu in a direct message with me.");
 		}
+		const userId = ctx.from?.id;
+		if (!userId) return;
+		const role = menuRole(userId);
 		await ctx.reply(
-			fmt`${bold("CAC Admin Bot")}\n\nSelect a category to view commands:`,
-			{ reply_markup: mainMenuKeyboard },
+			fmt`${bold("CAC Admin Bot")}\n\nRole: ${code(role)}\n\nSelect a category to view commands:`,
+			{ reply_markup: buildMainMenuKeyboard(role) },
 		);
 	});
 
@@ -745,51 +753,148 @@ Format: ${code("@username")} or ${code("userId")}`,
 	);
 }
 
-/**
- * Menu content map for main menu navigation
- * Uses Telegraf's Format module for formatting
- */
-const menuContent: Record<string, ReturnType<typeof fmt>> = {
-	wallet: fmt`${bold("Wallet Commands")}
+/** Role ordering for menu visibility. */
+const MENU_ROLE_RANK: Record<HelpRole, number> = {
+	pleb: 0,
+	elevated: 1,
+	admin: 2,
+	owner: 3,
+};
+
+/** Resolve the caller's effective menu role (config owners/admins included). */
+function menuRole(userId: number): HelpRole {
+	if (isOwner(userId)) return "owner";
+	if (isAdmin(userId)) return "admin";
+	return getUserById(userId)?.role === "elevated" ? "elevated" : "pleb";
+}
+
+function menuAtLeast(role: HelpRole, minimum: HelpRole): boolean {
+	return MENU_ROLE_RANK[role] >= MENU_ROLE_RANK[minimum];
+}
+
+/** Main-menu entries, each with the minimum role that may see it. */
+const MENU_ITEMS: ReadonlyArray<{
+	text: string;
+	callback: string;
+	minimum: HelpRole;
+}> = [
+	{ text: "Wallet", callback: "menu_wallet", minimum: "pleb" },
+	{ text: "Shared Accounts", callback: "menu_shared", minimum: "pleb" },
+	{ text: "Moderation", callback: "menu_moderation", minimum: "elevated" },
+	{ text: "Lists", callback: "menu_lists", minimum: "admin" },
+	{ text: "Roles", callback: "menu_roles", minimum: "admin" },
+	{ text: "Statistics", callback: "menu_stats", minimum: "owner" },
+	{ text: "Help", callback: "menu_help", minimum: "pleb" },
+];
+
+/** Role-filtered main-menu keyboard, two buttons per row. */
+export function buildMainMenuKeyboard(role: HelpRole): InlineKeyboardMarkup {
+	const visible = MENU_ITEMS.filter((item) => menuAtLeast(role, item.minimum));
+	const rows: InlineKeyboardButton[][] = [];
+	for (let i = 0; i < visible.length; i += 2) {
+		rows.push(
+			visible.slice(i, i + 2).map((item) => ({
+				text: item.text,
+				callback_data: item.callback,
+			})),
+		);
+	}
+	return { inline_keyboard: rows };
+}
+
+/** Role-filtered menu content, so sections never advertise commands the caller cannot run. */
+function buildMenuContent(role: HelpRole): Record<string, FmtString> {
+	const content: Record<string, FmtString> = {
+		wallet: fmt`${bold("Wallet Commands")}
 
 /balance - Check balance
 /deposit - Get deposit instructions
 /withdraw - Withdraw funds
 /send - Send funds
 /transactions - View history`,
-	shared: fmt`${bold("Shared Account Commands")}
+		shared: fmt`${bold("Shared Account Commands")}
 
 /myshared - View your shared accounts
+/sharedbalance - Check shared balance${
+			menuAtLeast(role, "elevated")
+				? `
+
 /createshared - Create new shared account
-/sharedbalance - Check shared balance`,
-	moderation: fmt`${bold("Moderation Commands")}
+/listshared - List all shared accounts`
+				: ""
+		}`,
+		help: fmt`${bold("Help")}
+
+Use /help in a DM for the role-filtered, comprehensive command reference.`,
+	};
+
+	if (menuAtLeast(role, "elevated")) {
+		content.moderation = fmt`${bold("Moderation Commands")}
+
+/jailstats - View active jails and user jail status
+/listrestrictions - View a user's active restrictions
+/removerestriction - Remove a restriction
+/clearrestrictions - Clear all restrictions${
+			menuAtLeast(role, "admin")
+				? `
 
 /jail - Jail user
 /unjail - Release user
 /warn - Issue warning
-/addrestriction - Add restriction`,
-	lists: fmt`${bold("List Management")}
+/addrestriction - Add restriction`
+				: ""
+		}`;
+	}
+
+	if (menuAtLeast(role, "admin")) {
+		content.lists = fmt`${bold("List Management")}
 
 /viewwhitelist - View whitelist
 /addwhitelist - Add to whitelist
-/removewhitelist - Remove from whitelist`,
-	roles: fmt`${bold("Role Management")}
+/removewhitelist - Remove from whitelist`;
+		content.roles = fmt`${bold("Role Management")}
 
-/makeadmin - Promote to admin
 /elevate - Elevate user
 /revoke - Revoke privileges
-/listadmins - List all admins`,
-	stats: fmt`${bold("Statistics")}
+/listadmins - List all admins${
+			menuAtLeast(role, "owner")
+				? `
+
+/makeadmin - Promote to admin
+/grantowner - Grant owner role
+/setowner - Register a configured owner`
+				: ""
+		}`;
+	}
+
+	if (menuAtLeast(role, "owner")) {
+		content.stats = fmt`${bold("Statistics")}
 
 /stats - Bot statistics
 /jailstats - Jail statistics
-/walletstats - Wallet statistics`,
-	help: fmt`${bold("Help")}
+/walletstats - Wallet statistics`;
+	}
 
-Use /help in a DM for comprehensive command reference.`,
-};
+	return content;
+}
 
-const mainMenuText = fmt`${bold("CAC Admin Bot")}
+/** Owner sees every role action; admins see only elevate/revoke. */
+function roleKeyboardFor(role: HelpRole): InlineKeyboardMarkup {
+	if (menuAtLeast(role, "owner")) return roleKeyboard;
+	return {
+		inline_keyboard: roleKeyboard.inline_keyboard.filter(
+			(row) =>
+				!row.some(
+					(button) =>
+						"callback_data" in button && button.callback_data === "role_admin",
+				),
+		),
+	};
+}
+
+const mainMenuText = (role: HelpRole) => fmt`${bold("CAC Admin Bot")}
+
+Role: ${code(role)}
 
 Select a category to view commands:`;
 
@@ -812,33 +917,48 @@ async function handleMenuCallback(
 	data: string,
 	userId: number,
 ): Promise<void> {
+	const role = menuRole(userId);
 	const menuItem = data.replace("menu_", "");
+	const keyboard = buildMainMenuKeyboard(role);
 
 	if (menuItem === "home" || menuItem === "back") {
-		await ctx.editMessageText(mainMenuText, { reply_markup: mainMenuKeyboard });
+		await ctx.editMessageText(mainMenuText(role), { reply_markup: keyboard });
 		return;
 	}
 
 	if (menuItem === "roles" || menuItem === "lists") {
-		if (!(isAdmin(userId) || isOwner(userId))) {
+		if (!menuAtLeast(role, "admin")) {
 			await ctx.editMessageText("You need admin permissions for that.", {
-				reply_markup: mainMenuKeyboard,
+				reply_markup: keyboard,
 			});
 			return;
 		}
-		const keyboard = menuItem === "roles" ? roleKeyboard : listActionKeyboard;
-		await ctx.editMessageText(menuContent[menuItem], {
-			reply_markup: withMenuBack(keyboard),
+		const submenu = buildMenuContent(role)[menuItem];
+		if (!submenu) {
+			await ctx.editMessageText(
+				"That section is not available for your role.",
+				{
+					reply_markup: keyboard,
+				},
+			);
+			return;
+		}
+		const submenuKeyboard =
+			menuItem === "roles" ? roleKeyboardFor(role) : listActionKeyboard;
+		await ctx.editMessageText(submenu, {
+			reply_markup: withMenuBack(submenuKeyboard),
 		});
 		return;
 	}
 
-	const message = menuContent[menuItem];
-	if (message) {
-		await ctx.editMessageText(message, {
-			reply_markup: mainMenuKeyboard,
+	const message = buildMenuContent(role)[menuItem];
+	if (!message) {
+		await ctx.editMessageText("That section is not available for your role.", {
+			reply_markup: keyboard,
 		});
+		return;
 	}
+	await ctx.editMessageText(message, { reply_markup: keyboard });
 }
 
 /**
@@ -1184,13 +1304,7 @@ ${giveaway.amount_per_slot.toFixed(6)} JUNO per claim
 All ${giveaway.total_slots} slots claimed!
 
 Total distributed: ${giveaway.total_amount.toFixed(6)} JUNO`,
-					{
-						reply_markup: {
-							inline_keyboard: [
-								[{ text: "Giveaway Complete", callback_data: "noop" }],
-							],
-						},
-					},
+					{ reply_markup: giveawayCompletedKeyboard },
 				);
 			} else {
 				await ctx.editMessageText(

@@ -7,6 +7,8 @@ that has no home beside the code.
 
 - [architecture.md](architecture.md) — the process shape: boot sequence, module
   map, the two-DB model, and the live-writer indexer role.
+- [multi-token.md](multi-token.md) — JUNO + CAC ledger model, per-network
+  deposit watermarks, and the gRPC-only Polkachu Osmosis transport.
 - [operations.md](operations.md) — running state, systemd units, install/update
   flow, paths, and known hazards.
 - [configuration.md](configuration.md) — `src/config.ts` is the single source of
@@ -49,3 +51,7 @@ that has no home beside the code.
   instead of byte scanning.
 - [logs/2026-10-09.md](logs/2026-10-09.md) — leave/rejoin cooldown (pause +
   bail-flow buy-out) and membership join/leave event log.
+- [logs/2026-10-30.md](logs/2026-10-30.md) — denom-aware ledger, CAC on
+  Osmosis over the Polkachu gRPC endpoint, and token-aware wallet commands.
+- [logs/2026-10-31.md](logs/2026-10-31.md) — Juno moved to the shared gRPC
+  client; REST/RPC paths removed.

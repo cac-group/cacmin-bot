@@ -1,35 +1,18 @@
-import { config } from "../config";
+/**
+ * Explicit-hash transaction verification.
+ *
+ * JUNO transactions come from the Polkachu Juno gRPC service and CAC from the
+ * Polkachu Osmosis gRPC service. No REST or Tendermint-RPC path exists.
+ *
+ * @module services/rpcTransactionVerification
+ */
+
+import { JUNO_DENOM } from "../tokens";
 import { logger } from "../utils/logger";
 import { AmountPrecision } from "../utils/precision";
-import { decodeMemo } from "../utils/txMemo";
-
-interface RPCTransactionResponse {
-	jsonrpc: string;
-	id: number;
-	result: {
-		hash: string;
-		height: string;
-		index: number;
-		tx_result: {
-			code: number; // 0 = success, non-zero = failed
-			data: string; // Base64 encoded
-			log: string;
-			info: string;
-			gas_wanted: string;
-			gas_used: string;
-			events: Array<{
-				type: string;
-				attributes: Array<{
-					key: string;
-					value: string;
-					index: boolean;
-				}>;
-			}>;
-			codespace: string;
-		};
-		tx: string; // Base64 encoded transaction with memo
-	};
-}
+import { normalizeTxHash } from "../utils/txHash";
+import { JunoGrpcService } from "./junoGrpcService";
+import { OsmosisGrpcService } from "./osmosisGrpcService";
 
 interface ParsedTransaction {
 	hash: string;
@@ -39,72 +22,44 @@ interface ParsedTransaction {
 	transfers: Array<{
 		sender: string;
 		recipient: string;
-		amount: number; // In JUNO (not ujuno)
+		amount: number; // In display units (not micro)
+		denom?: string;
 	}>;
-	fee?: {
-		amount: number;
-		payer: string;
-	};
-	gasUsed: number;
-	gasWanted: number;
 }
 
-/**
- * Transaction verification using Juno RPC endpoint
- * Handles the actual format returned by the blockchain
- */
 export class RPCTransactionVerification {
-	private static readonly RPC_ENDPOINT = config.junoRpcUrl;
-
-	/**
-	 * Fetch and verify a transaction using RPC endpoint
-	 * Note: RPC requires '0x' prefix on the hash
-	 */
+	/** Fetch and verify a JUNO transaction through gRPC. */
 	static async fetchTransaction(txHash: string): Promise<{
 		success: boolean;
 		data?: ParsedTransaction;
 		error?: string;
 	}> {
 		try {
-			// Add 0x prefix if not present
-			const formattedHash = txHash.startsWith("0x") ? txHash : `0x${txHash}`;
-
-			// Fetch from RPC endpoint
-			const url = `${RPCTransactionVerification.RPC_ENDPOINT}/tx?hash=${formattedHash}&prove=false`;
-			const response = await fetch(url);
-
-			if (!response.ok) {
-				return {
-					success: false,
-					error: `Failed to fetch transaction: ${response.status}`,
-				};
+			const tx = await JunoGrpcService.fetchTransaction(txHash);
+			if (!tx) {
+				return { success: false, error: "Transaction not found" };
 			}
-
-			const rpcResponse = (await response.json()) as RPCTransactionResponse;
-
-			// Check if transaction was found
-			if (!rpcResponse.result) {
-				return {
-					success: false,
-					error: "Transaction not found",
-				};
-			}
-
-			// Parse the transaction
-			const parsed = await RPCTransactionVerification.parseRPCTransaction(
-				rpcResponse.result,
-			);
 
 			return {
 				success: true,
-				data: parsed,
+				data: {
+					hash: tx.hash,
+					status: tx.code,
+					height: tx.height,
+					memo: tx.memo,
+					transfers: tx.transfers.map((transfer) => ({
+						sender: transfer.from,
+						recipient: transfer.to,
+						amount: AmountPrecision.fromDbMicro(transfer.amountMicro),
+						denom: transfer.denom,
+					})),
+				},
 			};
 		} catch (error) {
-			logger.error("Failed to fetch transaction from RPC", {
+			logger.error("Failed to fetch transaction via gRPC", {
 				txHash,
 				error,
 			});
-
 			return {
 				success: false,
 				error:
@@ -116,94 +71,51 @@ export class RPCTransactionVerification {
 	}
 
 	/**
-	 * Parse the RPC transaction response
+	 * Fetch a transaction through the transport for its token's chain:
+	 * Juno gRPC for JUNO, Osmosis gRPC for CAC.
 	 */
-	private static async parseRPCTransaction(
-		result: RPCTransactionResponse["result"],
-	): Promise<ParsedTransaction> {
-		const parsed: ParsedTransaction = {
-			hash: result.hash,
-			status: result.tx_result.code,
-			height: parseInt(result.height, 10),
-			transfers: [],
-			gasUsed: parseInt(result.tx_result.gas_used, 10),
-			gasWanted: parseInt(result.tx_result.gas_wanted, 10),
-		};
-
-		// Memo is the allocation key; decode it canonically.
-		parsed.memo = decodeMemo(result.tx);
-
-		// Parse events to extract transfers. A `transfer` event carries repeating
-		// sender/recipient/amount attributes; pair them by index, not first-match,
-		// so multi-transfer transactions are attributed correctly.
-		for (const event of result.tx_result.events) {
-			if (event.type === "transfer") {
-				const senders: string[] = [];
-				const recipients: string[] = [];
-				const amounts: string[] = [];
-				for (const attr of event.attributes) {
-					if (attr.key === "sender") senders.push(attr.value);
-					else if (attr.key === "recipient") recipients.push(attr.value);
-					else if (attr.key === "amount") amounts.push(attr.value);
-				}
-
-				for (let i = 0; i < amounts.length; i++) {
-					const amountMatch = amounts[i].match(/(\d+)ujuno/);
-					if (!amountMatch) continue;
-					const ujunoAmount = parseInt(amountMatch[1], 10);
-					parsed.transfers.push({
-						sender: senders[i] ?? "",
-						recipient: recipients[i] ?? "",
-						amount: AmountPrecision.fromMicroJuno(ujunoAmount),
-					});
-				}
-			}
-
-			// Parse fee from tx events
-			if (event.type === "tx") {
-				const feeStr = RPCTransactionVerification.getEventAttribute(
-					event,
-					"fee",
-				);
-				const feePayer = RPCTransactionVerification.getEventAttribute(
-					event,
-					"fee_payer",
-				);
-
-				if (feeStr && feePayer) {
-					const feeMatch = feeStr.match(/(\d+)ujuno/);
-					if (feeMatch) {
-						const ujunoFee = parseInt(feeMatch[1], 10);
-						parsed.fee = {
-							amount: AmountPrecision.fromMicroJuno(ujunoFee),
-							payer: feePayer,
-						};
-					}
-				}
-			}
+	static async fetchTokenTransaction(
+		txHash: string,
+		denom: string = JUNO_DENOM,
+	): Promise<{
+		success: boolean;
+		data?: ParsedTransaction;
+		error?: string;
+	}> {
+		if (denom === JUNO_DENOM) {
+			return RPCTransactionVerification.fetchTransaction(txHash);
 		}
 
-		return parsed;
+		const tx = await OsmosisGrpcService.fetchTransaction(txHash);
+		if (!tx) {
+			return { success: false, error: "Transaction not found" };
+		}
+
+		return {
+			success: true,
+			data: {
+				hash: tx.hash,
+				status: tx.code,
+				height: tx.height,
+				memo: tx.memo,
+				transfers: tx.transfers
+					.filter((transfer) => transfer.denom === denom)
+					.map((transfer) => ({
+						sender: transfer.from,
+						recipient: transfer.to,
+						amount: AmountPrecision.fromDbMicro(transfer.amountMicro),
+						denom: transfer.denom,
+					})),
+			},
+		};
 	}
 
-	/**
-	 * Helper to get attribute value from event
-	 */
-	private static getEventAttribute(
-		event: { attributes: Array<{ key: string; value: string }> },
-		key: string,
-	): string | undefined {
-		const attr = event.attributes.find((a) => a.key === key);
-		return attr?.value;
-	}
-
-	/**
-	 * Verify a deposit transaction
-	 */
+	/** Verify a deposit transaction against the expected address and memo. */
 	static async verifyDeposit(
 		txHash: string,
 		expectedRecipient: string,
 		expectedUserId: number,
+		denom: string = JUNO_DENOM,
 	): Promise<{
 		valid: boolean;
 		amount?: number;
@@ -211,8 +123,10 @@ export class RPCTransactionVerification {
 		sender?: string;
 		error?: string;
 	}> {
-		// Fetch the transaction
-		const result = await RPCTransactionVerification.fetchTransaction(txHash);
+		const result = await RPCTransactionVerification.fetchTokenTransaction(
+			txHash,
+			denom,
+		);
 
 		if (!result.success || !result.data) {
 			return {
@@ -223,7 +137,6 @@ export class RPCTransactionVerification {
 
 		const tx = result.data;
 
-		// Check status (must be 0 for success)
 		if (tx.status !== 0) {
 			return {
 				valid: false,
@@ -231,16 +144,14 @@ export class RPCTransactionVerification {
 			};
 		}
 
-		// Check memo matches expected userId
 		const expectedMemo = expectedUserId.toString();
 		if (tx.memo !== expectedMemo) {
 			logger.warn("Deposit memo mismatch", {
 				expected: expectedMemo,
 				actual: tx.memo,
-				txHash,
+				txHash: normalizeTxHash(txHash),
 			});
 
-			// Strict check - memo must exactly match
 			return {
 				valid: false,
 				memo: tx.memo,
@@ -248,12 +159,12 @@ export class RPCTransactionVerification {
 			};
 		}
 
-		// Find transfers to our wallet
 		let totalReceived = 0;
 		let sender = "";
 
 		for (const transfer of tx.transfers) {
-			if (transfer.recipient === expectedRecipient) {
+			const transferDenom = transfer.denom ?? JUNO_DENOM;
+			if (transfer.recipient === expectedRecipient && transferDenom === denom) {
 				totalReceived = AmountPrecision.add(totalReceived, transfer.amount);
 				sender = transfer.sender;
 			}
@@ -267,7 +178,7 @@ export class RPCTransactionVerification {
 		}
 
 		logger.info("Deposit verified", {
-			txHash,
+			txHash: normalizeTxHash(txHash),
 			sender,
 			amount: AmountPrecision.format(totalReceived),
 			memo: tx.memo,

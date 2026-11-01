@@ -73,7 +73,7 @@ class TestHelper {
    * Get user balance
    */
   getUserBalance(userId: number): UserBalance | undefined {
-    return this.db.prepare('SELECT * FROM user_balances WHERE user_id = ?').get(userId) as UserBalance | undefined;
+    return this.db.prepare("SELECT * FROM user_balances WHERE user_id = ? AND denom = 'ujuno'").get(userId) as UserBalance | undefined;
   }
 
   /**
@@ -92,7 +92,7 @@ class TestHelper {
    * Get total internal ledger balance
    */
   getTotalInternalBalance(): number {
-    const result = this.db.prepare('SELECT SUM(balance) as total FROM user_balances').get() as { total: number };
+    const result = this.db.prepare("SELECT SUM(balance) as total FROM user_balances WHERE denom = 'ujuno'").get() as { total: number };
     return result.total || 0;
   }
 
@@ -100,7 +100,7 @@ class TestHelper {
    * Get total user balances (excluding system accounts)
    */
   getTotalUserBalance(): number {
-    const result = this.db.prepare('SELECT SUM(balance) as total FROM user_balances WHERE user_id > 0').get() as { total: number };
+    const result = this.db.prepare("SELECT SUM(balance) as total FROM user_balances WHERE user_id > 0 AND denom = 'ujuno'").get() as { total: number };
     return result.total || 0;
   }
 
@@ -108,7 +108,7 @@ class TestHelper {
    * Get system account balances
    */
   getSystemBalances(): UserBalance[] {
-    return this.db.prepare('SELECT * FROM user_balances WHERE user_id < 0').all() as UserBalance[];
+    return this.db.prepare("SELECT * FROM user_balances WHERE user_id < 0 AND denom = 'ujuno'").all() as UserBalance[];
   }
 
   /**
@@ -134,7 +134,7 @@ class TestHelper {
    * Check for negative balances
    */
   checkNegativeBalances(): UserBalance[] {
-    return this.db.prepare('SELECT * FROM user_balances WHERE balance < 0').all() as UserBalance[];
+    return this.db.prepare("SELECT * FROM user_balances WHERE balance < 0 AND denom = 'ujuno'").all() as UserBalance[];
   }
 
   /**
@@ -143,7 +143,7 @@ class TestHelper {
   checkUsersWithoutBalances(): User[] {
     return this.db.prepare(`
       SELECT u.* FROM users u
-      LEFT JOIN user_balances ub ON u.id = ub.user_id
+      LEFT JOIN user_balances ub ON u.id = ub.user_id AND ub.denom = 'ujuno'
       WHERE ub.user_id IS NULL AND u.id > 0
     `).all() as User[];
   }

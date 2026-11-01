@@ -3,10 +3,8 @@
 import type { Context, MiddlewareFn } from "telegraf";
 import { config } from "../config";
 import { query } from "../database";
-import { LedgerService } from "../services/ledgerService";
-import { ensureUserExists, getUserRestrictions } from "../services/userService";
 import type { User } from "../types";
-import { logger, StructuredLogger } from "../utils/logger";
+import { StructuredLogger } from "../utils/logger";
 
 /** Extract the leading "/command" (stripping @bot suffix) from a message, if any. */
 function commandName(ctx: Context): string | undefined {
@@ -51,65 +49,6 @@ export const logPrivilegedCommands: MiddlewareFn<Context> = async (
 		operation: "admin_command",
 	});
 	return next();
-};
-
-/**
- * Middleware that ensures users exist in the database, initializes their wallet balance,
- * and preloads their restrictions. This middleware runs early in the pipeline to:
- * 1. Synchronize Telegram users with the bot's database
- * 2. Create a ledger balance entry for new users (starts at 0 JUNO)
- * 3. Load all active restrictions into the context state for later use
- *
- * This ensures every user is automatically "registered" when they first interact with the bot.
- *
- * @param ctx - Telegraf context object containing user information
- * @param next - Next middleware function in the chain
- * @returns Promise that resolves when user is loaded, balance created, and restrictions preloaded
- *
- * @example
- * ```typescript
- * // User restrictions and balance are available in handlers after this middleware
- * bot.use(userManagementMiddleware);
- * bot.command('balance', (ctx) => {
- *   const restrictions = ctx.state.restrictions; // Available here
- *   // User balance entry guaranteed to exist in ledger
- * });
- * ```
- */
-export const userManagementMiddleware: MiddlewareFn<Context> = async (
-	ctx,
-	next,
-) => {
-	if (!ctx.from?.id) {
-		logger.warn("Request received without user information");
-		return next(); // Skip if no user information is available
-	}
-
-	const userId = ctx.from.id;
-	const username = ctx.from.username || `user_${ctx.from.id}`;
-
-	try {
-		// Ensure the user is in the database
-		ensureUserExists(userId, username);
-
-		// Ensure user has a balance entry in the ledger
-		await LedgerService.ensureUserBalance(userId);
-
-		// Fetch and preload user restrictions
-		const restrictions = getUserRestrictions(userId);
-		ctx.state.restrictions = restrictions;
-
-		logger.debug("User initialized", {
-			userId,
-			username,
-			restrictionCount: restrictions.length,
-		});
-	} catch (error) {
-		logger.error("Error loading user", { userId, username, error });
-		ctx.reply("Error processing request");
-	}
-
-	return next(); // Proceed with the next middleware or handler
 };
 
 /**

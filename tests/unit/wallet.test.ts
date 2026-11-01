@@ -20,11 +20,24 @@ vi.mock("../../src/database", () => ({
 
 vi.mock("../../src/config", () => ({
 	config: {
+		juno: {
+			grpcUrl: "juno-grpc.example.com:12690",
+			chainId: "juno-1",
+			confirmTimeoutMs: 1000,
+		},
 		databasePath: ":memory:",
 		botToken: "test-token",
 		groupChatId: "-100123456789",
 		botTreasuryAddress: "juno1testtreasuryaddress",
 		userFundsAddress: "juno1testuserfundsaddress",
+		osmosis: {
+			grpcUrl: "osmosis-grpc.example.com:12590",
+			chainId: "osmosis-1",
+			withdrawalGasPrice: "0.025uosmo",
+			withdrawalGasLimit: 200000,
+			confirmTimeoutMs: 1000,
+		},
+		chain: { withdrawalGasPrice: "0.075ujuno", withdrawalGasLimit: 130000 },
 		adminChatId: "123456789",
 		ownerIds: [111111111],
 		timing: { dedupeWindowMs: 120000 },
@@ -34,6 +47,7 @@ vi.mock("../../src/config", () => ({
 vi.mock("../../src/services/unifiedWalletService", () => ({
 	UnifiedWalletService: {
 		getBalance: vi.fn(),
+		getAllBalances: vi.fn(() => []),
 		getDepositInstructions: vi.fn(),
 		processWithdrawal: vi.fn(),
 		transferToUser: vi.fn(),
@@ -69,13 +83,15 @@ describe("Wallet Commands", () => {
 	it("should handle the balance command", async () => {
 		// Balance with funds
 		let ctx = createPlebContext({ messageText: "/balance" });
-		(UnifiedWalletService.getBalance as any).mockResolvedValue(100.5);
+		(UnifiedWalletService.getAllBalances as any).mockReturnValue([
+			{ denom: "ujuno", balanceMicro: 100_500_000 },
+		]);
 		await walletHandlers.handleBalance(ctx as any);
 		expect(getReplyText(ctx)).toContain("100.5");
 
 		// Balance with zero
 		ctx = createPlebContext({ messageText: "/balance" });
-		(UnifiedWalletService.getBalance as any).mockResolvedValue(0);
+		(UnifiedWalletService.getAllBalances as any).mockReturnValue([]);
 		await walletHandlers.handleBalance(ctx as any);
 		expect(getReplyText(ctx)).toContain("0");
 	});
@@ -97,6 +113,7 @@ describe("Wallet Commands", () => {
 			444444444,
 			"juno1validaddress123456789012345678901234567890",
 			10,
+			"ujuno",
 		);
 		const withdrawReply = getAllReplies(ctx).at(-1) || "";
 		expect(withdrawReply).toContain("Withdrawal Successful");
