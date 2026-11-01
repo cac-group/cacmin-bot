@@ -55,3 +55,5 @@ that has no home beside the code.
   Osmosis over the Polkachu gRPC endpoint, and token-aware wallet commands.
 - [logs/2026-10-31.md](logs/2026-10-31.md) — Juno moved to the shared gRPC
   client; REST/RPC paths removed.
+- [logs/2026-11-01.md](logs/2026-11-01.md) — v5.0.0 release, production
+  deployment, and the OSMO gas prerequisite for CAC withdrawals.
